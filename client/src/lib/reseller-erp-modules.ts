@@ -56,6 +56,7 @@ export type ResellerErpModuleId =
   | 'sales-reports'
   | 'barcoding'
   | 'tag-splitting'
+  | 'tag-editing'
   | 'scanner'
   | 'rate-uncut'
   | 'e-invoice'
@@ -294,6 +295,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Tag split',
     description: '',
     icon: Split,
+    group: 'inventory',
+    kind: 'workspace',
+  },
+  {
+    id: 'tag-editing',
+    title: 'Tag editing',
+    short: 'Edit tags',
+    description: 'Scan, edit fields, save & reprint labels',
+    icon: Tags,
     group: 'inventory',
     kind: 'workspace',
   },

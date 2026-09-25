@@ -738,9 +738,8 @@ var KcExhibitionBillingModule = (() => {
     let mc;
     const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0));
     if (mcGm) {
-      const combined = Math.round((metalRate + mcRate) * billWt);
       metalPart = Math.round(metalRate * billWt);
-      mc = combined - metalPart;
+      mc = Math.round(mcRate * netWt);
       if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100));
     } else {
       metalPart = Math.round(metalRate * billWt);
@@ -761,6 +760,187 @@ var KcExhibitionBillingModule = (() => {
       rate_per_gram: metalRate,
       net_weight: netWt,
       billable_weight_gm: billWt
+    };
+  }
+
+  // src/lib/erp-mc-type-field.ts
+  function normalizeMcTypeInput(raw) {
+    const t = String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!t) return null;
+    if (t.includes("/pc") || t.includes("perpc") || t.includes("mcpc") || t.includes("piece")) {
+      return "mc/pc";
+    }
+    if (t.includes("/gm") || t.includes("pergm") || t.includes("mcgm") || t === "mc") {
+      return "mc/gm";
+    }
+    return "mc/gm";
+  }
+  function isMcPerGmBillingType(mcType) {
+    return normalizeMcTypeInput(mcType) === "mc/gm";
+  }
+
+  // src/lib/erp-catalog-product.ts
+  function resolveDesignFinishOptions(product) {
+    const opts = (product?.finish_options || []).filter((o) => String(o.label || "").trim());
+    if (opts.length < 2) return void 0;
+    const multiSize = (product?.sizes?.length || 0) >= 2;
+    if (multiSize) {
+      const hasChargeOrMrp = opts.some(
+        (o) => (Number(o.stone_charges) || 0) > 0 || o.fixed_price != null && Number(o.fixed_price) > 0
+      );
+      if (!hasChargeOrMrp) return void 0;
+      const sig = new Set(
+        opts.map((o) => `${String(o.label).trim().toUpperCase()}|${o.stone_charges}|${o.fixed_price ?? ""}`)
+      );
+      if (sig.size < 2) return void 0;
+    }
+    return opts;
+  }
+  function lineHasFinishPicker(line) {
+    return (line.designFinishOptions?.length ?? 0) >= 2;
+  }
+  function catalogProductUsesMrpPricing(product) {
+    const mt = String(product.metal_type || "").toLowerCase();
+    if (isGiftingItem({ metal_type: mt })) return true;
+    const hasWeight = (product.net_weight ?? 0) > 0 || (product.sizes || []).some((s) => (s.net_weight ?? 0) > 0);
+    if (hasWeight && mt.startsWith("silver")) return false;
+    return (product.fixed_price ?? 0) > 0;
+  }
+  function findCatalogProduct(catalog, name) {
+    const q = name.trim().toUpperCase();
+    if (!q || !catalog?.length) return null;
+    return catalog.find((p) => p.name.trim().toUpperCase() === q) ?? null;
+  }
+  function isGoldStockLine(line) {
+    if (line.stock_piece_id != null) return true;
+    const metal = String(line.metal_type || "").toLowerCase();
+    return metal.startsWith("gold") && !line.manualEntry;
+  }
+  function shouldKeepCatalogWeights(line, mrpMode) {
+    if (isGoldStockLine(line)) return true;
+    if (mrpMode) return true;
+    return false;
+  }
+  function patchLineFromCatalogProduct(line, product) {
+    const mrpMode = catalogProductUsesMrpPricing(product);
+    const patch = {
+      name: product.name,
+      imageUrl: product.image_url ?? line.imageUrl ?? null,
+      mc_rate: product.mc_rate ?? line.mc_rate,
+      mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
+      wastage_pct: product.wastage_pct ?? line.wastage_pct,
+      purity: product.purity ?? line.purity,
+      metal_type: product.metal_type ?? line.metal_type ?? "silver",
+      fixed_price: product.fixed_price ?? line.fixed_price,
+      designSizeOptions: (product.sizes || []).length ? (product.sizes || []).map((s) => ({
+        size_label: s.size_label,
+        fixed_price_mrp: s.fixed_price ?? null
+      })) : void 0,
+      designBoxOptions: (product.box_options?.length || 0) >= 2 ? product.box_options : void 0,
+      designFinishOptions: resolveDesignFinishOptions(product),
+      size: null,
+      /** Weight stays blank for silver weight-based lines so the cashier enters net wt. */
+      weightGm: null,
+      originalWeightGm: null,
+      gross_weight: null,
+      box_charges: (product.box_options?.length || 0) >= 2 ? null : product.box_options?.[0]?.box_charges ?? 0,
+      packaging_label: (product.box_options?.length || 0) >= 2 ? null : void 0,
+      finish_label: (product.finish_options?.length || 0) >= 2 ? null : void 0,
+      stone_charges: product.stone_charges ?? 0,
+      mrpMode: mrpMode || void 0
+    };
+    const multiFinish = resolveDesignFinishOptions(product) != null;
+    if (multiFinish) {
+      patch.fixed_price = null;
+      patch.unitInr = null;
+      patch.mrpListPrice = null;
+      patch.mrpMode = true;
+    }
+    if (product.sizes?.length === 1) {
+      const s = product.sizes[0];
+      patch.size = s.size_label;
+      if (shouldKeepCatalogWeights(line, mrpMode) && s.net_weight != null) {
+        patch.weightGm = s.net_weight;
+        patch.originalWeightGm = s.net_weight;
+      }
+      if (shouldKeepCatalogWeights(line, mrpMode) && s.gross_weight != null) {
+        patch.gross_weight = s.gross_weight;
+      }
+      if (s.mc_rate != null) patch.mc_rate = s.mc_rate;
+      if (s.mc_type) patch.mc_type = s.mc_type;
+      if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct;
+      if (s.purity != null) patch.purity = s.purity;
+      if (s.fixed_price != null) {
+        patch.fixed_price = s.fixed_price;
+        patch.mrpListPrice = s.fixed_price;
+        patch.mrpMode = true;
+      }
+      if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r;
+      if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w;
+      if (s.mc_rate_slab_f != null) patch.mc_rate_slab_f = s.mc_rate_slab_f;
+    }
+    if (product.finish_options?.length === 1) {
+      const f = product.finish_options[0];
+      patch.stone_charges = f.stone_charges ?? 0;
+      patch.finish_label = f.label;
+      if (f.fixed_price != null) {
+        patch.mrpListPrice = f.fixed_price;
+        patch.mrpMode = true;
+      }
+    }
+    if (product.box_options?.length === 1) {
+      const b = product.box_options[0];
+      patch.box_charges = b.box_charges ?? 0;
+      patch.packaging_label = b.label;
+    }
+    if (patch.mrpMode && patch.fixed_price != null && patch.mrpListPrice == null) {
+      patch.mrpListPrice = Number(patch.fixed_price);
+    }
+    return patch;
+  }
+  function nextFieldAfterCatalogProduct(product) {
+    if ((product.sizes?.length || 0) > 1) return "size";
+    return nextFieldAfterCatalogSize(product);
+  }
+  function findDesignOptionLabel(options, label) {
+    const q = label.trim().toUpperCase();
+    if (!q || !options?.length) return void 0;
+    return options.find((o) => o.label.trim().toUpperCase() === q);
+  }
+  function nextFieldAfterCatalogSize(product) {
+    if (catalogProductUsesMrpPricing(product)) {
+      if ((product.finish_options?.length || 0) >= 2) return "stone_charges";
+      if ((product.box_options?.length || 0) >= 2) return "box_charges";
+      return "qty";
+    }
+    if ((product.finish_options?.length || 0) >= 2) return "stone_charges";
+    return "weightGm";
+  }
+  function patchLineFromCatalogSize(line, product, sizeLabel) {
+    const hit = product.sizes?.find((s) => s.size_label === sizeLabel);
+    if (!hit) return { size: sizeLabel || null };
+    const mrp = catalogProductUsesMrpPricing(product);
+    const keepWt = shouldKeepCatalogWeights(line, mrp);
+    return {
+      size: sizeLabel,
+      weightGm: keepWt ? hit.net_weight ?? line.weightGm : null,
+      originalWeightGm: keepWt ? hit.net_weight ?? line.originalWeightGm : null,
+      gross_weight: keepWt ? hit.gross_weight ?? line.gross_weight : null,
+      mc_rate: hit.mc_rate ?? line.mc_rate,
+      mc_type: hit.mc_type ?? line.mc_type,
+      wastage_pct: hit.wastage_pct ?? line.wastage_pct,
+      purity: hit.purity ?? line.purity,
+      fixed_price: hit.fixed_price ?? line.fixed_price,
+      box_charges: hit.box_charges ?? line.box_charges,
+      mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
+      mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
+      mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
+      ...mrp && hit.fixed_price != null ? {
+        mrpListPrice: Number(hit.fixed_price),
+        mrpMode: true,
+        fixed_price: hit.fixed_price,
+        unitInr: line.unitInr ?? hit.fixed_price
+      } : {}
     };
   }
 
@@ -804,7 +984,10 @@ var KcExhibitionBillingModule = (() => {
   }
   function isManualGridFieldVisible(field, line) {
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
-    if (field === "stone_charges") return (line.designFinishOptions?.length ?? 0) >= 2;
+    if (field === "stone_charges") return lineHasFinishPicker(line);
+    if (field === "fixed_price_r") {
+      return line.manualCategory === "gift" || !!line.mrpMode;
+    }
     return true;
   }
   function nextVisibleManualEntryField(current, line, order) {
@@ -835,12 +1018,6 @@ var KcExhibitionBillingModule = (() => {
     const disc = manualMcDiscountPerUnit(line, slab);
     return disc > 0 ? Math.max(0, base - disc) : base;
   }
-  function isMcPerGmMcType(mcType) {
-    const t = String(mcType || "").toLowerCase().replace(/\s+/g, "");
-    if (!t) return true;
-    if (t.includes("/pc") || t.includes("perpc") || t.includes("mcpc") || t.includes("piece")) return false;
-    return true;
-  }
   function resolveManualRowRatePerG(line, slab, silverPerG, goldPerG, wholesaleSilver, wholesaleGold) {
     const locked = Number(line.ratePerGram);
     if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked;
@@ -866,7 +1043,7 @@ var KcExhibitionBillingModule = (() => {
     if (silverPerG <= lineRate) return 0;
     return Math.round((silverPerG - lineRate) * billedWt);
   }
-  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0, wholesaleSilver, wholesaleGold) {
+  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0, wholesaleSilver, wholesaleGold, gstPct = GST_PCT) {
     const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     if (netWt <= 0) {
       return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 };
@@ -891,18 +1068,24 @@ var KcExhibitionBillingModule = (() => {
     const baseMcRate = Number(line.mc_rate ?? 0) || 0;
     const effMcRate = manualEffectiveMcRatePerUnit(line, slab);
     const pcs = Math.max(1, Number(line.qty) || 1);
-    const perGm = isMcPerGmMcType(line.mc_type);
-    const totalMcBase = perGm ? billedWt * baseMcRate : pcs * baseMcRate;
-    const totalMc = perGm ? billedWt * effMcRate : pcs * effMcRate;
-    const fixed = Number(line.fixed_price ?? 0) || 0;
+    const perGm = isMcPerGmBillingType(line.mc_type);
+    const totalMcBase = perGm ? netWt * baseMcRate : pcs * baseMcRate;
+    const totalMc = perGm ? netWt * effMcRate : pcs * effMcRate;
+    const fixedBase = Number(line.fixed_price ?? 0) || 0;
+    const fixedR = Number(line.fixed_price_r ?? 0) || 0;
+    let fixedTotal = fixedBase;
+    if (line.mrpMode || line.manualCategory === "gift") {
+      const baseTot = fixedBase * pcs;
+      fixedTotal = fixedR > 0 ? fixedR * pcs : baseTot;
+    }
     const box = Number(line.box_charges ?? 0) || 0;
     const stone2 = Number(line.stone_charges ?? 0) || 0;
-    const baseSubtotal = metalCost + totalMcBase + fixed + box + stone2;
+    const baseSubtotal = metalCost + totalMcBase + fixedTotal + box + stone2;
     const metalDisc = manualSilverRateDiscountInr(line, slab, billedWt, rate, silverPerG);
     const mcDisc = Math.max(0, Math.round(totalMcBase - totalMc));
     const netSubtotal = Math.max(0, baseSubtotal - metalDisc - mcDisc);
     const taxable = Math.round(netSubtotal);
-    const total = Math.round(taxable * (1 + GST_PCT / 100));
+    const total = gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : taxable;
     const gstRounded = total - taxable;
     const mcBefore = baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : void 0;
     return {
@@ -1078,6 +1261,21 @@ var KcExhibitionBillingModule = (() => {
     return pieceRate > 0 && wt <= 0;
   }
   var ERP_LINE_GST_PCT = 3;
+  function erpBillGstPct(gstEnabled) {
+    return gstEnabled === false ? 0 : ERP_LINE_GST_PCT;
+  }
+  function applyGstToBreakdown(bd, gstPct) {
+    const taxable = Math.round(bd.taxable);
+    if (gstPct <= 0) {
+      return { ...bd, taxable, total: taxable, cgst: 0, sgst: 0 };
+    }
+    if (bd.total === taxable && (bd.cgst || 0) === 0 && (bd.sgst || 0) === 0) {
+      const total = Math.round(taxable * (1 + gstPct / 100));
+      const gstAmt = total - taxable;
+      return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 };
+    }
+    return bd;
+  }
   function erpAdditiveFixedChargeInr(line) {
     if (isPiecePricedBillLine(line)) return 0;
     const fixed = Number(line.fixed_price ?? 0) || 0;
@@ -1088,12 +1286,18 @@ var KcExhibitionBillingModule = (() => {
   function appendTaxableExtraToBreakdown(bd, extra, gstPct = ERP_LINE_GST_PCT) {
     if (extra <= 0) return bd;
     const taxable = Math.round(bd.taxable + extra);
+    if (gstPct <= 0) {
+      return { ...bd, taxable, total: taxable, cgst: 0, sgst: 0 };
+    }
     const total = Math.round(taxable * (1 + gstPct / 100));
     const gstAmt = total - taxable;
     return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 };
   }
-  function finalizeWeightBasedBreakdown(line, bd) {
-    return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line));
+  function finalizeWeightBasedBreakdown(line, bd, gstPct = ERP_LINE_GST_PCT) {
+    const extra = erpAdditiveFixedChargeInr(line);
+    if (extra > 0) return appendTaxableExtraToBreakdown(bd, extra, gstPct);
+    if (gstPct <= 0) return applyGstToBreakdown(bd, 0);
+    return bd;
   }
   function shouldSkipRetailSilverRateMarkdown(line, slab) {
     if (slab !== "R") return true;
@@ -1102,8 +1306,8 @@ var KcExhibitionBillingModule = (() => {
     if (lineHasPieceSlabFields(line) && pieceSlabMetalFraction(line, slab) < 0.999) return true;
     return false;
   }
-  function finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab = "R") {
-    let next = finalizeWeightBasedBreakdown(line, bd);
+  function finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab = "R", gstPct = ERP_LINE_GST_PCT) {
+    let next = finalizeWeightBasedBreakdown(line, bd, gstPct);
     if (isManualArticlesOrJewelleryLine(line) || isPiecePricedBillLine(line)) return next;
     if (isSilverGiftStockLine(line) || isSilverGiftMcGmLine(line)) return next;
     if (shouldSkipRetailSilverRateMarkdown(line, slab)) return next;
@@ -1112,19 +1316,17 @@ var KcExhibitionBillingModule = (() => {
     const wt = Number(bd.billable_weight_gm ?? line.originalWeightGm ?? line.weightGm) || 0;
     const rate = Number(line.ratePerGram ?? bd.rate_per_gram);
     if (wt <= 0 || !Number.isFinite(rate) || rate <= 0 || silverPerG <= rate) {
-      const total2 = Math.round(next.taxable * (1 + ERP_LINE_GST_PCT / 100));
-      const gst2 = total2 - next.taxable;
-      return { ...next, total: total2, cgst: gst2 / 2, sgst: gst2 / 2 };
+      return applyGstToBreakdown(next, gstPct);
     }
     const metalDisc = Math.round((silverPerG - rate) * wt);
     const net = Math.max(0, next.taxable - metalDisc);
-    const total = Math.round(net * (1 + ERP_LINE_GST_PCT / 100));
-    const gst = total - net;
-    return { ...next, taxable: net, total, cgst: gst / 2, sgst: gst / 2 };
+    return applyGstToBreakdown({ ...next, taxable: net }, gstPct);
   }
-  function applyPiecePricedLineCalc(line) {
+  function applyPiecePricedLineCalc(line, gstEnabled = true) {
     const parsed = Number(line.qty);
-    const pieceRate = Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram ?? line.mc_rate) || 0;
+    const slabPer = Number(line.unitInr ?? line.fixed_price ?? 0) || 0;
+    const customPer = Number(line.fixed_price_r ?? 0) || 0;
+    const pieceRate = customPer > 0 ? customPer : slabPer > 0 ? slabPer : Number(line.ratePerGram ?? line.mc_rate) || 0;
     const isGift = line.manualCategory === "gift" || !!line.mrpMode;
     let qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1;
     if (pieceRate > 0 && qty <= 0 && (line.mrpMode || isFixedPriceCatalogItem(lineToItem(line)))) {
@@ -1132,7 +1334,8 @@ var KcExhibitionBillingModule = (() => {
     }
     const box = Number(line.box_charges || 0) || 0;
     const taxable = Math.round((qty * pieceRate + box) * 100) / 100;
-    const total = Math.round(taxable * (1 + ERP_LINE_GST_PCT / 100));
+    const gstPct = erpBillGstPct(gstEnabled);
+    const total = gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : Math.round(taxable);
     return {
       ...line,
       qty,
@@ -1141,6 +1344,7 @@ var KcExhibitionBillingModule = (() => {
     };
   }
   function computeLineBreakdown(line, displayRates, slab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG = 0, silverPerG = 0, goldSlabRShowMc = true, opts) {
+    const gstPct = erpBillGstPct(opts?.gstEnabled);
     if (isSilverGiftMcGmLine(line)) {
       const bd2 = computeSilverGiftMcGmBreakdown(
         line,
@@ -1148,9 +1352,9 @@ var KcExhibitionBillingModule = (() => {
         slabSettings,
         silverPerG,
         wholesaleSilver,
-        3
+        gstPct
       );
-      return finalizeWeightBasedBreakdown(line, bd2);
+      return finalizeWeightBasedBreakdown(line, bd2, gstPct);
     }
     if (isManualArticlesOrJewelleryLine(line)) {
       return computeManualAsLineBreakdown(
@@ -1159,23 +1363,35 @@ var KcExhibitionBillingModule = (() => {
         silverPerG,
         goldPerG,
         wholesaleSilver,
-        wholesaleGold
+        wholesaleGold,
+        gstPct
       );
     }
     if (isPiecePricedBillLine(line)) {
-      const priced = applyPiecePricedLineCalc(line);
-      const total2 = Number(priced.lineTotalInr) || 0;
-      const gstPct2 = 3;
-      const taxable2 = total2 / (1 + gstPct2 / 100);
-      const gstAmt2 = total2 - taxable2;
+      const priced = applyPiecePricedLineCalc(line, opts?.gstEnabled !== false);
+      const total = Number(priced.lineTotalInr) || 0;
+      if (gstPct <= 0) {
+        const taxable3 = Math.round(total);
+        return {
+          metal: 0,
+          mc: 0,
+          stone: Number(line.box_charges || 0) || 0,
+          cgst: 0,
+          sgst: 0,
+          taxable: taxable3,
+          total: taxable3
+        };
+      }
+      const taxable2 = total / (1 + gstPct / 100);
+      const gstAmt = total - taxable2;
       return {
         metal: 0,
         mc: 0,
         stone: Number(line.box_charges || 0) || 0,
-        cgst: gstAmt2 / 2,
-        sgst: gstAmt2 / 2,
+        cgst: gstAmt / 2,
+        sgst: gstAmt / 2,
         taxable: taxable2,
-        total: total2
+        total
       };
     }
     const metal = String(line.metal_type || "").toLowerCase();
@@ -1194,18 +1410,15 @@ var KcExhibitionBillingModule = (() => {
         slab,
         silverPerG,
         wholesaleSilver,
-        3,
+        gstPct,
         silverOffset,
         mcDisc
       );
-      bd2 = finalizeSilverBillLineBreakdown(line, bd2, silverPerG, slab);
+      bd2 = finalizeSilverBillLineBreakdown(line, bd2, silverPerG, slab, gstPct);
       const box2 = Number(line.box_charges || 0) || 0;
       if (box2 <= 0) return bd2;
-      const gstPct2 = 3;
       const taxable2 = bd2.taxable + box2;
-      const total2 = Math.round(taxable2 * (1 + gstPct2 / 100));
-      const gstAmt2 = total2 - taxable2;
-      return { ...bd2, taxable: taxable2, total: total2, cgst: gstAmt2 / 2, sgst: gstAmt2 / 2 };
+      return applyGstToBreakdown({ ...bd2, taxable: taxable2 }, gstPct);
     }
     const item = lineToItem(slabLine);
     const ctx = buildSlabContext(
@@ -1217,21 +1430,12 @@ var KcExhibitionBillingModule = (() => {
       goldSlabRShowMc
     );
     const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG);
-    let bd = calculateBreakdownWithSlab(item, rates, 3, ctx);
-    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab);
+    let bd = calculateBreakdownWithSlab(item, rates, gstPct, ctx);
+    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab, gstPct);
     const box = Number(line.box_charges || 0) || 0;
     if (box <= 0) return bd;
-    const gstPct = 3;
     const taxable = bd.taxable + box;
-    const total = Math.round(taxable * (1 + gstPct / 100));
-    const gstAmt = total - taxable;
-    return {
-      ...bd,
-      taxable,
-      total,
-      cgst: gstAmt / 2,
-      sgst: gstAmt / 2
-    };
+    return applyGstToBreakdown({ ...bd, taxable }, gstPct);
   }
   function parseSlabSettingsFromUser(raw) {
     if (raw && typeof raw === "object" && "reseller_slab_settings" in raw) {
@@ -1370,7 +1574,8 @@ var KcExhibitionBillingModule = (() => {
     "size",
     "stone_charges",
     "qty",
-    "fixed_price"
+    "fixed_price",
+    "fixed_price_r"
   ];
   var MANUAL_ENTRY_FIELD_ORDER = [
     "sku",
@@ -1392,7 +1597,8 @@ var KcExhibitionBillingModule = (() => {
     "box_charges",
     "stone_charges",
     "metal_type",
-    "fixed_price"
+    "fixed_price",
+    "fixed_price_r"
   ];
   function skuKey(sku) {
     return sku.trim().toUpperCase();
@@ -1486,152 +1692,6 @@ var KcExhibitionBillingModule = (() => {
   }
   function firstManualEntryField(line) {
     return entryFieldOrderForLine(line)[0] ?? "sku";
-  }
-
-  // src/lib/erp-catalog-product.ts
-  function catalogProductUsesMrpPricing(product) {
-    const mt = String(product.metal_type || "").toLowerCase();
-    if (isGiftingItem({ metal_type: mt })) return true;
-    const hasWeight = (product.net_weight ?? 0) > 0 || (product.sizes || []).some((s) => (s.net_weight ?? 0) > 0);
-    if (hasWeight && mt.startsWith("silver")) return false;
-    return (product.fixed_price ?? 0) > 0;
-  }
-  function findCatalogProduct(catalog, name) {
-    const q = name.trim().toUpperCase();
-    if (!q || !catalog?.length) return null;
-    return catalog.find((p) => p.name.trim().toUpperCase() === q) ?? null;
-  }
-  function isGoldStockLine(line) {
-    if (line.stock_piece_id != null) return true;
-    const metal = String(line.metal_type || "").toLowerCase();
-    return metal.startsWith("gold") && !line.manualEntry;
-  }
-  function shouldKeepCatalogWeights(line, mrpMode) {
-    if (isGoldStockLine(line)) return true;
-    if (mrpMode) return true;
-    return false;
-  }
-  function patchLineFromCatalogProduct(line, product) {
-    const mrpMode = catalogProductUsesMrpPricing(product);
-    const patch = {
-      name: product.name,
-      imageUrl: product.image_url ?? line.imageUrl ?? null,
-      mc_rate: product.mc_rate ?? line.mc_rate,
-      mc_type: product.mc_type ?? line.mc_type,
-      wastage_pct: product.wastage_pct ?? line.wastage_pct,
-      purity: product.purity ?? line.purity,
-      metal_type: product.metal_type ?? line.metal_type ?? "silver",
-      fixed_price: product.fixed_price ?? line.fixed_price,
-      designSizeOptions: (product.sizes || []).length ? (product.sizes || []).map((s) => ({
-        size_label: s.size_label,
-        fixed_price_mrp: s.fixed_price ?? null
-      })) : void 0,
-      designBoxOptions: (product.box_options?.length || 0) >= 2 ? product.box_options : void 0,
-      designFinishOptions: (product.finish_options?.length || 0) >= 2 ? product.finish_options : void 0,
-      size: null,
-      /** Weight stays blank for silver weight-based lines so the cashier enters net wt. */
-      weightGm: null,
-      originalWeightGm: null,
-      gross_weight: null,
-      box_charges: (product.box_options?.length || 0) >= 2 ? null : product.box_options?.[0]?.box_charges ?? 0,
-      packaging_label: (product.box_options?.length || 0) >= 2 ? null : void 0,
-      finish_label: (product.finish_options?.length || 0) >= 2 ? null : void 0,
-      stone_charges: product.stone_charges ?? 0,
-      mrpMode: mrpMode || void 0
-    };
-    const multiFinish = (product.finish_options?.length || 0) >= 2;
-    if (multiFinish) {
-      patch.fixed_price = null;
-      patch.unitInr = null;
-      patch.mrpListPrice = null;
-      patch.mrpMode = true;
-    }
-    if (product.sizes?.length === 1) {
-      const s = product.sizes[0];
-      patch.size = s.size_label;
-      if (shouldKeepCatalogWeights(line, mrpMode) && s.net_weight != null) {
-        patch.weightGm = s.net_weight;
-        patch.originalWeightGm = s.net_weight;
-      }
-      if (shouldKeepCatalogWeights(line, mrpMode) && s.gross_weight != null) {
-        patch.gross_weight = s.gross_weight;
-      }
-      if (s.mc_rate != null) patch.mc_rate = s.mc_rate;
-      if (s.mc_type) patch.mc_type = s.mc_type;
-      if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct;
-      if (s.purity != null) patch.purity = s.purity;
-      if (s.fixed_price != null) {
-        patch.fixed_price = s.fixed_price;
-        patch.mrpListPrice = s.fixed_price;
-        patch.mrpMode = true;
-      }
-      if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r;
-      if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w;
-      if (s.mc_rate_slab_f != null) patch.mc_rate_slab_f = s.mc_rate_slab_f;
-    }
-    if (product.finish_options?.length === 1) {
-      const f = product.finish_options[0];
-      patch.stone_charges = f.stone_charges ?? 0;
-      patch.finish_label = f.label;
-      if (f.fixed_price != null) {
-        patch.mrpListPrice = f.fixed_price;
-        patch.mrpMode = true;
-      }
-    }
-    if (product.box_options?.length === 1) {
-      const b = product.box_options[0];
-      patch.box_charges = b.box_charges ?? 0;
-      patch.packaging_label = b.label;
-    }
-    if (patch.mrpMode && patch.fixed_price != null && patch.mrpListPrice == null) {
-      patch.mrpListPrice = Number(patch.fixed_price);
-    }
-    return patch;
-  }
-  function nextFieldAfterCatalogProduct(product) {
-    if ((product.sizes?.length || 0) > 1) return "size";
-    return nextFieldAfterCatalogSize(product);
-  }
-  function findDesignOptionLabel(options, label) {
-    const q = label.trim().toUpperCase();
-    if (!q || !options?.length) return void 0;
-    return options.find((o) => o.label.trim().toUpperCase() === q);
-  }
-  function nextFieldAfterCatalogSize(product) {
-    if (catalogProductUsesMrpPricing(product)) {
-      if ((product.finish_options?.length || 0) >= 2) return "stone_charges";
-      if ((product.box_options?.length || 0) >= 2) return "box_charges";
-      return "qty";
-    }
-    if ((product.finish_options?.length || 0) >= 2) return "stone_charges";
-    return "weightGm";
-  }
-  function patchLineFromCatalogSize(line, product, sizeLabel) {
-    const hit = product.sizes?.find((s) => s.size_label === sizeLabel);
-    if (!hit) return { size: sizeLabel || null };
-    const mrp = catalogProductUsesMrpPricing(product);
-    const keepWt = shouldKeepCatalogWeights(line, mrp);
-    return {
-      size: sizeLabel,
-      weightGm: keepWt ? hit.net_weight ?? line.weightGm : null,
-      originalWeightGm: keepWt ? hit.net_weight ?? line.originalWeightGm : null,
-      gross_weight: keepWt ? hit.gross_weight ?? line.gross_weight : null,
-      mc_rate: hit.mc_rate ?? line.mc_rate,
-      mc_type: hit.mc_type ?? line.mc_type,
-      wastage_pct: hit.wastage_pct ?? line.wastage_pct,
-      purity: hit.purity ?? line.purity,
-      fixed_price: hit.fixed_price ?? line.fixed_price,
-      box_charges: hit.box_charges ?? line.box_charges,
-      mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
-      mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
-      mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
-      ...mrp && hit.fixed_price != null ? {
-        mrpListPrice: Number(hit.fixed_price),
-        mrpMode: true,
-        fixed_price: hit.fixed_price,
-        unitInr: line.unitInr ?? hit.fixed_price
-      } : {}
-    };
   }
 
   // src/lib/erp-gift-mrp-pricing.ts

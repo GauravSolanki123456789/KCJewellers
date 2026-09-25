@@ -1203,7 +1203,7 @@ function roughAppliedMcRatePerUnit(line, rateSlab) {
 }
 
 function roughMcWeightOrQty(line) {
-    const wt = Number(line?.weightGm ?? line?.net_weight ?? line?.originalWeightGm) || 0;
+    const wt = Number(line?.originalWeightGm ?? line?.net_weight ?? line?.weightGm) || 0;
     const qty = Number(line?.qty) || 1;
     return { wt, qty };
 }
@@ -1352,14 +1352,27 @@ function roughMcForLine(line, rateSlab, printFormats) {
     return String(Math.round(mcRate));
 }
 
-function lineTaxableFromTotal(lineTotalInr) {
+function billGstEnabled(bill) {
+    if (!bill) return true;
+    if (bill.gst_enabled === false) return false;
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    if (session.gstEnabled === false) return false;
+    return true;
+}
+
+function lineTaxableFromTotal(lineTotalInr, gstEnabled = true) {
     const total = Number(lineTotalInr) || 0;
     if (total <= 0) return 0;
+    if (!gstEnabled) return Math.round(total * 100) / 100;
     return Math.round((total / 1.03) * 100) / 100;
 }
 
-function splitRoughGst(taxable) {
+function splitRoughGst(taxable, gstEnabled = true) {
     const base = Number(taxable) || 0;
+    if (!gstEnabled) {
+        const gross = Math.round(base * 100) / 100;
+        return { taxable: base, cgst: 0, sgst: 0, gross };
+    }
     const cgst = Math.round(base * 0.015 * 100) / 100;
     const sgst = cgst;
     const gross = Math.round((base + cgst + sgst) * 100) / 100;
@@ -1772,22 +1785,30 @@ function roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats) {
     return Math.max(0, Math.round(preDisc - totalDisc));
 }
 
-function roughGiftDiscountInfo(line) {
+function roughGiftDiscountInfo(line, gstEnabled = true) {
     const qty = Number(line?.qty) || 1;
-    const listUnit = Number(line?.mrpListPrice) || 0;
-    const mrpTotal = listUnit > 0 ? Math.round(listUnit * qty * 100) / 100 : 0;
-    const itemTotal = Math.round(Number(line?.lineTotalInr) || 0);
-    const taxable = lineTaxableFromTotal(itemTotal);
-    const disc = mrpTotal > 0 ? Math.max(0, Math.round((mrpTotal - taxable) * 100) / 100) : 0;
+    const basePer =
+        Number(line?.mrpListPrice) > 0
+            ? Number(line.mrpListPrice)
+            : Number(line?.fixed_price) || 0;
+    const effPer =
+        Number(line?.fixed_price_r) > 0
+            ? Number(line.fixed_price_r)
+            : Number(line?.unitInr ?? line?.fixed_price) || basePer;
+    const mrpTotal = basePer > 0 ? Math.round(basePer * qty * 100) / 100 : 0;
+    const effPiecesTotal = Math.round(effPer * qty * 100) / 100;
+    const disc = mrpTotal > 0 ? Math.max(0, Math.round((mrpTotal - effPiecesTotal) * 100) / 100) : 0;
     const pct = mrpTotal > 0 ? Math.round((disc / mrpTotal) * 100) : 0;
-    return { mrpTotal, disc, pct, taxable, itemTotal };
+    const itemTotal = Math.round(Number(line?.lineTotalInr) || 0);
+    const taxable = lineTaxableFromTotal(itemTotal, gstEnabled);
+    return { basePer, mrpTotal, disc, pct, taxable, itemTotal, effPiecesTotal };
 }
 
 function pushIf(out, row) {
     if (row) out.push(row);
 }
 
-function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats) {
+function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled = true) {
     const out = [];
     const tag = String(line?.barcode || line?.code || '').trim();
     out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
@@ -1820,10 +1841,12 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
 
     const taxable = roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats);
     out.push(roughSandwichAmount(taxable));
-    const gst = splitRoughGst(taxable);
+    const gst = splitRoughGst(taxable, gstEnabled);
     const itemTotal = Math.round(gst.gross);
-    pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
-    pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    if (gstEnabled) {
+        pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
+        pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    }
     out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoneyRoundedTotal(itemTotal))));
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
 
@@ -1833,28 +1856,30 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     return { lines: out, taxable, savings, total: itemTotal };
 }
 
-function buildMarlechaGiftItemSection(line, idx) {
+function buildMarlechaGiftItemSection(line, idx, gstEnabled = true) {
     const out = [];
     const tag = String(line?.barcode || line?.code || '').trim();
-    const gift = roughGiftDiscountInfo(line);
+    const gift = roughGiftDiscountInfo(line, gstEnabled);
     out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
     if (tag) out.push(`Tag : ${tag}`);
+    if (gift.basePer > 0) pushIf(out, roughKvRow('MRP', gift.basePer));
     pushIf(out, roughKvRow('Qty', Number(line?.qty) || 1));
-    pushIf(out, roughKvRow('MRP', gift.mrpTotal));
     if (gift.disc > 0) {
-        pushIf(out, roughDiscountRow(`Disc (${gift.pct}% off)`, gift.disc));
+        pushIf(out, roughDiscountRow('Disc on MRP', gift.disc));
     }
     out.push(roughSandwichAmount(gift.taxable));
-    const gst = splitRoughGst(gift.taxable);
-    pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
-    pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    const gst = splitRoughGst(gift.taxable, gstEnabled);
+    if (gstEnabled) {
+        pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
+        pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    }
     const itemTotal = gift.itemTotal > 0 ? gift.itemTotal : Math.round(gst.gross);
     out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoneyRoundedTotal(itemTotal))));
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     return { lines: out, taxable: gift.taxable, savings: gift.disc, total: itemTotal };
 }
 
-function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats) {
+function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled = true) {
     const out = [];
     const tag = String(line?.barcode || line?.code || '').trim();
     out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
@@ -1870,21 +1895,23 @@ function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats) 
     const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
     out.push(roughSandwichAmount(preDisc));
 
-    const taxable = lineTaxableFromTotal(line?.lineTotalInr);
+    const taxable = lineTaxableFromTotal(line?.lineTotalInr, gstEnabled);
     out.push(roughSandwichAmount(taxable));
-    const gst = splitRoughGst(taxable);
+    const gst = splitRoughGst(taxable, gstEnabled);
     const itemTotal = Math.round(gst.gross);
-    pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
-    pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    if (gstEnabled) {
+        pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
+        pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
+    }
     out.push(roughPadRow(roughBold('Total :'), roughBold(roughMoneyRoundedTotal(itemTotal))));
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     return { lines: out, taxable, savings: 0, total: itemTotal };
 }
 
-function buildMarlechaEstimateItemSection(line, idx, rateSlab, rates, printFormats) {
-    if (isGiftEstimateLine(line)) return buildMarlechaGiftItemSection(line, idx);
-    if (isGoldEstimateLine(line)) return buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats);
-    return buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats);
+function buildMarlechaEstimateItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled = true) {
+    if (isGiftEstimateLine(line)) return buildMarlechaGiftItemSection(line, idx, gstEnabled);
+    if (isGoldEstimateLine(line)) return buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled);
+    return buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled);
 }
 
 function computeSlabRLineDiscounts(line, rates, rateSlab = 'R') {
@@ -1916,6 +1943,7 @@ function buildRoughEstimateContent(bill, printFormats, rates, isDuplicate) {
         pf.goldSlabRShowMc = false;
     }
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
+    const gstOn = billGstEnabled(bill);
     const printBill = enrichBillLinesForEstimatePrint(bill, rateSlab);
     const out = [];
 
@@ -1928,7 +1956,7 @@ function buildRoughEstimateContent(bill, printFormats, rates, isDuplicate) {
     const allGoldBill =
         nonGiftItems.length > 0 && nonGiftItems.every((ln) => isGoldEstimateLine(ln));
     for (let i = 0; i < items.length; i += 1) {
-        const block = buildMarlechaEstimateItemSection(items[i], i + 1, rateSlab, rates, pf);
+        const block = buildMarlechaEstimateItemSection(items[i], i + 1, rateSlab, rates, pf, gstOn);
         out.push(...block.lines);
         grandTotal += block.total || 0;
         totalSavings += block.savings || 0;

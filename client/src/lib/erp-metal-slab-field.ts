@@ -1,5 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 
 export type ManualBillGridField = keyof ErpBillLine | 'metal_slab_pct'
 
@@ -65,7 +66,10 @@ export function patchMetalSlabPct(
 /** Skip box/finish cells hidden in stacked manual row (same rules as ErpBillingStackedRow). */
 export function isManualGridFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
   if (field === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
-  if (field === 'stone_charges') return (line.designFinishOptions?.length ?? 0) >= 2
+  if (field === 'stone_charges') return lineHasFinishPicker(line)
+  if (field === 'fixed_price_r') {
+    return line.manualCategory === 'gift' || !!line.mrpMode
+  }
   return true
 }
 

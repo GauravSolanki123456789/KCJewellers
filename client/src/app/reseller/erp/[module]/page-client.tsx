@@ -21,6 +21,7 @@ import { ErpDesignMasterWorkspace } from '@/components/reseller/erp/ErpDesignMas
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace'
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
+import { ErpTagEditingWorkspace } from '@/components/reseller/erp/ErpTagEditingWorkspace'
 import { ErpUsersWorkspace } from '@/components/reseller/erp/ErpUsersWorkspace'
 import { ErpBackupWorkspace } from '@/components/reseller/erp/ErpBackupWorkspace'
 import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
@@ -217,6 +218,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       )
     case 'tag-splitting':
       return <ErpTagSplitWorkspace rfidEnabled={rfidEnabled} />
+    case 'tag-editing':
+      return <ErpTagEditingWorkspace />
     case 'erp-users':
       return <ErpUsersWorkspace />
     case 'backup':

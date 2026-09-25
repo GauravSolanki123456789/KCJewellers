@@ -94,6 +94,7 @@ import {
   nextFieldAfterCatalogProduct,
   nextFieldAfterCatalogSize,
   findDesignOptionLabel,
+  lineHasFinishPicker,
   patchLineFromCatalogProduct,
   patchLineFromCatalogSize,
   type DesignCatalogProduct,
@@ -102,11 +103,17 @@ import { normalizeErpBillLinesFromStorage } from '@/lib/erp-bill-line-hydration'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
+  isManualGridFieldVisible,
   patchMetalSlabPct,
   normalizeMetalSlabPctForUiStorage,
   readMetalSlabPct,
   type ManualBillGridField,
 } from '@/lib/erp-metal-slab-field'
+import {
+  ERP_MC_TYPE_OPTIONS,
+  isMcTypeSelected,
+  normalizeMcTypeInput,
+} from '@/lib/erp-mc-type-field'
 import {
   deriveManualNetWeightPatch,
   isManualArticlesOrJewelleryLine,
@@ -192,6 +199,7 @@ type BillingDraft = {
   editingBillNumber?: string | null
   editingBillType?: string | null
   editingBillStatus?: string | null
+  gstEnabled?: boolean
 }
 
 type BillTableCol = { key: string; label: string; w: string; edit?: boolean }
@@ -220,6 +228,7 @@ const TABLE_COLS: BillTableCol[] = [
   { key: 'stone_charges', label: 'Finish', w: 'w-[4%]', edit: true },
   { key: 'metal_type', label: 'Metal', w: 'w-[4.5%]', edit: true },
   { key: 'fixed_price', label: 'Fixed', w: 'w-[4.5%]', edit: true },
+  { key: 'fixed_price_r', label: 'Fixed R', w: 'w-[4.5%]', edit: true },
   { key: 'amount', label: 'Amt', w: 'w-[6%]' },
 ]
 
@@ -241,6 +250,7 @@ const NUMERIC_EDIT_KEYS: (keyof ErpBillLine | 'metal_slab_pct')[] = [
   'box_charges',
   'stone_charges',
   'fixed_price',
+  'fixed_price_r',
 ]
 
 function isPartialDecimalInput(v: string): boolean {
@@ -425,6 +435,7 @@ export function ErpBillingWorkspace() {
   const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
+  const [gstEnabled, setGstEnabled] = useState(true)
   const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
   const [quoteOutputOverride, setQuoteOutputOverride] = useState<ErpQuoteOutputMode | null>(null)
   const [quoteMenuOpen, setQuoteMenuOpen] = useState(false)
@@ -435,7 +446,7 @@ export function ErpBillingWorkspace() {
   const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({})
   const cellDraftsRef = useRef<Record<string, string>>({})
   cellDraftsRef.current = cellDrafts
-  const manualCellRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const manualCellRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({})
 
   const quoteOutputMode = useMemo(
     () =>
@@ -513,12 +524,14 @@ export function ErpBillingWorkspace() {
         goldSlabRShowMc?: boolean
         wholesaleGold?: number | null
         wholesaleSilver?: number | null
+        gstEnabled?: boolean
       },
     ): ErpBillLine => {
+      const gstOn = opts?.gstEnabled ?? gstEnabled
       if (isPiecePricedBillLine(line)) {
         const slab = opts?.slab ?? rateSlab
         const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings)
-        return { ...withMrp, ...applyPiecePricedLineCalc(withMrp) }
+        return { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) }
       }
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
@@ -546,6 +559,7 @@ export function ErpBillingWorkspace() {
         g,
         s,
         mcMode,
+        { gstEnabled: gstOn },
       )
       const next: ErpBillLine = {
         ...slabLine,
@@ -586,14 +600,14 @@ export function ErpBillingWorkspace() {
           next.displayMcDiscountPct = bd.mc_discount_pct ?? null
         } else {
           const catalogRate = Number(line.mc_rate_catalog)
-          const billWt = Number(line.originalWeightGm ?? line.weightGm ?? wt) || 0
+          const netWt = Number(line.originalWeightGm ?? line.weightGm ?? wt) || 0
           const usePieceSlab =
             lineHasPieceSlabFields(line) &&
             catalogRate > 0 &&
-            billWt > 0 &&
+            netWt > 0 &&
             !perPiece
           if (usePieceSlab) {
-            const stdMc = Math.round(catalogRate * billWt)
+            const stdMc = Math.round(catalogRate * netWt)
             const appliedMc = Math.round(Number(bd.mc) || 0)
             if (stdMc > appliedMc) {
               next.displayMcBeforeDiscount = stdMc
@@ -627,7 +641,17 @@ export function ErpBillingWorkspace() {
       }
       return next
     },
-    [displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, goldSlabRShowMc],
+    [
+      displayRates,
+      rateSlab,
+      slabSettings,
+      wholesaleGold,
+      wholesaleSilver,
+      goldPerG,
+      silverPerG,
+      goldSlabRShowMc,
+      gstEnabled,
+    ],
   )
 
   const transitionLinesForSlab = useCallback(
@@ -746,6 +770,7 @@ export function ErpBillingWorkspace() {
       if (d.editingBillNumber) setEditingBillNumber(d.editingBillNumber)
       if (d.editingBillType) setEditingBillType(d.editingBillType)
       if (d.editingBillStatus) setEditingBillStatus(d.editingBillStatus)
+      if (d.gstEnabled != null) setGstEnabled(d.gstEnabled !== false)
     }
     setHydrated(true)
   }, [editIdParam])
@@ -798,6 +823,9 @@ export function ErpBillingWorkspace() {
         setCashDiscountInr('')
       }
       if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
+      const restoredGstEnabled =
+        (bill as { gst_enabled?: boolean }).gst_enabled !== false && session.gstEnabled !== false
+      setGstEnabled(restoredGstEnabled)
       const loadedLines = normalizeErpBillLinesFromStorage(
         applyRatesUnfixed(bill.lines || [], session.ratesUnfixed),
       )
@@ -816,6 +844,7 @@ export function ErpBillingWorkspace() {
           silverPerG: sessionSilver,
           wholesaleGold: session.wholesaleGold ?? wholesaleGold,
           wholesaleSilver: session.wholesaleSilver ?? wholesaleSilver,
+          gstEnabled: restoredGstEnabled,
         }),
       )
       skipRatesRecalcRef.current = true
@@ -859,6 +888,7 @@ export function ErpBillingWorkspace() {
         editingBillNumber: bill.bill_number,
         editingBillType: bill.bill_type,
         editingBillStatus: bill.status,
+        gstEnabled: restoredGstEnabled,
       })
     },
     [router, recalcLine, goldPerG, silverPerG, displayRates],
@@ -958,6 +988,7 @@ export function ErpBillingWorkspace() {
     loadedEditBillRef.current = id
     setCombinedSourceEstimateIds([])
     setCombinedEstimateNumbers('')
+    setGstEnabled(true)
     void loadBillForEditRef.current(id).catch((e) => alert(erpErr(e)))
   }, [hydrated, editIdParam, combineParam, loadCombinedEstimates, router])
 
@@ -987,14 +1018,21 @@ export function ErpBillingWorkspace() {
       editingBillNumber,
       editingBillType,
       editingBillStatus,
+      gstEnabled,
     })
-  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus, gstEnabled])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
     if (skipRatesRecalcRef.current) return
     setLines((prev) => recalcAll(prev))
   }, [displayRates, rateSlab, wholesaleGold, wholesaleSilver, slabSettings, hydrated, recalcAll])
+
+  useEffect(() => {
+    if (!hydrated) return
+    if (skipRatesRecalcRef.current) return
+    setLines((prev) => recalcAll(prev))
+  }, [gstEnabled, hydrated, recalcAll])
 
   const loadCustomers = useCallback(async (q: string) => {
     const params = q.trim() ? { q: q.trim() } : {}
@@ -1465,7 +1503,7 @@ export function ErpBillingWorkspace() {
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
               mc_rate: num('mc_rate') ?? l.mc_rate,
               mc_rate_catalog: num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate,
-              mc_type: (d.mc_type as string) ?? l.mc_type,
+              mc_type: normalizeMcTypeInput(d.mc_type) ?? l.mc_type,
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
               mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,
               mc_rate_slab_f: num('mc_rate_slab_f') ?? l.mc_rate_slab_f,
@@ -1622,14 +1660,25 @@ export function ErpBillingWorkspace() {
     let net = 0
     let weight = 0
     for (const l of lines) {
-      const bd = computeLineBreakdown(l, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, goldSlabRShowMc)
+      const bd = computeLineBreakdown(
+        l,
+        displayRates,
+        rateSlab,
+        slabSettings,
+        wholesaleGold,
+        wholesaleSilver,
+        goldPerG,
+        silverPerG,
+        goldSlabRShowMc,
+        { gstEnabled },
+      )
       taxable += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
       net += bd.total
       weight += Number(l.originalWeightGm ?? l.weightGm) || 0
     }
     return { subtotal: taxable, gst, net, weight, count: lines.length }
-  }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG])
+  }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, goldSlabRShowMc, gstEnabled])
 
   const resetBill = () => {
     billLoadGen.current += 1
@@ -1656,6 +1705,7 @@ export function ErpBillingWorkspace() {
     setEditingBillStatus(null)
     setCombinedSourceEstimateIds([])
     setCombinedEstimateNumbers('')
+    setGstEnabled(true)
     setAdvancePaidInr('')
     setCollectedAmountInr('')
     setCashDiscountInr('')
@@ -1718,6 +1768,7 @@ export function ErpBillingWorkspace() {
     customer_id: customerId,
     customer_name: customerName,
     total_inr: billTotalInr,
+    gst_enabled: gstEnabled,
     status,
     ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
@@ -1748,6 +1799,7 @@ export function ErpBillingWorkspace() {
         totalDiscountInr: discountSummary.totalDiscountInr,
         netTotalInr: totals.net,
         goldSlabRShowMc,
+        gstEnabled,
         operatorDisplayName: operator?.displayName || operator?.username || '',
       }),
       ...(combinedSourceEstimateIds.length > 0
@@ -2015,7 +2067,16 @@ export function ErpBillingWorkspace() {
       case 'metal_type':
         return line.metal_type || 'silver'
       case 'fixed_price':
+        if (
+          (line.mrpMode || line.manualCategory === 'gift') &&
+          line.mrpListPrice != null &&
+          Number(line.mrpListPrice) > 0
+        ) {
+          return line.mrpListPrice
+        }
         return line.fixed_price ?? ''
+      case 'fixed_price_r':
+        return line.fixed_price_r ?? ''
       case 'amount':
         return formatErpInr(line.lineTotalInr ?? 0)
       default:
@@ -2059,8 +2120,18 @@ export function ErpBillingWorkspace() {
       patch.rateLocked = true
       if (raw.trim() === '') patch.ratePerGram = null
     }
-    if (k === 'fixed_price' && isPiecePricedBillLine({ ...line, ...patch })) {
-      if (parsed != null) patch.unitInr = parsed
+    if (k === 'fixed_price') {
+      if (line.mrpMode || line.manualCategory === 'gift') {
+        if (parsed != null) {
+          patch.mrpListPrice = parsed
+          const slabPrice = giftMrpSlabPrice(parsed, rateSlab, slabSettings)
+          patch.fixed_price = slabPrice
+          patch.unitInr = slabPrice
+          patch.mrpMode = true
+        }
+      } else if (isPiecePricedBillLine({ ...line, ...patch }) && parsed != null) {
+        patch.unitInr = parsed
+      }
     }
     if (k === 'qty' && (line.manualCategory === 'gift' || line.mrpMode) && parsed == null) {
       patch.qty = 0
@@ -2103,7 +2174,15 @@ export function ErpBillingWorkspace() {
       }
       let workingLine = line
       if (line.manualEntry) {
-        for (const k of ['gross_weight', 'bags', 'bag_wt', 'qty', 'fixed_price', 'metal_slab_pct'] as const) {
+        for (const k of [
+          'gross_weight',
+          'bags',
+          'bag_wt',
+          'qty',
+          'fixed_price',
+          'fixed_price_r',
+          'metal_slab_pct',
+        ] as const) {
           flushNumericDraft(lineKey, idx, line, k)
         }
         let merged = { ...line }
@@ -2131,6 +2210,15 @@ export function ErpBillingWorkspace() {
       const nextKey = nextBillTableField(tableCols, String(field), workingLine)
       if (nextKey) {
         focusManualCell(lineKey, nextKey as ManualBillGridField)
+        return
+      }
+      if (
+        workingLine.manualEntry &&
+        !isGiftManualLine(workingLine) &&
+        isManualArticlesOrJewelleryLine(workingLine) &&
+        !isMcTypeSelected(workingLine.mc_type)
+      ) {
+        focusManualCell(lineKey, 'mc_type')
         return
       }
       setManualFocus(null)
@@ -2394,6 +2482,28 @@ export function ErpBillingWorkspace() {
               <option value="W">W</option>
               <option value="F">F</option>
             </select>
+          </div>
+          <div className="flex flex-col justify-end">
+            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              GST (3%)
+            </span>
+            <label
+              className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 ${
+                gstEnabled
+                  ? 'border-emerald-300 bg-emerald-50/80'
+                  : 'border-[var(--color-slate-700,#e8e4df)] bg-white'
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--kc-accent,#c41e3a)]"
+                checked={gstEnabled}
+                onChange={(e) => setGstEnabled(e.target.checked)}
+              />
+              <span className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                {gstEnabled ? 'On' : 'Off'}
+              </span>
+            </label>
           </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -3195,7 +3305,18 @@ export function ErpBillingWorkspace() {
                           )
                         }
 
-                        if (col.key === 'stone_charges' && (line.designFinishOptions?.length ?? 0) >= 2) {
+                        if (col.key === 'stone_charges' && !lineHasFinishPicker(line)) {
+                          return (
+                            <td
+                              key={col.key}
+                              className="px-1 py-1 text-center text-[11px] text-[var(--color-jewelry-black,#1a1814)]/40"
+                            >
+                              —
+                            </td>
+                          )
+                        }
+
+                        if (col.key === 'stone_charges' && lineHasFinishPicker(line)) {
                           const refKey = `${lineKey}-stone_charges`
                           return (
                             <td key={col.key} className="px-0.5 py-0.5">
@@ -3249,6 +3370,59 @@ export function ErpBillingWorkspace() {
                                   focusManualCell(lineKey, 'qty')
                                 }}
                               />
+                            </td>
+                          )
+                        }
+
+                        if (
+                          col.key === 'fixed_price_r' &&
+                          !isManualGridFieldVisible('fixed_price_r', line)
+                        ) {
+                          return (
+                            <td
+                              key={col.key}
+                              className="px-1 py-1 text-center text-[11px] text-[var(--color-jewelry-black,#1a1814)]/40"
+                            >
+                              —
+                            </td>
+                          )
+                        }
+
+                        if (col.key === 'mc_type' && line.manualEntry && !isGiftManualLine(line)) {
+                          const k = 'mc_type' as ManualBillGridField
+                          const refKey = `${lineKey}-mc_type`
+                          const mcVal = normalizeMcTypeInput(line.mc_type) ?? ''
+                          const selectCls =
+                            'w-full min-w-0 rounded border border-emerald-300 bg-white px-1 py-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50'
+                          return (
+                            <td key={col.key} className="px-1 py-1">
+                              <select
+                                ref={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                autoFocus={
+                                  manualFocus?.lineKey === lineKey && manualFocus.field === 'mc_type'
+                                }
+                                className={selectCls}
+                                value={mcVal}
+                                onChange={(e) => {
+                                  const v = normalizeMcTypeInput(e.target.value)
+                                  updateManualLine(idx, { mc_type: v })
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                                    e.preventDefault()
+                                    advanceBillField(lineKey, k, line, idx)
+                                  }
+                                }}
+                              >
+                                <option value="">MC type…</option>
+                                {ERP_MC_TYPE_OPTIONS.map((o) => (
+                                  <option key={o.value} value={o.value}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
                             </td>
                           )
                         }
@@ -3381,10 +3555,17 @@ export function ErpBillingWorkspace() {
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Subtotal</p>
                 <p className="font-semibold tabular-nums">{formatErpInr(totals.subtotal)}</p>
               </div>
-              <div>
-                <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST (3%)</p>
-                <p className="font-semibold tabular-nums text-blue-700">{formatErpInr(totals.gst)}</p>
-              </div>
+              {gstEnabled ? (
+                <div>
+                  <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST (3%)</p>
+                  <p className="font-semibold tabular-nums text-blue-700">{formatErpInr(totals.gst)}</p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST</p>
+                  <p className="font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]/45">Off</p>
+                </div>
+              )}
               {parsedAdvance > 0 || advancePaidInr.trim() ? (
                 <>
                   <div>

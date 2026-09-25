@@ -447,7 +447,9 @@ export function ErpQuotePdfDocument({
               ? []
               : [
                   { label: 'Subtotal', value: moneyOrBlank(false, totals.subtotal) },
-                  { label: 'GST (3%)', value: moneyOrBlank(false, totals.gst) },
+                  ...(totals.gst > 0
+                    ? [{ label: 'GST (3%)', value: moneyOrBlank(false, totals.gst) }]
+                    : []),
                 ]),
           ].map((s) => (
             <View key={s.label} style={styles.summaryChip}>

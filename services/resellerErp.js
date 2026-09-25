@@ -162,6 +162,9 @@ async function ensureResellerErpSchema(pool) {
 
         ALTER TABLE reseller_erp_bills
             ADD COLUMN IF NOT EXISTS order_media_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+        ALTER TABLE reseller_erp_bills
+            ADD COLUMN IF NOT EXISTS gst_enabled BOOLEAN NOT NULL DEFAULT true;
     `);
     await ensureStockPiecesSchema(pool);
     await ensureRolSchema(pool);
@@ -669,6 +672,14 @@ async function enrichEstimateLinesMcFromStock(query, resellerUserId, bill) {
     return erpPrint.enrichBillLinesMcCatalogForPrint(next, { byStockId: byId, byBarcode });
 }
 
+function billGstEnabledFromPayload(body) {
+    const session =
+        body && body.session && typeof body.session === 'object' ? body.session : {};
+    if (body && body.gst_enabled === false) return false;
+    if (session.gstEnabled === false) return false;
+    return true;
+}
+
 function mapBill(row) {
     if (!row) return row;
     let lines = row.lines_json;
@@ -710,6 +721,7 @@ function mapBill(row) {
         customer_id: row.customer_id,
         customer_name: row.customer_name,
         total_inr: row.total_inr != null ? Number(row.total_inr) : 0,
+        gst_enabled: row.gst_enabled === false ? false : true,
         status: row.status,
         lines,
         order_media: orderMedia,
@@ -879,6 +891,8 @@ function registerResellerErpRoutes(app, deps) {
     registerFloorRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerStockCheckRoutes(app, { query, checkAuth, erpGate });
     registerTagOpsRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    const { registerTagEditingRoutes } = require('./resellerErpTagEditing');
+    registerTagEditingRoutes(app, { query, checkAuth, requireJson, erpGate });
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpPurchaseVoucherRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
@@ -1330,6 +1344,8 @@ function registerResellerErpRoutes(app, deps) {
             const lines = billType === 'order' ? normalizeOrderLines(linesRaw) : linesRaw;
             if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
             req.body.session = ensureSessionNetTotalInr(req.body, lines);
+            const gstEnabled = billGstEnabledFromPayload(req.body);
+            if (!gstEnabled) req.body.session.gstEnabled = false;
             const total = resolveErpBillTotalFromPayload(req.body, lines, billType, {
                 shadowSaleUsesCollected: false,
             });
@@ -1476,8 +1492,8 @@ function registerResellerErpRoutes(app, deps) {
             const rows = await query(
                 `INSERT INTO reseller_erp_bills (
                     reseller_user_id, bill_number, bill_type, customer_id, customer_name,
-                    total_inr, status, lines_json, notes, bill_date, session_json
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::jsonb)
+                    total_inr, status, lines_json, notes, bill_date, session_json, gst_enabled
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::jsonb,$12)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -1491,6 +1507,7 @@ function registerResellerErpRoutes(app, deps) {
                     trimStr(req.body.notes, 2000),
                     parseDateOrNull(req.body.bill_date) || new Date().toISOString().slice(0, 10),
                     sessionJson,
+                    gstEnabled,
                 ],
             );
             const bill = mapBill(rows[0]);
@@ -1629,6 +1646,8 @@ function registerResellerErpRoutes(app, deps) {
             const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
             if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
             req.body.session = ensureSessionNetTotalInr(req.body, lines);
+            const gstEnabled = billGstEnabledFromPayload(req.body);
+            if (!gstEnabled) req.body.session.gstEnabled = false;
             const billTypeForTotal = String(
                 req.body.bill_type || existingRows[0]?.bill_type || 'sale',
             ).toLowerCase();
@@ -1681,8 +1700,9 @@ function registerResellerErpRoutes(app, deps) {
                     lines_json = $5::jsonb,
                     notes = COALESCE($6, notes),
                     session_json = COALESCE($7::jsonb, session_json),
+                    gst_enabled = $8,
                     updated_at = NOW()
-                 WHERE id = $8 AND reseller_user_id = $9
+                 WHERE id = $9 AND reseller_user_id = $10
                  RETURNING *`,
                 [
                     req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null,
@@ -1692,6 +1712,7 @@ function registerResellerErpRoutes(app, deps) {
                     JSON.stringify(lines),
                     trimStr(req.body.notes, 2000) || null,
                     sessionJson,
+                    gstEnabled,
                     id,
                     req.user.id,
                 ],

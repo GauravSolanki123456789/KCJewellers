@@ -269,7 +269,25 @@ export function isPiecePricedBillLine(line: ErpBillLine): boolean {
   return pieceRate > 0 && wt <= 0
 }
 
-const ERP_LINE_GST_PCT = 3
+export const ERP_LINE_GST_PCT = 3
+
+/** Bill-level GST toggle — when false, line net equals taxable (no 3% add-on). */
+export function erpBillGstPct(gstEnabled?: boolean | null): number {
+  return gstEnabled === false ? 0 : ERP_LINE_GST_PCT
+}
+
+export function applyGstToBreakdown(bd: PriceBreakdown, gstPct: number): PriceBreakdown {
+  const taxable = Math.round(bd.taxable)
+  if (gstPct <= 0) {
+    return { ...bd, taxable, total: taxable, cgst: 0, sgst: 0 }
+  }
+  if (bd.total === taxable && (bd.cgst || 0) === 0 && (bd.sgst || 0) === 0) {
+    const total = Math.round(taxable * (1 + gstPct / 100))
+    const gstAmt = total - taxable
+    return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 }
+  }
+  return bd
+}
 
 /** Extra ₹ added on top of weight-based metal + MC (not MRP-only rows). */
 export function erpAdditiveFixedChargeInr(line: ErpBillLine): number {
@@ -287,13 +305,23 @@ function appendTaxableExtraToBreakdown(
 ): PriceBreakdown {
   if (extra <= 0) return bd
   const taxable = Math.round(bd.taxable + extra)
+  if (gstPct <= 0) {
+    return { ...bd, taxable, total: taxable, cgst: 0, sgst: 0 }
+  }
   const total = Math.round(taxable * (1 + gstPct / 100))
   const gstAmt = total - taxable
   return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 }
 }
 
-function finalizeWeightBasedBreakdown(line: ErpBillLine, bd: PriceBreakdown): PriceBreakdown {
-  return appendTaxableExtraToBreakdown(bd, erpAdditiveFixedChargeInr(line))
+function finalizeWeightBasedBreakdown(
+  line: ErpBillLine,
+  bd: PriceBreakdown,
+  gstPct = ERP_LINE_GST_PCT,
+): PriceBreakdown {
+  const extra = erpAdditiveFixedChargeInr(line)
+  if (extra > 0) return appendTaxableExtraToBreakdown(bd, extra, gstPct)
+  if (gstPct <= 0) return applyGstToBreakdown(bd, 0)
+  return bd
 }
 
 /** Slab R retail markdown — not when W/F, metal %, or a locked row rate already set the price. */
@@ -311,8 +339,9 @@ function finalizeSilverBillLineBreakdown(
   bd: PriceBreakdown,
   silverPerG: number,
   slab: ErpRateSlab = 'R',
+  gstPct = ERP_LINE_GST_PCT,
 ): PriceBreakdown {
-  let next = finalizeWeightBasedBreakdown(line, bd)
+  let next = finalizeWeightBasedBreakdown(line, bd, gstPct)
   if (isManualArticlesOrJewelleryLine(line) || isPiecePricedBillLine(line)) return next
   if (isSilverGiftStockLine(line) || isSilverGiftMcGmLine(line)) return next
   if (shouldSkipRetailSilverRateMarkdown(line, slab)) return next
@@ -322,21 +351,23 @@ function finalizeSilverBillLineBreakdown(
     Number(bd.billable_weight_gm ?? line.originalWeightGm ?? line.weightGm) || 0
   const rate = Number(line.ratePerGram ?? bd.rate_per_gram)
   if (wt <= 0 || !Number.isFinite(rate) || rate <= 0 || silverPerG <= rate) {
-    const total = Math.round(next.taxable * (1 + ERP_LINE_GST_PCT / 100))
-    const gst = total - next.taxable
-    return { ...next, total, cgst: gst / 2, sgst: gst / 2 }
+    return applyGstToBreakdown(next, gstPct)
   }
   const metalDisc = Math.round((silverPerG - rate) * wt)
   const net = Math.max(0, next.taxable - metalDisc)
-  const total = Math.round(net * (1 + ERP_LINE_GST_PCT / 100))
-  const gst = total - net
-  return { ...next, taxable: net, total, cgst: gst / 2, sgst: gst / 2 }
+  return applyGstToBreakdown({ ...next, taxable: net }, gstPct)
 }
 
-export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
+export function applyPiecePricedLineCalc(line: ErpBillLine, gstEnabled = true): ErpBillLine {
   const parsed = Number(line.qty)
+  const slabPer = Number(line.unitInr ?? line.fixed_price ?? 0) || 0
+  const customPer = Number(line.fixed_price_r ?? 0) || 0
   const pieceRate =
-    Number(line.unitInr ?? line.fixed_price ?? line.ratePerGram ?? line.mc_rate) || 0
+    customPer > 0
+      ? customPer
+      : slabPer > 0
+        ? slabPer
+        : Number(line.ratePerGram ?? line.mc_rate) || 0
   const isGift = line.manualCategory === 'gift' || !!line.mrpMode
   let qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1
   if (pieceRate > 0 && qty <= 0 && (line.mrpMode || isFixedPriceCatalogItem(lineToItem(line)))) {
@@ -344,7 +375,9 @@ export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
   }
   const box = Number(line.box_charges || 0) || 0
   const taxable = Math.round((qty * pieceRate + box) * 100) / 100
-  const total = Math.round(taxable * (1 + ERP_LINE_GST_PCT / 100))
+  const gstPct = erpBillGstPct(gstEnabled)
+  const total =
+    gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : Math.round(taxable)
   return {
     ...line,
     qty,
@@ -356,6 +389,8 @@ export function applyPiecePricedLineCalc(line: ErpBillLine): ErpBillLine {
 export type ComputeLineBreakdownOpts = {
   /** Custom ₹/g from SSR — do not subtract slab R silver offset again. */
   literalCustomMetalRate?: boolean
+  /** When false, row net = subtotal (no GST). */
+  gstEnabled?: boolean
 }
 
 export function computeLineBreakdown(
@@ -370,6 +405,7 @@ export function computeLineBreakdown(
   goldSlabRShowMc = true,
   opts?: ComputeLineBreakdownOpts,
 ) {
+  const gstPct = erpBillGstPct(opts?.gstEnabled)
   if (isSilverGiftMcGmLine(line)) {
     const bd = computeSilverGiftMcGmBreakdown(
       line,
@@ -377,9 +413,9 @@ export function computeLineBreakdown(
       slabSettings,
       silverPerG,
       wholesaleSilver,
-      3,
+      gstPct,
     )
-    return finalizeWeightBasedBreakdown(line, bd)
+    return finalizeWeightBasedBreakdown(line, bd, gstPct)
   }
 
   if (isManualArticlesOrJewelleryLine(line)) {
@@ -390,13 +426,25 @@ export function computeLineBreakdown(
       goldPerG,
       wholesaleSilver,
       wholesaleGold,
+      gstPct,
     )
   }
 
   if (isPiecePricedBillLine(line)) {
-    const priced = applyPiecePricedLineCalc(line)
+    const priced = applyPiecePricedLineCalc(line, opts?.gstEnabled !== false)
     const total = Number(priced.lineTotalInr) || 0
-    const gstPct = 3
+    if (gstPct <= 0) {
+      const taxable = Math.round(total)
+      return {
+        metal: 0,
+        mc: 0,
+        stone: Number(line.box_charges || 0) || 0,
+        cgst: 0,
+        sgst: 0,
+        taxable,
+        total: taxable,
+      } satisfies PriceBreakdown
+    }
     const taxable = total / (1 + gstPct / 100)
     const gstAmt = total - taxable
     return {
@@ -436,18 +484,15 @@ export function computeLineBreakdown(
       slab,
       silverPerG,
       wholesaleSilver,
-      3,
+      gstPct,
       silverOffset,
       mcDisc,
     )
-    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab)
+    bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab, gstPct)
     const box = Number(line.box_charges || 0) || 0
     if (box <= 0) return bd
-    const gstPct = 3
     const taxable = bd.taxable + box
-    const total = Math.round(taxable * (1 + gstPct / 100))
-    const gstAmt = total - taxable
-    return { ...bd, taxable, total, cgst: gstAmt / 2, sgst: gstAmt / 2 }
+    return applyGstToBreakdown({ ...bd, taxable }, gstPct)
   }
 
   const item = lineToItem(slabLine)
@@ -460,21 +505,12 @@ export function computeLineBreakdown(
     goldSlabRShowMc,
   )
   const rates = resolveLineDisplayRates(line, displayRates, goldPerG, silverPerG)
-  let bd = calculateBreakdownWithSlab(item, rates, 3, ctx)
-  bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab)
+  let bd = calculateBreakdownWithSlab(item, rates, gstPct, ctx)
+  bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab, gstPct)
   const box = Number(line.box_charges || 0) || 0
   if (box <= 0) return bd
-  const gstPct = 3
   const taxable = bd.taxable + box
-  const total = Math.round(taxable * (1 + gstPct / 100))
-  const gstAmt = total - taxable
-  return {
-    ...bd,
-    taxable,
-    total,
-    cgst: gstAmt / 2,
-    sgst: gstAmt / 2,
-  }
+  return applyGstToBreakdown({ ...bd, taxable }, gstPct)
 }
 
 /** Rows that follow live gold/silver ₹/g when slab or wholesale rates change (unless rateLocked). */

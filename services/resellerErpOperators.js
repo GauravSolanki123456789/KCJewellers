@@ -11,7 +11,7 @@ const ALL_MODULE_IDS = [
     'customers', 'ledger', 'products', 'design-master', 'floors', 'stock', 'rol',
     'rate-uncut', 'slabs', 'sales-reports', 'sales-percentages',
     'gst', 'e-invoice', 'e-way', 'tally', 'integrations',
-    'barcoding', 'tag-splitting', 'scanner', 'hardware', 'print-formats', 'erp-users',
+    'barcoding', 'tag-splitting', 'tag-editing', 'scanner', 'hardware', 'print-formats', 'erp-users',
     'customer-routing',
     'backup',
     'jainav', 'stock-reports', 'stock-check', 'jainav-ledger',

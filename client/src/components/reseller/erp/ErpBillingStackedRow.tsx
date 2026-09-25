@@ -10,7 +10,8 @@ import {
   uniqueSkusFromCatalog,
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
-import { findDesignOptionLabel } from '@/lib/erp-catalog-product'
+import { findDesignOptionLabel, lineHasFinishPicker } from '@/lib/erp-catalog-product'
+import { ERP_MC_TYPE_OPTIONS, normalizeMcTypeInput } from '@/lib/erp-mc-type-field'
 import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
@@ -37,6 +38,7 @@ const CHARGE_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[
   { key: 'stone_charges', label: 'FINISH' },
   { key: 'metal_type', label: 'METAL' },
   { key: 'fixed_price', label: 'FIXED' },
+  { key: 'fixed_price_r', label: 'FIXED R' },
 ]
 
 const NUMERIC_KEYS = new Set<keyof ErpBillLine | 'metal_slab_pct'>([
@@ -56,6 +58,7 @@ const NUMERIC_KEYS = new Set<keyof ErpBillLine | 'metal_slab_pct'>([
   'box_charges',
   'stone_charges',
   'fixed_price',
+  'fixed_price_r',
 ])
 
 type Props = {
@@ -66,7 +69,10 @@ type Props = {
   highlight?: boolean
   manualFocus: { lineKey: string; field: keyof ErpBillLine | 'metal_slab_pct' } | null
   cellValue: (key: keyof ErpBillLine | 'metal_slab_pct') => string
-  inputRef: (field: keyof ErpBillLine | 'metal_slab_pct', el: HTMLInputElement | null) => void
+  inputRef: (
+    field: keyof ErpBillLine | 'metal_slab_pct',
+    el: HTMLInputElement | HTMLSelectElement | null,
+  ) => void
   onSkuChange: (v: string) => void
   onStyleChange: (v: string) => void
   onSkuCommit: (sku: string, style: string) => void
@@ -163,7 +169,7 @@ export function ErpBillingStackedRow({
       <td className="align-top px-2 py-3 text-sm font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
         {idx + 1}
       </td>
-      <td colSpan={22} className="px-2 py-2">
+      <td colSpan={24} className="px-2 py-2">
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
             <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
@@ -275,8 +281,9 @@ export function ErpBillingStackedRow({
               </div>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {CHARGE_BAND.filter((f) => {
-                  if (f.key === 'stone_charges') return (line.designFinishOptions?.length ?? 0) >= 2
+                  if (f.key === 'stone_charges') return lineHasFinishPicker(line)
                   if (f.key === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
+                  if (f.key === 'fixed_price_r') return gift || !!line.mrpMode
                   return true
                 }).map((f) => (
                   <label
@@ -324,7 +331,30 @@ export function ErpBillingStackedRow({
                           onAdvance('box_charges')
                         }}
                       />
-                    ) : f.key === 'stone_charges' && (line.designFinishOptions?.length ?? 0) >= 2 ? (
+                    ) : f.key === 'mc_type' && !gift ? (
+                      <select
+                        ref={(el) => inputRef('mc_type', el)}
+                        autoFocus={focused('mc_type')}
+                        className="w-full min-w-0 rounded-full border border-emerald-300 bg-white px-2 py-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50"
+                        value={normalizeMcTypeInput(line.mc_type) ?? ''}
+                        onChange={(e) => {
+                          onPatch({ mc_type: normalizeMcTypeInput(e.target.value) })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            e.preventDefault()
+                            onAdvance('mc_type')
+                          }
+                        }}
+                      >
+                        <option value="">MC type…</option>
+                        {ERP_MC_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : f.key === 'stone_charges' && lineHasFinishPicker(line) ? (
                       <ErpBillingSuggestField
                         value={line.finish_label || ''}
                         placeholder="Finish…"

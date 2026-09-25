@@ -123,9 +123,8 @@ export function computeErpPieceSlabBreakdown(
 
   const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0))
   if (mcGm) {
-    const combined = Math.round((metalRate + mcRate) * billWt)
     metalPart = Math.round(metalRate * billWt)
-    mc = combined - metalPart
+    mc = Math.round(mcRate * netWt)
     if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100))
   } else {
     metalPart = Math.round(metalRate * billWt)

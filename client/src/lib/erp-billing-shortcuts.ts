@@ -1,6 +1,7 @@
 import type { GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { applyPieceSlabToLine, type ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 import { generateManualBarcode } from '@/lib/erp-manual-barcode'
 import {
   isManualGridFieldVisible,
@@ -99,6 +100,7 @@ export const GIFT_ENTRY_FIELD_ORDER: (keyof ErpBillLine)[] = [
   'stone_charges',
   'qty',
   'fixed_price',
+  'fixed_price_r',
 ]
 
 /** A/S/B flow: SKU → Style → Product → Size → weights / rates → PCS */
@@ -123,6 +125,7 @@ export const MANUAL_ENTRY_FIELD_ORDER: ManualBillGridField[] = [
   'stone_charges',
   'metal_type',
   'fixed_price',
+  'fixed_price_r',
 ]
 
 export type DesignBillingProduct = {
@@ -302,6 +305,7 @@ export const STACKED_MANUAL_TAIL_ORDER: ManualBillGridField[] = [
   'stone_charges',
   'metal_type',
   'fixed_price',
+  'fixed_price_r',
 ]
 
 export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[] {
@@ -317,6 +321,7 @@ export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[
 export function isStackedManualFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
   if (!isManualGridFieldVisible(field, line)) return false
   if (field === 'size') return (line.designSizeOptions?.length ?? 0) > 0
+  if (field === 'stone_charges') return lineHasFinishPicker(line)
   if (isGiftManualLine(line) && field === 'box_charges') {
     return (line.designBoxOptions?.length ?? 0) >= 2
   }

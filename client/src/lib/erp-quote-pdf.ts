@@ -3,7 +3,12 @@ import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
-import { billLinesRatesUnfixed, isLineRateUnfixed, type ErpBillSession } from '@/lib/erp-bill-session'
+import {
+  billLinesRatesUnfixed,
+  erpBillGstEnabled,
+  isLineRateUnfixed,
+  type ErpBillSession,
+} from '@/lib/erp-bill-session'
 import {
   computeLineBreakdown,
   parseSlabSettingsFromUser,
@@ -47,6 +52,7 @@ export function enrichErpBillLinesForDisplay(
   const baseRates =
     session.displayRates ??
     (goldPerG > 0 ? perGramToDisplayRates(goldPerG, silverPerG) : [])
+  const gstOn = erpBillGstEnabled(bill)
 
   return (bill.lines ?? []).map((line) => {
     const rates = resolveLineDisplayRates(line, baseRates, goldPerG, silverPerG)
@@ -60,6 +66,7 @@ export function enrichErpBillLinesForDisplay(
       goldPerG,
       silverPerG,
       mcMode,
+      { gstEnabled: gstOn },
     )
     const next: ErpBillLine = { ...line, lineTotalInr: line.lineTotalInr ?? bd.total }
     if (isGoldSlabRLine(line, slab) && mcMode !== false) {
@@ -116,6 +123,7 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   let count = 0
 
   const slab = session.rateSlab
+  const gstOn = erpBillGstEnabled(bill)
 
   if (baseRates && slab) {
     for (const line of lines) {
@@ -131,6 +139,8 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
         session.wholesaleSilver,
         goldPerG,
         silverPerG,
+        true,
+        { gstEnabled: gstOn },
       )
       subtotal += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
@@ -143,8 +153,13 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
       net += Number(line.lineTotalInr) || 0
     }
     if (net > 0) {
-      subtotal = Math.round(net / 1.03)
-      gst = net - subtotal
+      if (gstOn) {
+        subtotal = Math.round(net / 1.03)
+        gst = net - subtotal
+      } else {
+        subtotal = Math.round(net)
+        gst = 0
+      }
     }
   }
 
@@ -155,16 +170,24 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
       const ratio = lineNetSum / (subtotal + gst)
       subtotal = Math.round(subtotal * ratio)
       gst = lineNetSum - subtotal
-    } else {
+    } else if (gstOn) {
       subtotal = Math.round(net / 1.03)
       gst = net - subtotal
+    } else {
+      subtotal = Math.round(net)
+      gst = 0
     }
   }
 
   if (!net && bill.total_inr) {
     net = Number(bill.total_inr) || 0
-    subtotal = Math.round(net / 1.03)
-    gst = net - subtotal
+    if (gstOn) {
+      subtotal = Math.round(net / 1.03)
+      gst = net - subtotal
+    } else {
+      subtotal = Math.round(net)
+      gst = 0
+    }
   }
 
   const advance = Math.max(0, Number(session.advancePaidInr) || 0)
@@ -188,12 +211,18 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   if (settledNet !== linesNetBeforeSettlement && linesNetBeforeSettlement > 0) {
     const ratio = settledNet / linesNetBeforeSettlement
     subtotal = Math.round(subtotal * ratio)
-    gst = settledNet - subtotal
+    gst = gstOn ? settledNet - subtotal : 0
+    if (!gstOn) subtotal = settledNet
     net = settledNet
   } else if (settledNet > 0 && net !== settledNet) {
     net = settledNet
-    subtotal = Math.round(net / 1.03)
-    gst = net - subtotal
+    if (gstOn) {
+      subtotal = Math.round(net / 1.03)
+      gst = net - subtotal
+    } else {
+      subtotal = Math.round(net)
+      gst = 0
+    }
   }
 
   const discountSummary = computeBillingDiscountSummary({

@@ -1,5 +1,6 @@
 import { isGiftingItem, type Item } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+import { normalizeMcTypeInput } from '@/lib/erp-mc-type-field'
 
 export type DesignCatalogSize = {
   size_label: string
@@ -124,6 +125,30 @@ export function mergeCatalogProductsForStyleSku(
   return out
 }
 
+/** True only when the catalogue row has real finish variants (not size-only gifts like L_STAND). */
+export function resolveDesignFinishOptions(
+  product: DesignCatalogProduct | undefined | null,
+): DesignCatalogProduct['finish_options'] | undefined {
+  const opts = (product?.finish_options || []).filter((o) => String(o.label || '').trim())
+  if (opts.length < 2) return undefined
+  const multiSize = (product?.sizes?.length || 0) >= 2
+  if (multiSize) {
+    const hasChargeOrMrp = opts.some(
+      (o) => (Number(o.stone_charges) || 0) > 0 || (o.fixed_price != null && Number(o.fixed_price) > 0),
+    )
+    if (!hasChargeOrMrp) return undefined
+    const sig = new Set(
+      opts.map((o) => `${String(o.label).trim().toUpperCase()}|${o.stone_charges}|${o.fixed_price ?? ''}`),
+    )
+    if (sig.size < 2) return undefined
+  }
+  return opts
+}
+
+export function lineHasFinishPicker(line: ErpBillLine): boolean {
+  return (line.designFinishOptions?.length ?? 0) >= 2
+}
+
 export function catalogProductUsesMrpPricing(product: DesignCatalogProduct): boolean {
   const mt = String(product.metal_type || '').toLowerCase()
   if (isGiftingItem({ metal_type: mt } as Item)) return true
@@ -164,7 +189,7 @@ export function patchLineFromCatalogProduct(
     name: product.name,
     imageUrl: product.image_url ?? line.imageUrl ?? null,
     mc_rate: product.mc_rate ?? line.mc_rate,
-    mc_type: product.mc_type ?? line.mc_type,
+    mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
     wastage_pct: product.wastage_pct ?? line.wastage_pct,
     purity: product.purity ?? line.purity,
     metal_type: product.metal_type ?? line.metal_type ?? 'silver',
@@ -176,8 +201,7 @@ export function patchLineFromCatalogProduct(
         }))
       : undefined,
     designBoxOptions: (product.box_options?.length || 0) >= 2 ? product.box_options : undefined,
-    designFinishOptions:
-      (product.finish_options?.length || 0) >= 2 ? product.finish_options : undefined,
+    designFinishOptions: resolveDesignFinishOptions(product),
     size: null,
     /** Weight stays blank for silver weight-based lines so the cashier enters net wt. */
     weightGm: null,
@@ -191,7 +215,7 @@ export function patchLineFromCatalogProduct(
     mrpMode: mrpMode || undefined,
   }
 
-  const multiFinish = (product.finish_options?.length || 0) >= 2
+  const multiFinish = resolveDesignFinishOptions(product) != null
   if (multiFinish) {
     patch.fixed_price = null
     patch.unitInr = null

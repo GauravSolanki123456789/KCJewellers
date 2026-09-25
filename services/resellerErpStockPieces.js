@@ -2489,4 +2489,5 @@ module.exports = {
     mapPieceForClient,
     parseExcelRowToPiece,
     findSoldBarcodeConflicts,
+    syncStockAlertCounts,
 };

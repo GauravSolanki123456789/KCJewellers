@@ -53,6 +53,17 @@ export type ErpBillSession = {
   invoicePrintOverrides?: ErpInvoicePrintOverrides
   /** ERP operator display name when estimate/bill was saved */
   operatorDisplayName?: string
+  /** When false, bill/estimate totals exclude 3% GST. */
+  gstEnabled?: boolean
+}
+
+export function erpBillGstEnabled(
+  bill: { gst_enabled?: boolean | null; session?: ErpBillSession | null } | null | undefined,
+): boolean {
+  if (!bill) return true
+  if (bill.gst_enabled === false) return false
+  if (bill.session?.gstEnabled === false) return false
+  return true
 }
 
 /** Rate unfix = locked empty rate column; manual ₹/g entered clears unfix for that line. */
@@ -88,6 +99,7 @@ export function buildErpBillSession(input: {
   cashAmountInr?: number | null
   onlineAmountInr?: number | null
   operatorDisplayName?: string | null
+  gstEnabled?: boolean
 }): ErpBillSession {
   const ratesUnfixed = billLinesRatesUnfixed(input.lines)
   const advance = Math.max(0, Number(input.advancePaidInr) || 0)
@@ -129,6 +141,7 @@ export function buildErpBillSession(input: {
         ? Math.round(Number(input.netTotalInr))
         : undefined,
     goldSlabRShowMc: input.goldSlabRShowMc === false ? false : undefined,
+    gstEnabled: input.gstEnabled === false ? false : undefined,
     paymentMethod: input.paymentMethod || undefined,
     cashAmountInr:
       input.cashAmountInr != null && Number.isFinite(Number(input.cashAmountInr))

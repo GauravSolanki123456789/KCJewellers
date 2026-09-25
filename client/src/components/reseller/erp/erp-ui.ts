@@ -151,6 +151,8 @@ export type ErpBillLine = {
   item_code?: string | null
   imageUrl?: string | null
   fixed_price?: number | null
+  /** Gift/MRP — discounted per-piece rate (falls back to slab fixed_price). */
+  fixed_price_r?: number | null
   stock_piece_id?: number | null
   /** Slab R gold — show computed MC (₹) instead of per-g MC rate in grid. */
   displayMcInr?: number | null
@@ -209,6 +211,7 @@ export type ErpBill = {
   customer_id?: number | null
   customer_name?: string | null
   total_inr: number
+  gst_enabled?: boolean
   status: string
   bill_date?: string | null
   notes?: string | null

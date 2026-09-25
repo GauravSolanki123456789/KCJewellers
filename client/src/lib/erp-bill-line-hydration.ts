@@ -21,6 +21,7 @@ const NUMERIC_LINE_KEYS: (keyof ErpBillLine)[] = [
   'box_charges',
   'stone_charges',
   'fixed_price',
+  'fixed_price_r',
   'unitInr',
   'mrpListPrice',
   'lineTotalInr',
