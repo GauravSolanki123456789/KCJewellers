@@ -1,12 +1,17 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import { mcSlabFieldForBillingSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { lineHasMetalSlabPctInput, metalSlabPctMultiplier } from '@/lib/erp-metal-slab-field'
-import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { lineHasMetalSlabPctInput } from '@/lib/erp-metal-slab-field'
+import {
+  computeWeightBasedRowBreakdown,
+  erpLineNetWeightGm,
+  erpMcDiscountPerUnit,
+  erpNetMcPerUnit,
+  erpResolveBilledWeightGm,
+} from '@/lib/erp-weight-row-pricing'
 import type { PriceBreakdown } from '@/lib/pricing'
 
 export function erpMcBillingNetGm(line: ErpBillLine): number {
-  const n = Number(line.originalWeightGm ?? line.weightGm ?? 0)
-  return Number.isFinite(n) && n > 0 ? n : 0
+  return erpLineNetWeightGm(line)
 }
 
 const GST_PCT = 3
@@ -24,16 +29,11 @@ export function isManualArticlesOrJewelleryLine(line: ErpBillLine): boolean {
 /** MC R column on manual rows = discount per unit off base MC (not net slab rate). */
 export function manualMcDiscountPerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
   if (!line.manualEntry) return 0
-  const field = mcSlabFieldForBillingSlab(slab)
-  const v = Number(line[field] ?? 0)
-  return Number.isFinite(v) && v > 0 ? v : 0
+  return erpMcDiscountPerUnit(line, slab)
 }
 
 export function manualEffectiveMcRatePerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
-  const base = Number(line.mc_rate ?? 0) || 0
-  if (base <= 0) return 0
-  const disc = manualMcDiscountPerUnit(line, slab)
-  return disc > 0 ? Math.max(0, base - disc) : base
+  return erpNetMcPerUnit(line, slab)
 }
 
 /** NetWt = Gross − (Bags × BagWt) — used for manual A/S rows. */
@@ -115,20 +115,6 @@ export function computeManualAsLineBreakdown(
   wholesaleGold?: number | null,
   gstPct = GST_PCT,
 ): PriceBreakdown {
-  const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
-  if (netWt <= 0) {
-    return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 }
-  }
-
-  const wastPct = Number(line.wastage_pct ?? 0) || 0
-  const metalMult = metalSlabPctMultiplier(line, slab)
-  let billedWt = netWt
-  if (metalMult != null && metalMult > 0) {
-    billedWt = netWt * metalMult
-  } else if (wastPct > 0) {
-    billedWt = netWt * (1 + wastPct / 100)
-  }
-
   const rate = resolveManualRowRatePerG(
     line,
     slab,
@@ -137,49 +123,14 @@ export function computeManualAsLineBreakdown(
     wholesaleSilver,
     wholesaleGold,
   )
-  const metalCost = rate > 0 ? billedWt * rate : 0
-
-  const baseMcRate = Number(line.mc_rate ?? 0) || 0
-  const effMcRate = manualEffectiveMcRatePerUnit(line, slab)
-  const pcs = Math.max(1, Number(line.qty) || 1)
-  const perGm = isMcPerGmBillingType(line.mc_type)
-  const totalMcBase = perGm ? netWt * baseMcRate : pcs * baseMcRate
-  const totalMc = perGm ? netWt * effMcRate : pcs * effMcRate
-
-  const fixedBase = Number(line.fixed_price ?? 0) || 0
-  const fixedR = Number(line.fixed_price_r ?? 0) || 0
-  let fixedTotal = fixedBase
-  if (line.mrpMode || line.manualCategory === 'gift') {
-    const baseTot = fixedBase * pcs
-    fixedTotal = fixedR > 0 ? fixedR * pcs : baseTot
-  }
-  const box = Number(line.box_charges ?? 0) || 0
-  const stone = Number(line.stone_charges ?? 0) || 0
-  const baseSubtotal = metalCost + totalMcBase + fixedTotal + box + stone
+  const netWt = erpLineNetWeightGm(line)
+  const billedWt = netWt > 0 ? erpResolveBilledWeightGm(line, slab, netWt) : 0
   const metalDisc = manualSilverRateDiscountInr(line, slab, billedWt, rate, silverPerG)
-  const mcDisc = Math.max(0, Math.round(totalMcBase - totalMc))
-  const netSubtotal = Math.max(0, baseSubtotal - metalDisc - mcDisc)
-  const taxable = Math.round(netSubtotal)
-  const total =
-    gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : taxable
-  const gstRounded = total - taxable
-
-  const mcBefore =
-    baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : undefined
-
-  return {
-    metal: Math.round(metalCost),
-    mc: Math.round(totalMc),
-    mc_before_discount: mcBefore,
-    stone: stone + box,
-    cgst: gstRounded / 2,
-    sgst: gstRounded / 2,
-    taxable,
-    total,
-    rate_per_gram: rate > 0 ? rate : undefined,
-    net_weight: netWt,
-    billable_weight_gm: Math.round(billedWt * 1000) / 1000,
-    wastage_pct:
-      wastPct > 0 && !lineHasMetalSlabPctInput(line, slab) ? wastPct : undefined,
-  }
+  return computeWeightBasedRowBreakdown({
+    line,
+    slab,
+    metalRatePerG: rate,
+    gstPct,
+    metalRateDiscountInr: metalDisc,
+  })
 }
