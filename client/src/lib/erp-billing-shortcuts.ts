@@ -75,7 +75,7 @@ export function createManualBillLine(
     mc_type: null,
     box_charges: 0,
     stone_charges: 0,
-    metal_type: 'silver',
+    metal_type: category === 'gift' ? null : 'silver',
     fixed_price: null,
     unitInr: null,
     stock_piece_id: null,
@@ -318,8 +318,12 @@ export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[
   return [...head, ...STACKED_MANUAL_TAIL_ORDER]
 }
 
-export function isStackedManualFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
-  if (!isManualGridFieldVisible(field, line)) return false
+export function isStackedManualFieldVisible(
+  field: ManualBillGridField,
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab = 'R',
+): boolean {
+  if (!isManualGridFieldVisible(field, line, rateSlab)) return false
   if (field === 'size') return (line.designSizeOptions?.length ?? 0) > 0
   if (field === 'stone_charges') return lineHasFinishPicker(line)
   if (isGiftManualLine(line) && field === 'box_charges') {
@@ -331,13 +335,14 @@ export function isStackedManualFieldVisible(field: ManualBillGridField, line: Er
 export function nextStackedManualEntryField(
   current: ManualBillGridField,
   line: ErpBillLine,
+  rateSlab: ErpRateSlab = 'R',
 ): ManualBillGridField | null {
   const order = stackedManualFieldOrder(line)
   const idx = order.indexOf(current)
   if (idx < 0) return null
   for (let i = idx + 1; i < order.length; i += 1) {
     const key = order[i]!
-    if (isStackedManualFieldVisible(key, line)) return key
+    if (isStackedManualFieldVisible(key, line, rateSlab)) return key
   }
   return null
 }
@@ -345,9 +350,10 @@ export function nextStackedManualEntryField(
 export function nextManualEntryField(
   current: ManualBillGridField,
   line?: ErpBillLine,
+  rateSlab: ErpRateSlab = 'R',
 ): ManualBillGridField | null {
   const order = line ? entryFieldOrderForLine(line) : MANUAL_ENTRY_FIELD_ORDER
-  if (line) return nextVisibleManualEntryField(current, line, order)
+  if (line) return nextVisibleManualEntryField(current, line, order, rateSlab)
   const idx = order.indexOf(current)
   if (idx < 0 || idx >= order.length - 1) return null
   return order[idx + 1] ?? null

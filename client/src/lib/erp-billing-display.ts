@@ -1,5 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
 
 export function isGoldSlabRLine(line: ErpBillLine, slab: ErpRateSlab): boolean {
   return slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
@@ -33,6 +34,10 @@ export function billingMcDisplay(
 ): string | number {
   if (isGoldSlabRMcPricing(line, slab, goldSlabRShowMc) && line.displayMcInr != null && line.displayMcInr > 0) {
     return Math.round(line.displayMcInr)
+  }
+  if (slab !== 'R') {
+    const slabMc = pieceSlabMcRate(line, slab)
+    if (slabMc != null && Number(slabMc) > 0) return Math.round(Number(slabMc))
   }
   return line.mc_rate ?? ''
 }

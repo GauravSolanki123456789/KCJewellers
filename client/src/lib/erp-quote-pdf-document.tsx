@@ -13,9 +13,11 @@ import {
   lineHasMetalSlabPctInput,
 } from '@/lib/erp-metal-slab-field'
 import {
-  billingMcPdfTextWithSlabR,
+  billingMcPdfCatalogColumn,
+  billingMcPdfSlabRColumn,
   computeMcValueForPdf,
   groupBillLinesForSummaryPdf,
+  lineShowsMcRPdfColumn,
 } from '@/lib/erp-quote-pdf-summary'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
@@ -70,12 +72,16 @@ function buildPdfColumns(
   const showSlabPct = lines.some((l) => lineHasMetalSlabPctInput(l, rateSlab))
 
   const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
-  const hasMetalRate = lines.some(
-    (l) =>
+  const hasMetalRate = lines.some((l) => {
+    if (l.manualCategory === 'gift') return false
+    return (
       Number(l.ratePerGram) > 0 ||
       (String(l.metal_type || '').toLowerCase().startsWith('silver') &&
-        (Number(l.originalWeightGm ?? l.weightGm) || 0) > 0),
-  )
+        (Number(l.originalWeightGm ?? l.weightGm) || 0) > 0)
+    )
+  })
+  const showMcR =
+    rateSlab === 'R' && lines.some((line) => lineShowsMcRPdfColumn(line, rateSlab))
 
   const candidates: PdfCol[] = [
     { key: 'barcode', label: 'Barcode', w: '9%' },
@@ -92,6 +98,7 @@ function buildPdfColumns(
     { key: 'wast', label: 'W%', w: '3%' },
     { key: 'rate', label: 'Rate', w: '5%' },
     { key: 'mc', label: 'MC', w: '5%' },
+    ...(showMcR ? [{ key: 'mcR', label: 'MC R', w: '4%' }] : []),
     { key: 'mct', label: 'MCType', w: '5%' },
     { key: 'mcValue', label: 'MCValue', w: '5%' },
     { key: 'pcs', label: 'PCS', w: '3%' },
@@ -281,13 +288,16 @@ function cell(
     case 'wast':
       return String(billingWastageDisplay(line, rateSlab) || '—')
     case 'rate': {
+      if (line.manualCategory === 'gift') return '—'
       const r = Number(line.ratePerGram)
       if (Number.isFinite(r) && r > 0) return String(line.ratePerGram)
       if (line.rateLocked) return ''
       return '—'
     }
     case 'mc':
-      return billingMcPdfTextWithSlabR(line, rateSlab)
+      return billingMcPdfCatalogColumn(line, rateSlab)
+    case 'mcR':
+      return billingMcPdfSlabRColumn(line, rateSlab)
     case 'mct':
       return line.mc_type || '—'
     case 'mcValue': {
@@ -310,6 +320,7 @@ function cell(
     case 'stone':
       return line.stone_charges != null ? String(line.stone_charges) : '0'
     case 'metal':
+      if (line.manualCategory === 'gift') return '—'
       return line.metal_type || '—'
     case 'fixed':
       return line.fixed_price != null && line.fixed_price > 0 ? String(line.fixed_price) : '—'

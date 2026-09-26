@@ -1,5 +1,9 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+
+export function billingShowsMcSlabRColumn(slab: ErpRateSlab): boolean {
+  return slab === 'R'
+}
 import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 
 export type ManualBillGridField = keyof ErpBillLine | 'metal_slab_pct'
@@ -64,7 +68,15 @@ export function patchMetalSlabPct(
 }
 
 /** Skip box/finish cells hidden in stacked manual row (same rules as ErpBillingStackedRow). */
-export function isManualGridFieldVisible(field: ManualBillGridField, line: ErpBillLine): boolean {
+export function isManualGridFieldVisible(
+  field: ManualBillGridField,
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab = 'R',
+): boolean {
+  if (field === 'mc_rate_slab_r' && !billingShowsMcSlabRColumn(rateSlab)) return false
+  if (line.manualCategory === 'gift') {
+    if (field === 'ratePerGram' || field === 'metal_type') return false
+  }
   if (field === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
   if (field === 'stone_charges') return lineHasFinishPicker(line)
   if (field === 'fixed_price_r') {
@@ -77,12 +89,13 @@ export function nextVisibleManualEntryField(
   current: ManualBillGridField,
   line: ErpBillLine,
   order: ManualBillGridField[],
+  rateSlab: ErpRateSlab = 'R',
 ): ManualBillGridField | null {
   const idx = order.indexOf(current)
   if (idx < 0) return null
   for (let i = idx + 1; i < order.length; i += 1) {
     const key = order[i]!
-    if (isManualGridFieldVisible(key, line)) return key
+    if (isManualGridFieldVisible(key, line, rateSlab)) return key
   }
   return null
 }

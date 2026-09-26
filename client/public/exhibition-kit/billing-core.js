@@ -832,7 +832,7 @@ var KcExhibitionBillingModule = (() => {
       mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
       wastage_pct: product.wastage_pct ?? line.wastage_pct,
       purity: product.purity ?? line.purity,
-      metal_type: product.metal_type ?? line.metal_type ?? "silver",
+      metal_type: line.manualCategory === "gift" ? null : product.metal_type ?? line.metal_type ?? "silver",
       fixed_price: product.fixed_price ?? line.fixed_price,
       designSizeOptions: (product.sizes || []).length ? (product.sizes || []).map((s) => ({
         size_label: s.size_label,
@@ -947,6 +947,9 @@ var KcExhibitionBillingModule = (() => {
   }
 
   // src/lib/erp-metal-slab-field.ts
+  function billingShowsMcSlabRColumn(slab) {
+    return slab === "R";
+  }
   function metalSlabPctStorageKey(slab) {
     if (slab === "W") return "metal_slab_w_pct";
     if (slab === "F") return "metal_slab_f_pct";
@@ -984,7 +987,11 @@ var KcExhibitionBillingModule = (() => {
   function lineHasMetalSlabPctInput(line, slab) {
     return formatMetalSlabPctForDisplay(line, slab) !== "";
   }
-  function isManualGridFieldVisible(field, line) {
+  function isManualGridFieldVisible(field, line, rateSlab = "R") {
+    if (field === "mc_rate_slab_r" && !billingShowsMcSlabRColumn(rateSlab)) return false;
+    if (line.manualCategory === "gift") {
+      if (field === "ratePerGram" || field === "metal_type") return false;
+    }
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
     if (field === "stone_charges") return lineHasFinishPicker(line);
     if (field === "fixed_price_r") {
@@ -992,12 +999,12 @@ var KcExhibitionBillingModule = (() => {
     }
     return true;
   }
-  function nextVisibleManualEntryField(current, line, order) {
+  function nextVisibleManualEntryField(current, line, order, rateSlab = "R") {
     const idx = order.indexOf(current);
     if (idx < 0) return null;
     for (let i = idx + 1; i < order.length; i += 1) {
       const key = order[i];
-      if (isManualGridFieldVisible(key, line)) return key;
+      if (isManualGridFieldVisible(key, line, rateSlab)) return key;
     }
     return null;
   }
@@ -1584,7 +1591,7 @@ var KcExhibitionBillingModule = (() => {
       mc_type: null,
       box_charges: 0,
       stone_charges: 0,
-      metal_type: "silver",
+      metal_type: category === "gift" ? null : "silver",
       fixed_price: null,
       unitInr: null,
       stock_piece_id: null,
@@ -1715,9 +1722,9 @@ var KcExhibitionBillingModule = (() => {
   function entryFieldOrderForLine(line) {
     return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER;
   }
-  function nextManualEntryField(current, line) {
+  function nextManualEntryField(current, line, rateSlab = "R") {
     const order = line ? entryFieldOrderForLine(line) : MANUAL_ENTRY_FIELD_ORDER;
-    if (line) return nextVisibleManualEntryField(current, line, order);
+    if (line) return nextVisibleManualEntryField(current, line, order, rateSlab);
     const idx = order.indexOf(current);
     if (idx < 0 || idx >= order.length - 1) return null;
     return order[idx + 1] ?? null;

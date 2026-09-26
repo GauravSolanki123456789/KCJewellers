@@ -26,28 +26,32 @@ export function inferDesignStyleMetalType(style: {
     const norm = normalizeDesignMetalType(explicit)
     if (norm) return norm
   }
+  for (const sk of style.skus || []) {
+    const mt = String(sk.metal_type || '').toLowerCase().trim()
+    if (!mt) continue
+    if (mt.startsWith('gold')) return 'Gold'
+    if (mt.startsWith('silver')) return 'Silver'
+    if (mt.includes('diamond')) return 'Diamond'
+    if (mt.includes('platinum')) return 'Platinum'
+    if (mt.includes('gift') || mt.includes('plated')) return 'Gift Items'
+    const norm = normalizeDesignMetalType(mt)
+    if (norm) return norm
+  }
   const code = String(style.style_code || '').toUpperCase()
   if (code.includes('GIFT') || code.includes('PLATED')) return 'Gift Items'
   if (code.includes('GOLD') || code === '916') return 'Gold'
-  for (const sk of style.skus || []) {
-    const mt = String(sk.metal_type || '').toLowerCase()
-    if (mt.startsWith('gold')) return 'Gold'
-    if (mt.includes('gift') || mt.includes('plated')) return 'Gift Items'
-    if (mt.includes('diamond')) return 'Diamond'
-    if (mt.includes('platinum')) return 'Platinum'
-    if (mt.startsWith('silver') || mt) return 'Silver'
-  }
+  if (code.includes('SILVER')) return 'Silver'
   return 'Other'
 }
 
 export function normalizeDesignMetalType(raw: string): DesignMetalType | null {
   const t = raw.trim().toLowerCase()
   if (!t) return null
-  if (t.includes('gift') || t.includes('plated')) return 'Gift Items'
-  if (t.includes('diamond')) return 'Diamond'
-  if (t.includes('platinum')) return 'Platinum'
   if (t.startsWith('gold') || t === '916') return 'Gold'
   if (t.startsWith('silver')) return 'Silver'
+  if (t.includes('diamond')) return 'Diamond'
+  if (t.includes('platinum')) return 'Platinum'
+  if (t.includes('gift') || t.includes('plated')) return 'Gift Items'
   if (t === 'other') return 'Other'
   return 'Other'
 }

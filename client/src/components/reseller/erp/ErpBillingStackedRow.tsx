@@ -14,6 +14,7 @@ import { findDesignOptionLabel, lineHasFinishPicker } from '@/lib/erp-catalog-pr
 import { ERP_MC_TYPE_OPTIONS, normalizeMcTypeInput } from '@/lib/erp-mc-type-field'
 import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { billingShowsMcSlabRColumn, isManualGridFieldVisible } from '@/lib/erp-metal-slab-field'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { X } from 'lucide-react'
@@ -118,6 +119,7 @@ export function ErpBillingStackedRow({
   slabSettings,
 }: Props) {
   const gift = isGiftManualLine(line)
+  const giftManual = line.manualCategory === 'gift'
   const skuValue = String(line.sku || '')
   const styleValue = String(line.style_code || '')
   const skuOptions = uniqueSkusFromCatalog(catalog).map((x) => x.sku)
@@ -269,7 +271,9 @@ export function ErpBillingStackedRow({
 
           <>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                {WEIGHT_BAND.map((f) => (
+                {WEIGHT_BAND.filter((f) =>
+                  isManualGridFieldVisible(f.key, line, rateSlab),
+                ).map((f) => (
                   <label
                     key={f.key}
                     className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800"
@@ -281,9 +285,12 @@ export function ErpBillingStackedRow({
               </div>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {CHARGE_BAND.filter((f) => {
+                  if (!isManualGridFieldVisible(f.key, line, rateSlab)) return false
                   if (f.key === 'stone_charges') return lineHasFinishPicker(line)
                   if (f.key === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
                   if (f.key === 'fixed_price_r') return gift || !!line.mrpMode
+                  if (f.key === 'mc_rate_slab_r') return billingShowsMcSlabRColumn(rateSlab)
+                  if (giftManual && (f.key === 'metal_type' || f.key === 'ratePerGram')) return false
                   return true
                 }).map((f) => (
                   <label

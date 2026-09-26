@@ -192,7 +192,10 @@ export function patchLineFromCatalogProduct(
     mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
     wastage_pct: product.wastage_pct ?? line.wastage_pct,
     purity: product.purity ?? line.purity,
-    metal_type: product.metal_type ?? line.metal_type ?? 'silver',
+    metal_type:
+      line.manualCategory === 'gift'
+        ? null
+        : product.metal_type ?? line.metal_type ?? 'silver',
     fixed_price: product.fixed_price ?? line.fixed_price,
     designSizeOptions: (product.sizes || []).length
       ? (product.sizes || []).map((s) => ({

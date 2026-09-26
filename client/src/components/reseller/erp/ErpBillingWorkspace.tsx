@@ -105,6 +105,7 @@ import { ErpGstinFetchField } from '@/components/reseller/erp/ErpGstinFetchField
 import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
+  billingShowsMcSlabRColumn,
   isManualGridFieldVisible,
   patchMetalSlabPct,
   normalizeMetalSlabPctForUiStorage,
@@ -469,7 +470,13 @@ export function ErpBillingWorkspace() {
     return `${prefix}PDF estimate`
   }, [editingBillId, quoteOutputMode])
 
-  const tableCols = useMemo(() => TABLE_COLS, [])
+  const tableCols = useMemo(
+    () =>
+      TABLE_COLS.filter(
+        (c) => c.key !== 'mc_rate_slab_r' || billingShowsMcSlabRColumn(rateSlab),
+      ),
+    [rateSlab],
+  )
 
   useEffect(() => {
     void fetchGstInvoiceItems().then(setGstInvoiceItems)
@@ -634,7 +641,10 @@ export function ErpBillingWorkspace() {
       const silverMetal = String(line.metal_type || '').toLowerCase().startsWith('silver')
       const silverOffset =
         slab === 'R' ? Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0) : 0
-      if (silverMetal && slab === 'R' && silverOffset > 0) {
+      if (line.manualCategory === 'gift' && !isWeightBasedSilverGiftLine(line)) {
+        next.ratePerGram = null
+        next.metal_type = null
+      } else if (silverMetal && slab === 'R' && silverOffset > 0) {
         next.ratePerGram = resolveErpSilverMetalRatePerG(slab, s, wholesaleSilver, silverOffset)
       } else if (!line.rateLocked) {
         const r = bd.rate_per_gram
@@ -1501,7 +1511,10 @@ export function ErpBillingWorkspace() {
               sku,
               name: '',
               purity: num('purity') ?? l.purity,
-              metal_type: String(d.metal_type || l.metal_type || 'silver'),
+              metal_type:
+                l.manualCategory === 'gift'
+                  ? null
+                  : String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
               mc_rate: num('mc_rate') ?? l.mc_rate,
               mc_rate_catalog: num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate,
@@ -2067,6 +2080,7 @@ export function ErpBillingWorkspace() {
       case 'stone_charges':
         return line.stone_charges ?? 0
       case 'metal_type':
+        if (line.manualCategory === 'gift') return ''
         return line.metal_type || 'silver'
       case 'fixed_price':
         if (
@@ -2209,7 +2223,7 @@ export function ErpBillingWorkspace() {
         }
         workingLine = merged
       }
-      const nextKey = nextBillTableField(tableCols, String(field), workingLine)
+      const nextKey = nextBillTableField(tableCols, String(field), workingLine, rateSlab)
       if (nextKey) {
         focusManualCell(lineKey, nextKey as ManualBillGridField)
         return
@@ -3391,7 +3405,7 @@ export function ErpBillingWorkspace() {
 
                         if (
                           col.key === 'fixed_price_r' &&
-                          !isManualGridFieldVisible('fixed_price_r', line)
+                          !isManualGridFieldVisible('fixed_price_r', line, rateSlab)
                         ) {
                           return (
                             <td

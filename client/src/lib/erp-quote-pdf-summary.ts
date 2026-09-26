@@ -30,22 +30,34 @@ function effectiveMcRatePerUnitForPdf(line: ErpBillLine, rateSlab: ErpRateSlab):
   return mc
 }
 
-/** MC column: catalog MC + slab MC R when both exist (manual/scanned rows with MC R). */
-export function billingMcPdfTextWithSlabR(
+/** MC column in PDF — catalog MC on slab R; effective slab MC on W/F. */
+export function billingMcPdfCatalogColumn(
   line: ErpBillLine,
   rateSlab: ErpRateSlab,
   goldSlabRShowMc = true,
 ): string {
-  const slabMc = pieceSlabMcRate(line, rateSlab)
-  if (slabMc == null || !(Number(slabMc) > 0)) {
-    return billingMcPdfText(line, rateSlab, goldSlabRShowMc)
+  if (rateSlab !== 'R') {
+    const slabMc = pieceSlabMcRate(line, rateSlab)
+    if (slabMc != null && Number(slabMc) > 0) return String(Math.round(Number(slabMc)))
   }
+  return billingMcPdfText(line, rateSlab, goldSlabRShowMc)
+}
+
+/** MC R column in PDF (slab R discounted MC rate only). */
+export function billingMcPdfSlabRColumn(line: ErpBillLine, rateSlab: ErpRateSlab): string {
+  if (rateSlab !== 'R') return '—'
+  const slabMc = pieceSlabMcRate(line, 'R')
+  if (slabMc == null || !(Number(slabMc) > 0)) return '—'
   const catalog = Number(line.mc_rate_catalog ?? line.mc_rate ?? 0)
   const slabRounded = Math.round(Number(slabMc))
-  if (catalog > 0 && Math.round(catalog) !== slabRounded) {
-    return `${Math.round(catalog)} · MC R ${slabRounded}`
-  }
+  if (catalog > 0 && Math.round(catalog) === slabRounded) return '—'
   return String(slabRounded)
+}
+
+export function lineShowsMcRPdfColumn(line: ErpBillLine, rateSlab: ErpRateSlab): boolean {
+  if (rateSlab !== 'R') return false
+  const text = billingMcPdfSlabRColumn(line, rateSlab)
+  return text !== '—' && text.trim() !== ''
 }
 
 export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): number | null {
