@@ -675,8 +675,20 @@ var KcExhibitionBillingModule = (() => {
     return line.mc_rate_slab_r != null || line.mc_rate_slab_w != null || line.mc_rate_slab_f != null || line.metal_slab_r_pct != null || line.metal_slab_w_pct != null || line.metal_slab_f_pct != null;
   }
   function pieceSlabMcRate(line, slab) {
-    if (slab === "W") return line.mc_rate_slab_w ?? line.mc_rate_slab_r ?? line.mc_rate ?? null;
-    if (slab === "F") return line.mc_rate_slab_f ?? line.mc_rate_slab_w ?? line.mc_rate ?? null;
+    if (slab === "W") {
+      if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
+        return Number(line.mc_rate_slab_w);
+      }
+      if (line.manualEntry) return null;
+      return line.mc_rate_slab_r ?? line.mc_rate ?? null;
+    }
+    if (slab === "F") {
+      if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
+        return Number(line.mc_rate_slab_f);
+      }
+      if (line.manualEntry) return null;
+      return line.mc_rate_slab_w ?? line.mc_rate ?? null;
+    }
     return line.mc_rate_slab_r ?? line.mc_rate ?? null;
   }
   function pieceSlabMetalFraction(line, slab) {
@@ -989,7 +1001,7 @@ var KcExhibitionBillingModule = (() => {
   }
   function isManualGridFieldVisible(field, line, rateSlab = "R") {
     if (field === "mc_rate_slab_r" && !billingShowsMcSlabRColumn(rateSlab)) return false;
-    if (line.manualCategory === "gift") {
+    if (line.manualCategory === "gift" || line.mrpMode) {
       if (field === "ratePerGram" || field === "metal_type") return false;
     }
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
@@ -1017,6 +1029,7 @@ var KcExhibitionBillingModule = (() => {
   }
   function manualMcDiscountPerUnit(line, slab) {
     if (!line.manualEntry) return 0;
+    if (slab === "W" || slab === "F") return 0;
     const slabMc = pieceSlabMcRate(line, slab);
     if (slabMc != null && Number(slabMc) > 0) return 0;
     const field = mcSlabFieldForBillingSlab(slab);

@@ -1955,34 +1955,61 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
+    async function findInStockPieceByBarcodeOrRfid(userId, rawCode) {
+        const code = String(rawCode || '').trim();
+        if (!code) return null;
+        let rows = await query(
+            `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
+             WHERE reseller_user_id = $1 AND barcode = $2
+             LIMIT 1`,
+            [userId, code],
+        );
+        if (!rows.length) {
+            const rfidTag = poshRfid.normalizeRfidTag(code);
+            if (rfidTag) {
+                rows = await query(
+                    `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
+                     LIMIT 1`,
+                    [userId, rfidTag],
+                );
+            }
+        }
+        return rows[0] || null;
+    }
+
+    app.get('/api/reseller/erp/stock-pieces/resolve-tag', checkAuth, erpGate, async (req, res) => {
+        try {
+            const rawCode = String(req.query.code || req.query.barcode || '').trim();
+            if (!rawCode) return res.status(400).json({ error: 'code required' });
+            const piece = await findInStockPieceByBarcodeOrRfid(req.user.id, rawCode);
+            if (!piece) {
+                return res.status(404).json({
+                    error: `No in-stock tag found for "${rawCode}" (try barcode or RFID tag).`,
+                });
+            }
+            res.json({
+                barcode: piece.barcode,
+                rfid_tag: piece.rfid_tag || null,
+                status: piece.status,
+            });
+        } catch (e) {
+            console.error('erp stock resolve tag:', e);
+            res.status(500).json({ error: e.message || 'Failed to resolve tag' });
+        }
+    });
+
     app.post('/api/reseller/erp/stock-pieces/delete-by-barcode', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const rawCode = String(req.body.barcode || req.body.code || '').trim();
             if (!rawCode) return res.status(400).json({ error: 'barcode required' });
 
-            let rows = await query(
-                `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
-                 WHERE reseller_user_id = $1 AND barcode = $2
-                 LIMIT 1`,
-                [req.user.id, rawCode],
-            );
-            if (!rows.length) {
-                const rfidTag = poshRfid.normalizeRfidTag(rawCode);
-                if (rfidTag) {
-                    rows = await query(
-                        `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
-                         WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
-                         LIMIT 1`,
-                        [req.user.id, rfidTag],
-                    );
-                }
-            }
-            if (!rows.length) {
+            const piece = await findInStockPieceByBarcodeOrRfid(req.user.id, rawCode);
+            if (!piece) {
                 return res.status(404).json({
                     error: `No in-stock tag found for "${rawCode}" (try barcode or RFID tag).`,
                 });
             }
-            const piece = rows[0];
             if (piece.status === 'sold') {
                 return res.status(400).json({ error: 'This tag is already sold and cannot be deleted.' });
             }

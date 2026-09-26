@@ -540,7 +540,11 @@ export function ErpBillingWorkspace() {
       if (isPiecePricedBillLine(line)) {
         const slab = opts?.slab ?? rateSlab
         const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings)
-        return { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) }
+        const priced = { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) }
+        if (priced.manualCategory === 'gift' || priced.mrpMode) {
+          return { ...priced, ratePerGram: null, metal_type: null }
+        }
+        return priced
       }
       const slab = opts?.slab ?? rateSlab
       const rates = opts?.rates ?? displayRates
@@ -1505,6 +1509,12 @@ export function ErpBillingWorkspace() {
               const n = Number(v)
               return Number.isFinite(n) ? n : null
             }
+            const slabMc =
+              rateSlab === 'W'
+                ? num('mc_rate_slab_w')
+                : rateSlab === 'F'
+                  ? num('mc_rate_slab_f')
+                  : num('mc_rate')
             return recalcLine({
               ...l,
               style_code: styleCode,
@@ -1516,7 +1526,10 @@ export function ErpBillingWorkspace() {
                   ? null
                   : String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
-              mc_rate: num('mc_rate') ?? l.mc_rate,
+              mc_rate:
+                rateSlab === 'R'
+                  ? (num('mc_rate') ?? l.mc_rate)
+                  : (slabMc ?? null),
               mc_rate_catalog: num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate,
               mc_type: normalizeMcTypeInput(d.mc_type) ?? l.mc_type,
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
@@ -1563,7 +1576,7 @@ export function ErpBillingWorkspace() {
         afterApply?.()
       }
     },
-    [recalcLine],
+    [recalcLine, rateSlab],
   )
 
   const unlockLineRates = (list: ErpBillLine[]) =>
@@ -2080,7 +2093,7 @@ export function ErpBillingWorkspace() {
       case 'stone_charges':
         return line.stone_charges ?? 0
       case 'metal_type':
-        if (line.manualCategory === 'gift') return ''
+        if (line.manualCategory === 'gift' || line.mrpMode) return ''
         return line.metal_type || 'silver'
       case 'fixed_price':
         if (
@@ -2123,11 +2136,17 @@ export function ErpBillingWorkspace() {
       else updateLine(idx, patch)
       return
     }
-    const storageKey =
+    let storageKey: keyof ErpBillLine | 'metal_slab_pct' =
       k === 'mc_rate_slab_r' ? mcSlabFieldForBillingSlab(rateSlab) : k
+    if (k === 'mc_rate' && (rateSlab === 'W' || rateSlab === 'F')) {
+      storageKey = mcSlabFieldForBillingSlab(rateSlab)
+    }
     const patch: Partial<ErpBillLine> = {
       [storageKey]: parsed,
     } as Partial<ErpBillLine>
+    if (k === 'mc_rate' && (rateSlab === 'W' || rateSlab === 'F')) {
+      patch.mc_rate = parsed
+    }
     if (k === 'weightGm') {
       patch.originalWeightGm = parsed
       patch.weightGm = parsed

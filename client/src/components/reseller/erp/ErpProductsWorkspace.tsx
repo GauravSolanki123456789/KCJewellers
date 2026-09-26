@@ -354,22 +354,57 @@ export function ErpProductsWorkspace() {
     }
   }
 
+  const formatStockTagPairLabel = (scanned: string, barcode?: string | null, rfid?: string | null) => {
+    const parts: string[] = []
+    const bc = String(barcode || '').trim()
+    const rf = String(rfid || '').trim()
+    if (bc) parts.push(`barcode ${bc}`)
+    if (rf) parts.push(`RFID ${rf}`)
+    if (!parts.length) return scanned
+    return `${scanned} (${parts.join(' · ')})`
+  }
+
   const deleteTagByBarcode = async (raw?: string) => {
     const code = String(raw ?? tagDeleteCode).trim()
     if (!code || tagDeleteBusy) return
-    if (
-      !(await appConfirm(
-        `Delete tag "${code}"?\n\nThis permanently removes the piece from stock across all uploads.`,
-      ))
-    ) {
-      return
-    }
     setTagDeleteBusy(true)
     setMsg(null)
+    let resolvedBarcode: string | null = null
+    let resolvedRfid: string | null = null
     try {
-      await axios.post('/api/reseller/erp/stock-pieces/delete-by-barcode', { barcode: code })
+      const lookup = await axios.get<{ barcode: string; rfid_tag?: string | null }>(
+        '/api/reseller/erp/stock-pieces/resolve-tag',
+        { params: { code } },
+      )
+      resolvedBarcode = lookup.data.barcode || null
+      resolvedRfid = lookup.data.rfid_tag ?? null
+    } catch (e) {
+      setTagDeleteBusy(false)
+      setMsgTone('err')
+      setMsg(erpErr(e))
+      return
+    }
+    const tagLabel = formatStockTagPairLabel(code, resolvedBarcode, resolvedRfid)
+    if (
+      !(await appConfirm(
+        `Delete tag "${tagLabel}"?\n\nThis permanently removes the piece from stock across all uploads.`,
+      ))
+    ) {
+      setTagDeleteBusy(false)
+      return
+    }
+    try {
+      const del = await axios.post<{ barcode?: string; rfid_tag?: string | null }>(
+        '/api/reseller/erp/stock-pieces/delete-by-barcode',
+        { barcode: code },
+      )
       setMsgTone('ok')
-      setMsg(`Tag "${code}" deleted successfully — stock removed from database.`)
+      const doneLabel = formatStockTagPairLabel(
+        code,
+        del.data.barcode ?? resolvedBarcode,
+        del.data.rfid_tag ?? resolvedRfid,
+      )
+      setMsg(`Tag "${doneLabel}" deleted successfully — stock removed from database.`)
       setTagDeleteCode('')
       tagDeleteRef.current?.focus()
       if (activeBatchId) await loadBatch(activeBatchId)

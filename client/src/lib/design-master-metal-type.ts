@@ -21,6 +21,15 @@ export function inferDesignStyleMetalType(style: {
   metal_type?: string | null
   skus?: { metal_type?: string | null }[]
 }): DesignMetalType {
+  /** SKU metal (e.g. silver gift articles) wins over style label "Gift Items". */
+  for (const sk of style.skus || []) {
+    const mt = String(sk.metal_type || '').toLowerCase().trim()
+    if (!mt) continue
+    if (mt.startsWith('gold')) return 'Gold'
+    if (mt.startsWith('silver')) return 'Silver'
+    if (mt.includes('diamond')) return 'Diamond'
+    if (mt.includes('platinum')) return 'Platinum'
+  }
   const explicit = String(style.metal_type || '').trim()
   if (explicit) {
     const norm = normalizeDesignMetalType(explicit)
@@ -29,10 +38,6 @@ export function inferDesignStyleMetalType(style: {
   for (const sk of style.skus || []) {
     const mt = String(sk.metal_type || '').toLowerCase().trim()
     if (!mt) continue
-    if (mt.startsWith('gold')) return 'Gold'
-    if (mt.startsWith('silver')) return 'Silver'
-    if (mt.includes('diamond')) return 'Diamond'
-    if (mt.includes('platinum')) return 'Platinum'
     if (mt.includes('gift') || mt.includes('plated')) return 'Gift Items'
     const norm = normalizeDesignMetalType(mt)
     if (norm) return norm

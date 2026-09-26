@@ -1,6 +1,11 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { billingMcDisplay, billingMcPdfText, isGoldSlabRLine } from '@/lib/erp-billing-display'
+import {
+  billingMcDisplay,
+  billingMcPdfText,
+  isGoldSlabRMcPricing,
+  isGoldSlabRLine,
+} from '@/lib/erp-billing-display'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
 import { erpMcBillingNetGm } from '@/lib/erp-manual-as-line-pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
@@ -39,6 +44,11 @@ export function billingMcPdfCatalogColumn(
   if (rateSlab !== 'R') {
     const slabMc = pieceSlabMcRate(line, rateSlab)
     if (slabMc != null && Number(slabMc) > 0) return String(Math.round(Number(slabMc)))
+    return '—'
+  }
+  if (!isGoldSlabRMcPricing(line, rateSlab, goldSlabRShowMc)) {
+    const catalog = Number(line.mc_rate_catalog ?? line.mc_rate ?? 0)
+    if (catalog > 0) return String(Math.round(catalog))
   }
   return billingMcPdfText(line, rateSlab, goldSlabRShowMc)
 }
@@ -46,10 +56,10 @@ export function billingMcPdfCatalogColumn(
 /** MC R column in PDF (slab R discounted MC rate only). */
 export function billingMcPdfSlabRColumn(line: ErpBillLine, rateSlab: ErpRateSlab): string {
   if (rateSlab !== 'R') return '—'
-  const slabMc = pieceSlabMcRate(line, 'R')
-  if (slabMc == null || !(Number(slabMc) > 0)) return '—'
+  const slabR = line.mc_rate_slab_r
+  if (slabR == null || !Number.isFinite(Number(slabR)) || !(Number(slabR) > 0)) return '—'
   const catalog = Number(line.mc_rate_catalog ?? line.mc_rate ?? 0)
-  const slabRounded = Math.round(Number(slabMc))
+  const slabRounded = Math.round(Number(slabR))
   if (catalog > 0 && Math.round(catalog) === slabRounded) return '—'
   return String(slabRounded)
 }

@@ -19,6 +19,7 @@ import {
   groupBillLinesForSummaryPdf,
   lineShowsMcRPdfColumn,
 } from '@/lib/erp-quote-pdf-summary'
+import { isPiecePricedBillLine } from '@/lib/erp-billing-pricing'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
@@ -73,7 +74,7 @@ function buildPdfColumns(
 
   const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
   const hasMetalRate = lines.some((l) => {
-    if (l.manualCategory === 'gift') return false
+    if (l.manualCategory === 'gift' || l.mrpMode || isPiecePricedBillLine(l)) return false
     return (
       Number(l.ratePerGram) > 0 ||
       (String(l.metal_type || '').toLowerCase().startsWith('silver') &&
@@ -288,7 +289,7 @@ function cell(
     case 'wast':
       return String(billingWastageDisplay(line, rateSlab) || '—')
     case 'rate': {
-      if (line.manualCategory === 'gift') return '—'
+      if (line.manualCategory === 'gift' || line.mrpMode || isPiecePricedBillLine(line)) return '—'
       const r = Number(line.ratePerGram)
       if (Number.isFinite(r) && r > 0) return String(line.ratePerGram)
       if (line.rateLocked) return ''
@@ -320,7 +321,7 @@ function cell(
     case 'stone':
       return line.stone_charges != null ? String(line.stone_charges) : '0'
     case 'metal':
-      if (line.manualCategory === 'gift') return '—'
+      if (line.manualCategory === 'gift' || line.mrpMode || isPiecePricedBillLine(line)) return '—'
       return line.metal_type || '—'
     case 'fixed':
       return line.fixed_price != null && line.fixed_price > 0 ? String(line.fixed_price) : '—'

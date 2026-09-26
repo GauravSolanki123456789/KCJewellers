@@ -74,7 +74,7 @@ export function isManualGridFieldVisible(
   rateSlab: ErpRateSlab = 'R',
 ): boolean {
   if (field === 'mc_rate_slab_r' && !billingShowsMcSlabRColumn(rateSlab)) return false
-  if (line.manualCategory === 'gift') {
+  if (line.manualCategory === 'gift' || line.mrpMode) {
     if (field === 'ratePerGram' || field === 'metal_type') return false
   }
   if (field === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2

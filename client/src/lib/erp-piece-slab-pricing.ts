@@ -30,8 +30,20 @@ export function lineHasPieceSlabFields(line: ErpBillLine): boolean {
 }
 
 export function pieceSlabMcRate(line: ErpBillLine, slab: ErpRateSlab): number | null {
-  if (slab === 'W') return line.mc_rate_slab_w ?? line.mc_rate_slab_r ?? line.mc_rate ?? null
-  if (slab === 'F') return line.mc_rate_slab_f ?? line.mc_rate_slab_w ?? line.mc_rate ?? null
+  if (slab === 'W') {
+    if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
+      return Number(line.mc_rate_slab_w)
+    }
+    if (line.manualEntry) return null
+    return line.mc_rate_slab_r ?? line.mc_rate ?? null
+  }
+  if (slab === 'F') {
+    if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
+      return Number(line.mc_rate_slab_f)
+    }
+    if (line.manualEntry) return null
+    return line.mc_rate_slab_w ?? line.mc_rate ?? null
+  }
   return line.mc_rate_slab_r ?? line.mc_rate ?? null
 }
 
