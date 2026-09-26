@@ -35,11 +35,29 @@ export function manualMcDiscountPerUnit(line: ErpBillLine, slab: ErpRateSlab): n
   return Number.isFinite(v) && v > 0 ? v : 0
 }
 
+/** Catalog / list MC before slab — avoids treating metal ₹/g as MC when fields get conflated. */
+export function resolveManualBaseMcRatePerUnit(line: ErpBillLine): number {
+  const catalog = Number(line.mc_rate_catalog ?? 0) || 0
+  const stored = Number(line.mc_rate ?? 0) || 0
+  const metalRate = Number(line.ratePerGram ?? 0) || 0
+  if (catalog > 0) {
+    if (stored <= 0) return catalog
+    if (metalRate > 0 && Math.abs(stored - metalRate) < 0.01) return catalog
+    if (catalog > stored) return catalog
+  }
+  return stored
+}
+
 /** Billable MC ₹/gm (or ₹/pc) — MC R/W/F matches stock piece slab when set. */
 export function manualEffectiveMcRatePerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
-  const slabMc = pieceSlabMcRate(line, slab)
+  const baseMc = resolveManualBaseMcRatePerUnit(line)
+  const lineForSlab: ErpBillLine =
+    baseMc > 0 && baseMc !== Number(line.mc_rate ?? 0)
+      ? { ...line, mc_rate: baseMc }
+      : line
+  const slabMc = pieceSlabMcRate(lineForSlab, slab)
   if (slabMc != null && Number(slabMc) > 0) return Number(slabMc)
-  const base = Number(line.mc_rate ?? 0) || 0
+  const base = baseMc > 0 ? baseMc : Number(line.mc_rate ?? 0) || 0
   if (base <= 0) return 0
   const disc = manualMcDiscountPerUnit(line, slab)
   return disc > 0 ? Math.max(0, base - disc) : base
@@ -150,7 +168,7 @@ export function computeManualAsLineBreakdown(
   )
   const metalCost = rate > 0 ? billedWt * rate : 0
 
-  const baseMcRate = Number(line.mc_rate ?? 0) || 0
+  const baseMcRate = resolveManualBaseMcRatePerUnit(line)
   const effMcRate = manualEffectiveMcRatePerUnit(line, slab)
   const pcs = Math.max(1, Number(line.qty) || 1)
   const perGm = isMcPerGmBillingType(line.mc_type)
@@ -166,10 +184,9 @@ export function computeManualAsLineBreakdown(
   }
   const box = Number(line.box_charges ?? 0) || 0
   const stone = Number(line.stone_charges ?? 0) || 0
-  const baseSubtotal = metalCost + totalMcBase + fixedTotal + box + stone
   const metalDisc = manualSilverRateDiscountInr(line, slab, billedWt, rate, silverPerG)
-  const mcDisc = Math.max(0, Math.round(totalMcBase - totalMc))
-  const netSubtotal = Math.max(0, baseSubtotal - metalDisc - mcDisc)
+  const baseSubtotal = metalCost + totalMc + fixedTotal + box + stone
+  const netSubtotal = Math.max(0, baseSubtotal - metalDisc)
   const taxable = Math.round(netSubtotal)
   const total =
     gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : taxable

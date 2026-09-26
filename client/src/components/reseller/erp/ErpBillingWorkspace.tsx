@@ -632,7 +632,7 @@ export function ErpBillingWorkspace() {
       const silverMetal = String(line.metal_type || '').toLowerCase().startsWith('silver')
       const silverOffset =
         slab === 'R' ? Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0) : 0
-      if (silverMetal && slab === 'R' && silverOffset > 0) {
+      if (silverMetal && slab === 'R' && silverOffset > 0 && !line.rateLocked) {
         next.ratePerGram = resolveErpSilverMetalRatePerG(slab, s, wholesaleSilver, silverOffset)
       } else if (!line.rateLocked) {
         const r = bd.rate_per_gram
@@ -1761,7 +1761,9 @@ export function ErpBillingWorkspace() {
     billType: 'sale' | 'estimate',
     status: string,
     extra?: { bill_number?: string; placeOfSupply?: string },
+    linesForBill?: ErpBillLine[],
   ) => {
+    const billLines = linesForBill ?? lines
     const billTotalInr = resolveBillTotal(billType)
     return {
     bill_type: billType,
@@ -1772,7 +1774,7 @@ export function ErpBillingWorkspace() {
     status,
     ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
-    lines: lines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
+    lines: billLines.map((l) => ({ ...l, lineTotalInr: l.lineTotalInr ?? 0 })),
     session: {
       ...buildErpBillSession({
         rateSlab,
@@ -1783,7 +1785,7 @@ export function ErpBillingWorkspace() {
         displayRates,
         mobile,
         address,
-        lines,
+        lines: billLines,
         advancePaidInr: parsedAdvance,
         pan: customerPan,
         customerGst,
@@ -1824,10 +1826,15 @@ export function ErpBillingWorkspace() {
   ): Promise<ErpBill | null> => {
     if (saveBusy || lines.length === 0) return null
     setSaveBusy(true)
+    const committedLines = lines.map((l, idx) =>
+      applyLineNumericDrafts(l, l.code || `manual-${idx}`),
+    )
+    committedLines.forEach((l, idx) => clearLineNumericDrafts(l.code || `manual-${idx}`))
+    setLines(committedLines)
     const payload = buildPayload(billType, status, {
       bill_number: opts?.bill_number,
       placeOfSupply: opts?.placeOfSupply,
-    })
+    }, committedLines)
     try {
       let bill: ErpBill
       if (editingBillId && billType === 'estimate') {
@@ -2112,6 +2119,9 @@ export function ErpBillingWorkspace() {
     const patch: Partial<ErpBillLine> = {
       [storageKey]: parsed,
     } as Partial<ErpBillLine>
+    if (k === 'mc_rate' && parsed != null) {
+      patch.mc_rate_catalog = line.mc_rate_catalog ?? parsed
+    }
     if (k === 'weightGm') {
       patch.originalWeightGm = parsed
       patch.weightGm = parsed
@@ -2161,11 +2171,63 @@ export function ErpBillingWorkspace() {
     [],
   )
 
-  const collapseManualRow = useCallback((idx: number) => {
-    setLines((prev) =>
-      prev.map((l, i) => (i === idx ? { ...l, manualEntryOpen: false } : l)),
-    )
+  const applyLineNumericDrafts = useCallback(
+    (line: ErpBillLine, lineKey: string): ErpBillLine => {
+      let merged: ErpBillLine = { ...line }
+      let touched = false
+      for (const k of NUMERIC_EDIT_KEYS) {
+        const refKey = `${lineKey}-${String(k)}`
+        const draft = cellDraftsRef.current[refKey]
+        if (draft === undefined) continue
+        touched = true
+        const parsed = parseNumericCellValue(draft)
+        const storageKey =
+          k === 'mc_rate_slab_r' ? mcSlabFieldForBillingSlab(rateSlab) : k
+        if (k === 'weightGm') {
+          merged.weightGm = parsed
+          merged.originalWeightGm = parsed
+        } else if (k === 'metal_slab_pct') {
+          merged = { ...merged, ...patchMetalSlabPct(rateSlab, parsed) }
+        } else if (k === 'ratePerGram') {
+          merged.ratePerGram = parsed
+          merged.rateLocked = true
+        } else {
+          merged = { ...merged, [storageKey]: parsed } as ErpBillLine
+        }
+      }
+      if (!touched) return line
+      if (line.manualEntry) {
+        merged = { ...merged, ...applyManualWeightPatch(merged, {}) }
+      }
+      return recalcLine(merged)
+    },
+    [rateSlab, recalcLine],
+  )
+
+  const clearLineNumericDrafts = useCallback((lineKey: string) => {
+    setCellDrafts((prev) => {
+      const next = { ...prev }
+      for (const k of NUMERIC_EDIT_KEYS) {
+        delete next[`${lineKey}-${String(k)}`]
+      }
+      return next
+    })
   }, [])
+
+  const collapseManualRow = useCallback(
+    (idx: number) => {
+      setLines((prev) =>
+        prev.map((l, i) => {
+          if (i !== idx) return l
+          const lineKey = l.code || `manual-${idx}`
+          const committed = applyLineNumericDrafts(l, lineKey)
+          clearLineNumericDrafts(lineKey)
+          return { ...committed, manualEntryOpen: false }
+        }),
+      )
+    },
+    [applyLineNumericDrafts, clearLineNumericDrafts],
+  )
 
   const advanceBillField = useCallback(
     (lineKey: string, field: ManualBillGridField, line: ErpBillLine, idx: number) => {
@@ -2196,8 +2258,13 @@ export function ErpBillingWorkspace() {
             merged.originalWeightGm = parsed
           } else if (k === 'metal_slab_pct') {
             Object.assign(merged, patchMetalSlabPct(rateSlab, parsed))
+          } else if (k === 'ratePerGram') {
+            merged.ratePerGram = parsed
+            merged.rateLocked = true
           } else {
-            merged = { ...merged, [k]: parsed } as ErpBillLine
+            const storageKey =
+              k === 'mc_rate_slab_r' ? mcSlabFieldForBillingSlab(rateSlab) : k
+            merged = { ...merged, [storageKey]: parsed } as ErpBillLine
           }
         }
         const weightPatch = applyManualWeightPatch(merged, {})
