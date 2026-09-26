@@ -5,12 +5,6 @@
  */
 import { isMcPerPiece, type PriceBreakdown } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import {
-  computeWeightBasedRowBreakdown,
-  erpBaseMcPerUnit,
-  erpLineNetWeightGm,
-  erpMcDiscountPerUnit,
-} from '@/lib/erp-weight-row-pricing'
 
 type ErpRateSlab = 'R' | 'W' | 'F'
 
@@ -79,6 +73,8 @@ export function resolveErpLineSilverMetalRatePerG(
   wholesaleSilver?: number | null,
   silverRateOffsetPerG = 0,
 ): number {
+  const explicit = Number(line.ratePerGram)
+  if (Number.isFinite(explicit) && explicit > 0) return explicit
   const locked = Number(line.ratePerGram)
   if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
   return resolveErpSilverMetalRatePerG(
@@ -109,6 +105,8 @@ export function computeErpPieceSlabBreakdown(
   silverRateOffsetPerG = 0,
   mcDiscountPct = 0,
 ): PriceBreakdown {
+  const netWt = line.originalWeightGm ?? line.weightGm ?? 0
+  const billWt = pieceSlabBillableWeight(line, slab)
   const metalRate = resolveErpLineSilverMetalRatePerG(
     line,
     slab,
@@ -116,25 +114,6 @@ export function computeErpPieceSlabBreakdown(
     wholesaleSilver,
     silverRateOffsetPerG,
   )
-  const hasExplicitMc =
-    erpBaseMcPerUnit(line) > 0 || erpMcDiscountPerUnit(line, slab) > 0
-
-  if (hasExplicitMc) {
-    const stub = {
-      ...line,
-      originalWeightGm: erpLineNetWeightGm(line),
-      weightGm: erpLineNetWeightGm(line),
-    }
-    return computeWeightBasedRowBreakdown({
-      line: stub,
-      slab,
-      metalRatePerG: metalRate,
-      gstPct,
-    })
-  }
-
-  const netWt = erpLineNetWeightGm(line)
-  const billWt = pieceSlabBillableWeight(line, slab)
   const mcRate = Number(pieceSlabMcRate(line, slab) ?? 0) || 0
   const qty = line.qty ?? 1
   const stone = Number(line.stone_charges || 0) || 0

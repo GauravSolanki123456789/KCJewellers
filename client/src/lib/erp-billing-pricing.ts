@@ -23,11 +23,6 @@ import {
   isManualArticlesOrJewelleryLine,
 } from '@/lib/erp-manual-as-line-pricing'
 import {
-  computeWeightBasedRowBreakdown,
-  erpBaseMcPerUnit,
-  erpLineNetWeightGm,
-} from '@/lib/erp-weight-row-pricing'
-import {
   isFixedPriceCatalogItem,
   isGiftingItem,
   isMcPerPiece,
@@ -68,15 +63,14 @@ export function isSilverGiftStockLine(line: ErpBillLine): boolean {
 }
 
 export function lineToItem(line: ErpBillLine): Item {
-  const netForMc = line.originalWeightGm ?? line.weightGm
   return {
     barcode: line.barcode || line.code,
     sku: line.sku,
     item_name: line.name,
     style_code: line.style_code,
     metal_type: line.metal_type || 'silver',
-    net_weight: netForMc ?? undefined,
-    net_wt: netForMc ?? undefined,
+    net_weight: line.weightGm ?? undefined,
+    net_wt: line.weightGm ?? undefined,
     purity: line.purity ?? 925,
     wastage_pct: line.wastage_pct ?? undefined,
     mc_rate: line.mc_rate ?? undefined,
@@ -474,53 +468,6 @@ export function computeLineBreakdown(
     lineHasPieceSlabFields(slabLine) &&
     metal.startsWith('silver') &&
     !isSilverGiftStockLine(slabLine)
-  const explicitMc = erpBaseMcPerUnit(slabLine)
-  const explicitNet = erpLineNetWeightGm(slabLine)
-  const useExplicitWeightRow =
-    !isManualArticlesOrJewelleryLine(slabLine) &&
-    explicitNet > 0 &&
-    explicitMc > 0 &&
-    metal.startsWith('silver') &&
-    !useStockPieceSlab &&
-    !isSilverGiftMcGmLine(slabLine)
-
-  if (useExplicitWeightRow) {
-    const metal = String(slabLine.metal_type || 'silver').toLowerCase()
-    let metalRate = 0
-    if (metal.startsWith('silver')) {
-      const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
-      const silverOffset = opts?.literalCustomMetalRate
-        ? 0
-        : slab === 'R'
-          ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0)
-          : 0
-      metalRate = resolveErpLineSilverMetalRatePerG(
-        slabLine,
-        slab,
-        silverPerG,
-        wholesaleSilver,
-        silverOffset,
-      )
-    } else if (metal.startsWith('gold')) {
-      metalRate = Number(slabLine.ratePerGram) || goldPerG
-    }
-    let bd = computeWeightBasedRowBreakdown({
-      line: { ...slabLine, originalWeightGm: explicitNet },
-      slab,
-      metalRatePerG: metalRate,
-      gstPct,
-    })
-    if (metal.startsWith('silver')) {
-      bd = finalizeSilverBillLineBreakdown(slabLine, bd, silverPerG, slab, gstPct)
-    } else {
-      bd = finalizeWeightBasedBreakdown(slabLine, bd, gstPct)
-    }
-    const box = Number(line.box_charges || 0) || 0
-    if (box <= 0) return bd
-    const taxable = bd.taxable + box
-    return applyGstToBreakdown({ ...bd, taxable }, gstPct)
-  }
-
   if (useStockPieceSlab) {
     const adjusted = applyPieceSlabToLine(slabLine, slab)
     const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
