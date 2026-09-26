@@ -101,8 +101,17 @@
       overflow-x: auto; margin-top: 0; border: 1px solid var(--border); border-radius: 0 0 12px 12px;
       background: #fff;
     }
-    table.bill-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-    table.bill-table td { border-bottom: 1px solid var(--border); padding: 8px; vertical-align: top; color: var(--text); }
+    table.bill-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; table-layout: fixed; }
+    table.bill-table th {
+      text-align: left; font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; color: var(--muted); padding: 8px 6px; border-bottom: 1px solid var(--border);
+      background: #faf8f4;
+    }
+    table.bill-table td { border-bottom: 1px solid var(--border); padding: 8px 6px; vertical-align: top; color: var(--text); }
+    table.bill-table td.collapsed-cell {
+      word-break: break-word; overflow-wrap: anywhere; font-size: 0.76rem; line-height: 1.35;
+    }
+    table.bill-table td.collapsed-amt { text-align: right; font-weight: 700; color: #047857; white-space: nowrap; }
     table.bill-table tr.manual td { background: rgba(4,120,87,.03); }
     .line-grid { display: grid; gap: 8px; }
     .line-band { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -225,6 +234,7 @@
       </div>
       <div class="bill-table-wrap">
         <table class="bill-table">
+          <thead id="linesHead" class="hidden"></thead>
           <tbody id="lines"></tbody>
         </table>
       </div>
@@ -444,6 +454,14 @@
         net_weight: netWt || null,
         qty: piece.pcs || 1,
         stock_piece_id: piece.id ?? null,
+        mc_rate_catalog: piece.mc_rate ?? null,
+        mc_rate_slab_r: piece.mc_rate_slab_r ?? null,
+        mc_rate_slab_w: piece.mc_rate_slab_w ?? null,
+        mc_rate_slab_f: piece.mc_rate_slab_f ?? null,
+        metal_slab_r_pct: piece.metal_slab_r_pct ?? null,
+        metal_slab_w_pct: piece.metal_slab_w_pct ?? null,
+        metal_slab_f_pct: piece.metal_slab_f_pct ?? null,
+        manualEntryOpen: false,
       });
       return line;
     }
@@ -468,6 +486,7 @@
     function applyManualField(idx, field, rawValue) {
       const line = state.cart[idx];
       if (!line) return;
+      const rateSlab = document.getElementById('rateSlab').value || 'R';
       const editable = !!line.manualEntry;
       const catalog = catalogForLine(line);
       let patch = {};
@@ -523,7 +542,11 @@
         }
       } else if (field === 'box_charges' || field === 'stone_charges') {
         patch[field] = Number(val) || 0;
-      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','fixed_price','ratePerGram'].includes(field)) {
+      } else if (field === 'metal_slab_pct') {
+        const n = Number(val);
+        const key = rateSlab === 'W' ? 'metal_slab_w_pct' : rateSlab === 'F' ? 'metal_slab_f_pct' : 'metal_slab_r_pct';
+        patch[key] = val === '' ? null : (Number.isFinite(n) ? n : null);
+      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','mc_rate_slab_r','mc_rate_slab_w','mc_rate_slab_f','fixed_price','ratePerGram'].includes(field)) {
         const n = Number(val);
         patch[field] = val === '' ? null : (Number.isFinite(n) ? n : line[field]);
         if (field === 'ratePerGram' && val !== '') patch.rateLocked = true;
@@ -541,7 +564,7 @@
 
       if (!editable) return;
       const updated = state.cart[idx];
-      let next = KB.nextManualEntryField(field, updated);
+      let next = KB.nextManualEntryField(field, updated, rateSlab);
       if (field === 'name') {
         const hit = KB.findCatalogProduct(catalogProductsForLine(updated), updated.name || '');
         if (hit) next = KB.nextFieldAfterCatalogProduct(hit);
@@ -550,12 +573,21 @@
         focusLineIdx = idx;
         focusField = next;
         renderCart();
+      } else if (updated.manualEntry) {
+        updateLine(idx, { manualEntryOpen: false });
+        focusLineIdx = -1;
+        focusField = null;
+        renderCart();
       }
     }
 
     function renderCart() {
       const tbody = document.getElementById('lines');
-      const MC_TYPES = ['MC/G', 'MC/GM', 'MC/M', 'MC/PC', 'MC/PCS', 'FIXED'];
+      const thead = document.getElementById('linesHead');
+      const rateSlab = document.getElementById('rateSlab').value || 'R';
+      const MC_TYPES = ['mc/gm', 'mc/pc'];
+      const collapsedCols = KB.visibleCollapsedBillTableCols(state.cart, rateSlab);
+      const colWidth = collapsedCols.length ? (100 / collapsedCols.length).toFixed(2) + '%' : 'auto';
 
       function cellInput(idx, field, val, list, manual, readOnly) {
         const id = `line-${idx}-${field}`;
@@ -579,10 +611,32 @@
       }
 
       if (!state.cart.length) {
+        thead.classList.add('hidden');
+        thead.innerHTML = '';
         tbody.innerHTML = '<tr><td style="color:var(--muted);padding:16px">Scan a barcode to add items.</td></tr>';
       } else {
+        thead.classList.remove('hidden');
+        thead.innerHTML =
+          '<tr><th style="width:2rem">#</th>' +
+          collapsedCols.map((c) => `<th style="width:${colWidth}">${esc(c.label)}</th>`).join('') +
+          '<th style="width:2rem"></th></tr>';
+
         tbody.innerHTML = state.cart.map((l, idx) => {
           const manual = !!l.manualEntry;
+          const expanded = manual && l.manualEntryOpen !== false;
+          if (!expanded) {
+            const cells = collapsedCols.map((c) => {
+              const raw = KB.billCellText(l, c.key, rateSlab);
+              const text = c.key === 'amount' ? `₹${fmt(raw)}` : esc(String(raw ?? ''));
+              const cls = c.key === 'amount' ? 'collapsed-amt' : 'collapsed-cell';
+              return `<td class="${cls}" title="${esc(String(raw ?? ''))}">${text}</td>`;
+            }).join('');
+            return `<tr class="${manual ? 'manual' : ''}" data-row="${idx}">
+              <td>#${idx + 1}</td>${cells}
+              <td><button type="button" class="btn-del" data-del="${idx}">✕</button></td>
+            </tr>`;
+          }
+
           const catalog = catalogForLine(l);
           const products = manual ? (l.designProductOptions || KB.productNamesForSku(catalog, l.sku || '')) : [];
           const product = manual ? KB.findCatalogProduct(products, l.name || '') : null;
@@ -607,13 +661,22 @@
             ['Gross', 'gross_weight'],
             ['Bags', 'bags'],
             ['BagWt', 'bag_wt'],
+            ['Metal%', 'metal_slab_pct'],
             ['Purity', 'purity'],
             ['Wast%', 'wastage_pct'],
             ['Rate', 'ratePerGram'],
-          ].map(([lbl, key]) => fieldBlock(lbl, cellInput(idx, key, l[key], null, manual || key === 'weightGm', !manual && key !== 'weightGm'))).join('');
+          ].map(([lbl, key]) => {
+            const val = key === 'metal_slab_pct' ? (KB.billCellText(l, key, rateSlab) || '') : l[key];
+            const editable = manual || key === 'weightGm' || key === 'metal_slab_pct';
+            return fieldBlock(lbl, cellInput(idx, key, val, null, editable, !editable));
+          }).join('');
 
+          const mcSlabKey = rateSlab === 'W' ? 'mc_rate_slab_w' : rateSlab === 'F' ? 'mc_rate_slab_f' : 'mc_rate_slab_r';
           const chargeBand = [
             fieldBlock('MC', cellInput(idx, 'mc_rate', l.mc_rate, null, manual, !manual)),
+            KB.billingShowsMcSlabRColumn(rateSlab)
+              ? fieldBlock('MC R', cellInput(idx, mcSlabKey, l[mcSlabKey], null, manual, !manual))
+              : '',
             fieldBlock('MCType', cellInput(idx, 'mc_type', l.mc_type, MC_TYPES, manual, !manual)),
             fieldBlock('PCS', cellInput(idx, 'qty', l.qty ?? l.pcs ?? 1, null, true, !manual)),
             boxOpts
@@ -626,8 +689,8 @@
             fieldBlock('Fixed', cellInput(idx, 'fixed_price', l.fixed_price, null, manual, !manual)),
           ].join('');
 
-          return `<tr class="${manual ? 'manual' : ''}">
-            <td colspan="2">
+          return `<tr class="${manual ? 'manual' : ''}" data-row="${idx}">
+            <td colspan="${collapsedCols.length + 2}">
               <div class="line-grid">
                 <div class="line-top">
                   <span class="line-idx">#${idx + 1}</span>
@@ -800,6 +863,19 @@
       e.preventDefault();
       applyManualField(Number(t.dataset.idx), t.dataset.field, t.value);
     });
+    document.getElementById('lines').addEventListener('dblclick', (e) => {
+      const tr = e.target.closest('tr[data-row]');
+      if (!tr || e.target.closest('.btn-del')) return;
+      const idx = Number(tr.dataset.row);
+      const line = state.cart[idx];
+      if (line?.manualEntry) {
+        updateLine(idx, { manualEntryOpen: true });
+        focusLineIdx = idx;
+        focusField = KB.firstManualEntryField(line);
+        renderCart();
+      }
+    });
+
     document.getElementById('lines').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-del]');
       if (!btn) return;

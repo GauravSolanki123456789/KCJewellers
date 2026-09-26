@@ -105,6 +105,10 @@ import { ErpGstinFetchField } from '@/components/reseller/erp/ErpGstinFetchField
 import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
+  equalCollapsedColWidthPct,
+  visibleCollapsedBillTableCols,
+} from '@/lib/erp-billing-table-cols'
+import {
   billingShowsMcSlabRColumn,
   isManualGridFieldVisible,
   patchMetalSlabPct,
@@ -2113,6 +2117,14 @@ export function ErpBillingWorkspace() {
     }
   }
 
+  const collapsedTableCols = visibleCollapsedBillTableCols(
+    lines,
+    tableCols,
+    rateSlab,
+    (line, key) => cellVal(line, key),
+  )
+  const collapsedColWidth = equalCollapsedColWidthPct(collapsedTableCols.length)
+
   const cellInputDisplayValue = (lineKey: string, key: string, line: ErpBillLine): string => {
     const refKey = `${lineKey}-${key}`
     if (cellDrafts[refKey] !== undefined) return cellDrafts[refKey]
@@ -2999,21 +3011,31 @@ export function ErpBillingWorkspace() {
 
           <div className="max-h-[min(620px,calc(100vh-14rem))] overflow-y-auto">
             <table className="w-full table-fixed text-[11px] leading-snug">
+              <colgroup>
+                <col style={{ width: '2.25rem' }} />
+                {collapsedTableCols.map((c) => (
+                  <col key={c.key} style={{ width: collapsedColWidth }} />
+                ))}
+                <col style={{ width: '2.25rem' }} />
+              </colgroup>
               <thead className="sticky top-0 z-10 bg-[var(--color-slate-900,#faf8f4)] shadow-sm">
                 <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/60">
-                  <th className="w-[2.5%] px-1 py-2">#</th>
-                  {tableCols.map((c) => (
-                    <th key={c.key} className={`px-0.5 py-2 text-left font-semibold whitespace-normal break-words ${c.w}`}>
+                  <th className="px-1 py-2 text-left">#</th>
+                  {collapsedTableCols.map((c) => (
+                    <th
+                      key={c.key}
+                      className="px-1 py-2 text-left font-semibold whitespace-normal break-words"
+                    >
                       {c.label}
                     </th>
                   ))}
-                  <th className="w-[2.5%] px-1 py-2" />
+                  <th className="px-1 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={tableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    <td colSpan={collapsedTableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                       Scan a barcode or press A / S / B / G for manual entry
                     </td>
                   </tr>
@@ -3138,6 +3160,7 @@ export function ErpBillingWorkspace() {
                           onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
                           rateSlab={rateSlab}
                           slabSettings={slabSettings}
+                          tableColSpan={collapsedTableCols.length + 2}
                         />
                       )
                     }
@@ -3156,10 +3179,13 @@ export function ErpBillingWorkspace() {
                       }}
                     >
                       <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
-                      {tableCols.map((col) => {
+                      {collapsedTableCols.map((col) => {
                         if (col.key === 'amount') {
                           return (
-                            <td key={col.key} className="px-2 py-2 font-semibold tabular-nums text-emerald-700">
+                            <td
+                              key={col.key}
+                              className="min-w-0 px-2 py-2 text-right font-semibold tabular-nums text-emerald-700"
+                            >
                               {cellVal(line, col.key)}
                             </td>
                           )
@@ -3570,9 +3596,14 @@ export function ErpBillingWorkspace() {
                             </td>
                           )
                         }
+                        const display = String(cellVal(line, col.key) ?? '')
                         return (
-                          <td key={col.key} className="whitespace-normal break-words px-1 py-1.5 text-[var(--color-jewelry-black,#1a1814)]">
-                            {cellVal(line, col.key)}
+                          <td
+                            key={col.key}
+                            title={display}
+                            className="min-w-0 whitespace-normal break-words px-2 py-1.5 text-left align-top tabular-nums text-[var(--color-jewelry-black,#1a1814)]"
+                          >
+                            {display}
                           </td>
                         )
                       })}

@@ -1842,6 +1842,107 @@ var KcExhibitionBillingModule = (() => {
   }
 
   // src/lib/exhibition/exhibition-billing-bundle.ts
+  var BILL_TABLE_COLS = [
+    { key: "barcode", label: "Barcode" },
+    { key: "sku", label: "SKU" },
+    { key: "style_code", label: "Style" },
+    { key: "name", label: "Product" },
+    { key: "invoice_item_name", label: "Inv.item" },
+    { key: "hsn_code", label: "HSN" },
+    { key: "size", label: "Size" },
+    { key: "weightGm", label: "NetWt" },
+    { key: "gross_weight", label: "Gross" },
+    { key: "bags", label: "Bags" },
+    { key: "bag_wt", label: "BagWt" },
+    { key: "metal_slab_pct", label: "Metal%" },
+    { key: "purity", label: "Purity" },
+    { key: "wastage_pct", label: "Wast%" },
+    { key: "ratePerGram", label: "Rate" },
+    { key: "mc_rate", label: "MC" },
+    { key: "mc_rate_slab_r", label: "MC R" },
+    { key: "mc_type", label: "MCType" },
+    { key: "qty", label: "PCS" },
+    { key: "box_charges", label: "Box" },
+    { key: "stone_charges", label: "Finish" },
+    { key: "metal_type", label: "Metal" },
+    { key: "fixed_price", label: "Fixed" },
+    { key: "fixed_price_r", label: "Fixed R" },
+    { key: "amount", label: "Amt" }
+  ];
+  function billCellText(line, key, rateSlab) {
+    if (key === "barcode") return line.barcode || line.code || "";
+    if (key === "sku") return line.sku || "";
+    if (key === "style_code") return line.style_code || "";
+    if (key === "name") return line.name || line.product_name || "";
+    if (key === "invoice_item_name") return line.invoice_item_name || "";
+    if (key === "hsn_code") return line.hsn_code || "";
+    if (key === "size") return line.size || "";
+    if (key === "weightGm") return line.originalWeightGm ?? line.weightGm ?? "";
+    if (key === "gross_weight") return line.gross_weight ?? "";
+    if (key === "bags") return line.bags ?? "";
+    if (key === "bag_wt") return line.bag_wt ?? "";
+    if (key === "metal_slab_pct") return formatMetalSlabPctForDisplay(line, rateSlab) || "";
+    if (key === "purity") return line.purity ?? "";
+    if (key === "wastage_pct") return line.wastage_pct ?? "";
+    if (key === "ratePerGram") return line.ratePerGram ?? "";
+    if (key === "mc_rate") return line.mc_rate ?? "";
+    if (key === "mc_rate_slab_r") {
+      if (!billingShowsMcSlabRColumn(rateSlab)) return "";
+      const f = mcSlabFieldForBillingSlab(rateSlab);
+      return line[f] ?? "";
+    }
+    if (key === "mc_type") return line.mc_type || "";
+    if (key === "qty") return line.qty ?? line.pcs ?? "";
+    if (key === "box_charges") return line.box_charges ?? "";
+    if (key === "stone_charges") return line.stone_charges ?? "";
+    if (key === "metal_type") {
+      if (line.manualCategory === "gift" || line.mrpMode) return "";
+      return line.metal_type || "";
+    }
+    if (key === "fixed_price") return line.fixed_price ?? "";
+    if (key === "fixed_price_r") return line.fixed_price_r ?? "";
+    if (key === "amount") return line.lineTotalInr ?? "";
+    return "";
+  }
+  function displayText(raw) {
+    const s = String(raw ?? "").trim();
+    if (!s || s === "\u2014" || s === "-") return "";
+    return s;
+  }
+  function collapsedBillColumnHasData(line, key, rateSlab) {
+    if (key === "amount") {
+      const n = Number(line.lineTotalInr);
+      return Number.isFinite(n) && n > 0;
+    }
+    if (key === "mc_rate_slab_r") {
+      if (!billingShowsMcSlabRColumn(rateSlab)) return false;
+      const f = mcSlabFieldForBillingSlab(rateSlab);
+      return line[f] != null && displayText(line[f]) !== "";
+    }
+    if (key === "metal_slab_pct") return formatMetalSlabPctForDisplay(line, rateSlab) !== "";
+    const text = displayText(billCellText(line, key, rateSlab));
+    if (key === "box_charges" || key === "stone_charges") {
+      const n = Number(text);
+      return text !== "" && Number.isFinite(n) && n !== 0;
+    }
+    if (key === "wastage_pct") {
+      const n = Number(text);
+      return text !== "" && Number.isFinite(n) && n !== 0;
+    }
+    return text !== "";
+  }
+  function visibleCollapsedBillTableCols(lines, rateSlab) {
+    const base = BILL_TABLE_COLS.filter(
+      (c) => c.key !== "mc_rate_slab_r" || billingShowsMcSlabRColumn(rateSlab)
+    );
+    const collapsed = lines.filter((l) => !(l.manualEntry && l.manualEntryOpen));
+    if (!collapsed.length) return base;
+    return base.filter(
+      (col) =>
+        col.key === "amount" ||
+        collapsed.some((line) => collapsedBillColumnHasData(line, col.key, rateSlab))
+    );
+  }
   function calcLineTotal(line, rates, slab, slabSettingsRaw) {
     const slabSettings = parseSlabSettingsFromUser(slabSettingsRaw);
     const recalced = recalcExhibitionBillLine(line, {
@@ -1892,7 +1993,12 @@ var KcExhibitionBillingModule = (() => {
     giftMrpSlabPrice,
     cartTotalsFromLines,
     MANUAL_ENTRY_FIELD_ORDER,
-    GIFT_ENTRY_FIELD_ORDER
+    GIFT_ENTRY_FIELD_ORDER,
+    BILL_TABLE_COLS,
+    billCellText,
+    visibleCollapsedBillTableCols,
+    billingShowsMcSlabRColumn,
+    mcSlabFieldForBillingSlab
   };
   if (typeof window !== "undefined") {
     window.KcExhibitionBilling = api;

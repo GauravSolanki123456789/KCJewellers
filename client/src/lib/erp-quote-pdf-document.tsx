@@ -85,10 +85,10 @@ function buildPdfColumns(
     rateSlab === 'R' && lines.some((line) => lineShowsMcRPdfColumn(line, rateSlab))
 
   const candidates: PdfCol[] = [
-    { key: 'barcode', label: 'Barcode', w: '9%' },
-    { key: 'sku', label: 'SKU', w: '5%' },
-    { key: 'style', label: 'Style', w: '6%' },
-    { key: 'name', label: 'Product', w: '9%' },
+    { key: 'barcode', label: 'Barcode', w: '11%' },
+    { key: 'sku', label: 'SKU', w: '8%' },
+    { key: 'style', label: 'Style', w: '7%' },
+    { key: 'name', label: 'Product', w: '10%' },
     { key: 'size', label: 'Size', w: '4%' },
     { key: 'gross', label: 'Gross', w: '5%' },
     { key: 'bagWt', label: 'Bag Wt', w: '4%' },
@@ -190,9 +190,15 @@ function buildStyles(p: KcPdfPalette) {
     bodyCell: {
       paddingVertical: 3,
       paddingHorizontal: 2,
-      fontSize: 6.5,
+      fontSize: 6,
       fontWeight: 'bold',
       color: p.textPrimary,
+      flexWrap: 'wrap',
+    },
+    bodyCellWrap: {
+      paddingVertical: 3,
+      paddingHorizontal: 2,
+      justifyContent: 'flex-start',
     },
     bodyCellAmt: {
       paddingVertical: 3,
@@ -444,14 +450,22 @@ export function ErpQuotePdfDocument({
         {lines.map((line, i) => (
           <View key={`row-${i}`} style={[styles.bodyRow, i % 2 === 1 ? styles.bodyRowAlt : {}]}>
             <Text style={[styles.bodyCell, { width: '3%' }]}>{i + 1}</Text>
-            {cols.map((c) => (
-              <Text
-                key={c.key}
-                style={[c.key === 'amt' ? styles.bodyCellAmt : styles.bodyCell, { width: c.w }]}
-              >
-                {sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed))}
-              </Text>
-            ))}
+            {cols.map((c) => {
+              const text = sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed))
+              const dense = c.key === 'barcode' || c.key === 'sku' || c.key === 'style' || c.key === 'name'
+              return (
+                <View key={c.key} style={[styles.bodyCellWrap, { width: c.w }]}>
+                  <Text
+                    style={[
+                      c.key === 'amt' ? styles.bodyCellAmt : styles.bodyCell,
+                      ...(dense ? [{ fontSize: 5.5, lineHeight: 1.15 }] : []),
+                    ]}
+                  >
+                    {text}
+                  </Text>
+                </View>
+              )
+            })}
           </View>
         ))}
 
