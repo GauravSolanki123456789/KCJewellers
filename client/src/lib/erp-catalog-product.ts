@@ -189,8 +189,6 @@ export function patchLineFromCatalogProduct(
     name: product.name,
     imageUrl: product.image_url ?? line.imageUrl ?? null,
     mc_rate: product.mc_rate ?? line.mc_rate,
-    mc_rate_catalog:
-      product.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate ?? null,
     mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
     wastage_pct: product.wastage_pct ?? line.wastage_pct,
     purity: product.purity ?? line.purity,
@@ -235,10 +233,7 @@ export function patchLineFromCatalogProduct(
     if (shouldKeepCatalogWeights(line, mrpMode) && s.gross_weight != null) {
       patch.gross_weight = s.gross_weight
     }
-    if (s.mc_rate != null) {
-      patch.mc_rate = s.mc_rate
-      patch.mc_rate_catalog = s.mc_rate
-    }
+    if (s.mc_rate != null) patch.mc_rate = s.mc_rate
     if (s.mc_type) patch.mc_type = s.mc_type
     if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct
     if (s.purity != null) patch.purity = s.purity

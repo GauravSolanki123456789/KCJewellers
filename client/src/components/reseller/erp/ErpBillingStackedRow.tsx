@@ -13,7 +13,7 @@ import {
 import { findDesignOptionLabel, lineHasFinishPicker } from '@/lib/erp-catalog-product'
 import { ERP_MC_TYPE_OPTIONS, normalizeMcTypeInput } from '@/lib/erp-mc-type-field'
 import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
-import { mcSlabFieldForBillingSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { X } from 'lucide-react'
@@ -31,7 +31,7 @@ const WEIGHT_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[
 
 const CHARGE_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[] = [
   { key: 'mc_rate', label: 'MC' },
-  { key: 'mc_rate_slab_r', label: 'MC R' }, // replaced per slab in render
+  { key: 'mc_rate_slab_r', label: 'MC R' },
   { key: 'mc_type', label: 'MCTYPE' },
   { key: 'qty', label: 'PCS' },
   { key: 'box_charges', label: 'BOX' },
@@ -118,12 +118,6 @@ export function ErpBillingStackedRow({
   slabSettings,
 }: Props) {
   const gift = isGiftManualLine(line)
-  const mcSlabKey = mcSlabFieldForBillingSlab(rateSlab)
-  const mcSlabLabel =
-    rateSlab === 'W' ? 'MC W' : rateSlab === 'F' ? 'MC F' : 'MC R'
-  const chargeFields = CHARGE_BAND.map((f) =>
-    f.key === 'mc_rate_slab_r' ? { ...f, key: mcSlabKey, label: mcSlabLabel } : f,
-  )
   const skuValue = String(line.sku || '')
   const styleValue = String(line.style_code || '')
   const skuOptions = uniqueSkusFromCatalog(catalog).map((x) => x.sku)
@@ -286,7 +280,7 @@ export function ErpBillingStackedRow({
                 ))}
               </div>
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                {chargeFields.filter((f) => {
+                {CHARGE_BAND.filter((f) => {
                   if (f.key === 'stone_charges') return lineHasFinishPicker(line)
                   if (f.key === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
                   if (f.key === 'fixed_price_r') return gift || !!line.mrpMode

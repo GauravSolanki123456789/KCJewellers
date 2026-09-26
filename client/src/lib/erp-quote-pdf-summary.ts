@@ -2,11 +2,7 @@ import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { billingMcDisplay, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
-import {
-  erpMcBillingNetGm,
-  isManualArticlesOrJewelleryLine,
-  manualEffectiveMcRatePerUnit,
-} from '@/lib/erp-manual-as-line-pricing'
+import { erpMcBillingNetGm } from '@/lib/erp-manual-as-line-pricing'
 
 /** Group key for summary estimate rows — same SKU/style/product/metal/MC slab. */
 function summaryGroupKey(line: ErpBillLine): string {
@@ -28,16 +24,9 @@ export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): 
   if (isGoldSlabRLine(line, rateSlab) && line.displayMcInr != null && line.displayMcInr > 0) {
     return Math.round(line.displayMcInr)
   }
-  let mc: number
-  if (isManualArticlesOrJewelleryLine(line)) {
-    const eff = manualEffectiveMcRatePerUnit(line, rateSlab)
-    if (!Number.isFinite(eff) || eff <= 0) return null
-    mc = eff
-  } else {
-    const mcRaw = billingMcDisplay(line, rateSlab)
-    mc = typeof mcRaw === 'number' ? mcRaw : Number(mcRaw)
-    if (!Number.isFinite(mc) || mc <= 0) return null
-  }
+  const mcRaw = billingMcDisplay(line, rateSlab)
+  const mc = typeof mcRaw === 'number' ? mcRaw : Number(mcRaw)
+  if (!Number.isFinite(mc) || mc <= 0) return null
   if (!isMcPerGmBillingType(line.mc_type)) {
     const qty = Math.max(1, Number(line.qty) || 1)
     return Math.round(mc * qty)

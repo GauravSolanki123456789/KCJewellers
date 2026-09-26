@@ -393,6 +393,32 @@ export type ComputeLineBreakdownOpts = {
   gstEnabled?: boolean
 }
 
+/** Slab R silver offset (e.g. −5 ₹/g) must be on the line before manual A/S math runs. */
+function erpManualLineWithSlabRetailSilverRate(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  silverPerG: number,
+  slabSettings: ResellerSlabSettings,
+  wholesaleSilver?: number | null,
+  literalCustomMetalRate?: boolean,
+): ErpBillLine {
+  if (literalCustomMetalRate) return line
+  if (line.rateLocked && Number(line.ratePerGram) > 0) return line
+  const silverMetal = String(line.metal_type || '').toLowerCase().startsWith('silver')
+  const silverOffset =
+    slab === 'R' ? Math.max(0, Number(slabSettings.slab_r?.silver_rate_offset_per_g) || 0) : 0
+  if (!silverMetal || slab !== 'R' || silverOffset <= 0) return line
+  return {
+    ...line,
+    ratePerGram: resolveErpSilverMetalRatePerG(
+      slab,
+      silverPerG,
+      wholesaleSilver,
+      silverOffset,
+    ),
+  }
+}
+
 export function computeLineBreakdown(
   line: ErpBillLine,
   displayRates: unknown,
@@ -419,8 +445,16 @@ export function computeLineBreakdown(
   }
 
   if (isManualArticlesOrJewelleryLine(line)) {
-    return computeManualAsLineBreakdown(
+    const manualLine = erpManualLineWithSlabRetailSilverRate(
       line,
+      slab,
+      silverPerG,
+      slabSettings,
+      wholesaleSilver,
+      opts?.literalCustomMetalRate,
+    )
+    return computeManualAsLineBreakdown(
+      manualLine,
       slab,
       silverPerG,
       goldPerG,
