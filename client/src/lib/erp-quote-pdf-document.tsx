@@ -5,14 +5,18 @@ import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 import { getKcPdfPalette, type KcPdfPalette } from '@/lib/kc-pdf-palette'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
-import { billingMcPdfText, billingWastageDisplay } from '@/lib/erp-billing-display'
+import { billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { pieceSlabMetalFraction } from '@/lib/erp-piece-slab-pricing'
 import {
   formatMetalSlabPctForDisplay,
   lineHasMetalSlabPctInput,
 } from '@/lib/erp-metal-slab-field'
-import { computeMcValueForPdf, groupBillLinesForSummaryPdf } from '@/lib/erp-quote-pdf-summary'
+import {
+  billingMcPdfTextWithSlabR,
+  computeMcValueForPdf,
+  groupBillLinesForSummaryPdf,
+} from '@/lib/erp-quote-pdf-summary'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
@@ -283,7 +287,7 @@ function cell(
       return '—'
     }
     case 'mc':
-      return billingMcPdfText(line, rateSlab)
+      return billingMcPdfTextWithSlabR(line, rateSlab)
     case 'mct':
       return line.mc_type || '—'
     case 'mcValue': {

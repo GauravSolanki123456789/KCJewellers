@@ -639,7 +639,8 @@ export function ErpProductsWorkspace() {
           <div>
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Delete tag by barcode</p>
             <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-              Scan or type a barcode and press Enter — removes the tag from stock across all uploads.
+              Scan a stock barcode or RFID tag (e.g. BM1487) and press Enter — deletes the piece, unlinks RFID,
+              and removes it from all uploads.
             </p>
           </div>
         </div>
@@ -647,7 +648,7 @@ export function ErpProductsWorkspace() {
           <input
             ref={tagDeleteRef}
             className={erpInputCls}
-            placeholder="Scan barcode to delete tag…"
+            placeholder="Scan barcode or RFID tag (e.g. BM1487)…"
             value={tagDeleteCode}
             disabled={tagDeleteBusy}
             onChange={(e) => setTagDeleteCode(e.target.value)}

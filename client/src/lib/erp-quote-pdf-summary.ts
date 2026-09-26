@@ -1,8 +1,9 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { billingMcDisplay, isGoldSlabRLine } from '@/lib/erp-billing-display'
+import { billingMcDisplay, billingMcPdfText, isGoldSlabRLine } from '@/lib/erp-billing-display'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
 import { erpMcBillingNetGm } from '@/lib/erp-manual-as-line-pricing'
+import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
 
 /** Group key for summary estimate rows — same SKU/style/product/metal/MC slab. */
 function summaryGroupKey(line: ErpBillLine): string {
@@ -20,13 +21,39 @@ function summaryGroupKey(line: ErpBillLine): string {
     .toLowerCase()
 }
 
+function effectiveMcRatePerUnitForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): number | null {
+  const slabMc = pieceSlabMcRate(line, rateSlab)
+  if (slabMc != null && Number(slabMc) > 0) return Number(slabMc)
+  const mcRaw = billingMcDisplay(line, rateSlab)
+  const mc = typeof mcRaw === 'number' ? mcRaw : Number(mcRaw)
+  if (!Number.isFinite(mc) || mc <= 0) return null
+  return mc
+}
+
+/** MC column: catalog MC + slab MC R when both exist (manual/scanned rows with MC R). */
+export function billingMcPdfTextWithSlabR(
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab,
+  goldSlabRShowMc = true,
+): string {
+  const slabMc = pieceSlabMcRate(line, rateSlab)
+  if (slabMc == null || !(Number(slabMc) > 0)) {
+    return billingMcPdfText(line, rateSlab, goldSlabRShowMc)
+  }
+  const catalog = Number(line.mc_rate_catalog ?? line.mc_rate ?? 0)
+  const slabRounded = Math.round(Number(slabMc))
+  if (catalog > 0 && Math.round(catalog) !== slabRounded) {
+    return `${Math.round(catalog)} · MC R ${slabRounded}`
+  }
+  return String(slabRounded)
+}
+
 export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): number | null {
   if (isGoldSlabRLine(line, rateSlab) && line.displayMcInr != null && line.displayMcInr > 0) {
     return Math.round(line.displayMcInr)
   }
-  const mcRaw = billingMcDisplay(line, rateSlab)
-  const mc = typeof mcRaw === 'number' ? mcRaw : Number(mcRaw)
-  if (!Number.isFinite(mc) || mc <= 0) return null
+  const mc = effectiveMcRatePerUnitForPdf(line, rateSlab)
+  if (mc == null) return null
   if (!isMcPerGmBillingType(line.mc_type)) {
     const qty = Math.max(1, Number(line.qty) || 1)
     return Math.round(mc * qty)

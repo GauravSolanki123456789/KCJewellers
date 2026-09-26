@@ -7,6 +7,8 @@ import axios from '@/lib/axios'
 import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Upload, FileSpreadsheet, ClipboardList } from 'lucide-react'
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { GST_STATE_OPTIONS } from '@/lib/erp-place-of-supply'
+import { ErpGstinFetchField } from '@/components/reseller/erp/ErpGstinFetchField'
+import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy, formatErpDateTime, toIsoDateInput } from '@/lib/erp-date-format'
@@ -426,7 +428,25 @@ export function CustomersWorkspace() {
           <input className={erpInputCls} placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input className={erpInputCls} placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
           <input className={erpInputCls} placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <input className={erpInputCls} placeholder="GSTIN" value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} />
+          <div className="sm:col-span-2">
+            <ErpGstinFetchField
+              value={form.gstin}
+              onChange={(gstin) => setForm((f) => ({ ...f, gstin }))}
+              onFetched={(d) => {
+                setForm((f) => ({
+                  ...f,
+                  gstin: d.gstin,
+                  name: d.name && !f.name.trim() ? d.name : f.name || d.name || '',
+                  pan: d.pan || f.pan,
+                  address: d.address || f.address,
+                  state: matchGstStateName(d.state) || f.state,
+                  mobile: d.mobile || f.mobile,
+                }))
+                setMsg(d.company_status ? `GST verified (${d.company_status})` : 'GST details loaded')
+              }}
+              label=""
+            />
+          </div>
           <input className={erpInputCls} placeholder="PAN" value={form.pan} onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })} />
           <input className={erpInputCls} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <select

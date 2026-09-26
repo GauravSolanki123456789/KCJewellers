@@ -101,6 +101,8 @@ import {
 } from '@/lib/erp-catalog-product'
 import { normalizeErpBillLinesFromStorage } from '@/lib/erp-bill-line-hydration'
 import { fetchGstInvoiceItems, type GstInvoiceItem, mrpInvoiceItemNames } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
+import { ErpGstinFetchField } from '@/components/reseller/erp/ErpGstinFetchField'
+import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { nextBillTableField } from '@/lib/erp-billing-table-nav'
 import {
   isManualGridFieldVisible,
@@ -2619,9 +2621,22 @@ export function ErpBillingWorkspace() {
               <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">PAN</label>
               <input className={`${erpInputCls} py-2 text-sm`} value={customerPan} onChange={(e) => setCustomerPan(e.target.value.toUpperCase())} />
             </div>
-            <div>
-              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST no</label>
-              <input className={`${erpInputCls} py-2 text-sm`} value={customerGst} onChange={(e) => setCustomerGst(e.target.value.toUpperCase())} />
+            <div className="sm:col-span-2">
+              <ErpGstinFetchField
+                value={customerGst}
+                onChange={setCustomerGst}
+                inputClassName={`${erpInputCls} py-2 text-sm`}
+                label="GST no"
+                onFetched={(d) => {
+                  setCustomerGst(d.gstin)
+                  if (d.name && !customerName.trim()) setCustomerName(d.name)
+                  if (d.address) setAddress(d.address)
+                  if (d.mobile && !mobile.trim()) setMobile(d.mobile)
+                  if (d.pan) setCustomerPan(d.pan)
+                  const pos = d.place_of_supply || matchGstStateName(d.state)
+                  if (pos) setPlaceOfSupply(pos)
+                }}
+              />
             </div>
             {isOfficialGstBill ? (
               <div className="sm:col-span-2">

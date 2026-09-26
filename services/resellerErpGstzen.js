@@ -532,6 +532,90 @@ async function generateEwayForBill({ query, bill, resellerUserId, customer }) {
     };
 }
 
+const GSTZEN_GSTIN_VALIDATOR_URL = 'https://my.gstzen.in/api/gstin-validator/';
+
+async function lookupGstinFromGstzen(query, resellerUserId, gstinRaw) {
+    const check = validateGstin(gstinRaw, 'GSTIN');
+    if (!check.ok) return check;
+    if (!check.gstin) {
+        return { ok: false, error: 'Enter a GSTIN to look up.' };
+    }
+    const settings = await loadErpSettings(query, resellerUserId);
+    const cfg = resolveEinvoiceConfig(settings);
+    const token = String(cfg.token || '').trim();
+    if (!token) {
+        return { ok: false, error: 'GST lookup is not configured. Add E-invoice API key in ERP settings.' };
+    }
+
+    let data;
+    try {
+        const res = await fetch(GSTZEN_GSTIN_VALIDATOR_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Token ${token}`,
+            },
+            body: JSON.stringify({ gstin: check.gstin }),
+        });
+        const text = await res.text();
+        try {
+            data = text ? JSON.parse(text) : {};
+        } catch {
+            data = { raw: text };
+        }
+        if (!res.ok) {
+            const msg =
+                data?.message ||
+                data?.error ||
+                data?.ErrorMessage ||
+                `GST lookup failed (${res.status})`;
+            return { ok: false, error: typeof msg === 'string' ? msg : 'GST lookup failed' };
+        }
+    } catch (e) {
+        return { ok: false, error: e.message || 'GST lookup failed' };
+    }
+
+    const valid = data.valid === true || data.status === 1;
+    if (!valid) {
+        return { ok: false, error: 'GST number does not exist or is not active.' };
+    }
+
+    const cd = data.company_details && typeof data.company_details === 'object' ? data.company_details : {};
+    const pradr = cd.pradr && typeof cd.pradr === 'object' ? cd.pradr : {};
+    const stateInfo = cd.state_info && typeof cd.state_info === 'object' ? cd.state_info : {};
+    const stateName = String(stateInfo.name || cd.state || '').trim();
+    const stateCode = String(stateInfo.code || gstStateCode(check.gstin)).trim().padStart(2, '0');
+    const address =
+        String(pradr.addr || pradr.addr1 || cd.legal_name || '')
+            .trim()
+            .slice(0, 2000) ||
+        [pradr.street, pradr.loc, pradr.district, pradr.state_in_address, pradr.pincode]
+            .filter(Boolean)
+            .join(', ')
+            .slice(0, 2000);
+
+    const legalName = String(cd.legal_name || cd.trade_name || '').trim();
+    const tradeName = String(cd.trade_name || cd.legal_name || '').trim();
+    const pan = String(cd.pan || '').trim().toUpperCase();
+    const mobile = String(findGstzenValue(cd, ['mobile', 'phone', 'contact']) || '').trim();
+
+    return {
+        ok: true,
+        gstin: check.gstin,
+        legal_name: legalName,
+        trade_name: tradeName,
+        name: tradeName || legalName,
+        pan: pan.length >= 10 ? pan.slice(0, 10) : pan,
+        address,
+        state: stateName,
+        state_code: stateCode,
+        place_of_supply: stateCode && stateName ? `${stateCode} - ${stateName}` : stateName,
+        mobile,
+        company_status: String(cd.company_status || '').trim(),
+        raw: data,
+    };
+}
+
 module.exports = {
     GSTZEN_SANDBOX_TOKEN,
     GSTZEN_EINVOICE_URL_DEFAULT,
@@ -545,4 +629,5 @@ module.exports = {
     buildEinvoicePayload,
     generateEinvoiceForBill,
     generateEwayForBill,
+    lookupGstinFromGstzen,
 };

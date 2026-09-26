@@ -401,8 +401,18 @@ function InvoicePage({
     placeOfSupply,
     buyerGstin: String(session.customerGst || ''),
   })
-  const taxable = totals.subtotal
-  const gstAmt = totals.gst
+  const gstOffOnBill =
+    bill.gst_enabled === false ||
+    (bill.session &&
+      typeof bill.session === 'object' &&
+      (bill.session as { gstEnabled?: boolean }).gstEnabled === false)
+  let taxable = totals.subtotal
+  let gstAmt = totals.gst
+  if (gstOffOnBill && totals.net > 0) {
+    const net = Math.round(totals.net)
+    taxable = Math.round((net / 1.03) * 100) / 100
+    gstAmt = Math.round((net - taxable) * 100) / 100
+  }
   const igst = interstate ? gstAmt : 0
   const cgst = interstate ? 0 : gstAmt / 2
   const sgst = interstate ? 0 : gstAmt / 2

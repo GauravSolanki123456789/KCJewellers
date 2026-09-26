@@ -1957,17 +1957,30 @@ function registerStockPieceRoutes(app, deps) {
 
     app.post('/api/reseller/erp/stock-pieces/delete-by-barcode', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
-            const barcode = String(req.body.barcode || '').trim();
-            if (!barcode) return res.status(400).json({ error: 'barcode required' });
+            const rawCode = String(req.body.barcode || req.body.code || '').trim();
+            if (!rawCode) return res.status(400).json({ error: 'barcode required' });
 
-            const rows = await query(
+            let rows = await query(
                 `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
                  WHERE reseller_user_id = $1 AND barcode = $2
                  LIMIT 1`,
-                [req.user.id, barcode],
+                [req.user.id, rawCode],
             );
             if (!rows.length) {
-                return res.status(404).json({ error: `No tag found for barcode ${barcode}` });
+                const rfidTag = poshRfid.normalizeRfidTag(rawCode);
+                if (rfidTag) {
+                    rows = await query(
+                        `SELECT id, batch_id, item_code, status, rfid_tag, barcode FROM reseller_erp_stock_pieces
+                         WHERE reseller_user_id = $1 AND lower(rfid_tag) = lower($2)
+                         LIMIT 1`,
+                        [req.user.id, rfidTag],
+                    );
+                }
+            }
+            if (!rows.length) {
+                return res.status(404).json({
+                    error: `No in-stock tag found for "${rawCode}" (try barcode or RFID tag).`,
+                });
             }
             const piece = rows[0];
             if (piece.status === 'sold') {
@@ -1999,7 +2012,12 @@ function registerStockPieceRoutes(app, deps) {
                 );
             }
 
-            res.json({ success: true, barcode, deleted: 1 });
+            res.json({
+                success: true,
+                barcode: piece.barcode,
+                rfid_tag: piece.rfid_tag || null,
+                deleted: 1,
+            });
         } catch (e) {
             console.error('erp stock delete barcode:', e);
             res.status(500).json({ error: e.message || 'Failed to delete tag' });

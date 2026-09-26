@@ -21,6 +21,7 @@ const {
     parseCompliance,
     generateEinvoiceForBill,
     generateEwayForBill,
+    lookupGstinFromGstzen,
 } = require('./resellerErpGstzen');
 const {
     registerResellerErpLedgerRoutes,
@@ -1011,6 +1012,21 @@ function registerResellerErpRoutes(app, deps) {
         } catch (e) {
             console.error('erp customers list:', e);
             res.status(500).json({ error: e.message || 'Failed to list customers' });
+        }
+    });
+
+    app.post('/api/reseller/erp/gstin-lookup', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const result = await lookupGstinFromGstzen(query, req.user.id, req.body.gstin);
+            if (!result.ok) {
+                return res.status(result.error?.includes('does not exist') ? 404 : 400).json({
+                    error: result.error || 'GST lookup failed',
+                });
+            }
+            res.json({ success: true, details: result });
+        } catch (e) {
+            console.error('erp gstin lookup:', e);
+            res.status(500).json({ error: e.message || 'GST lookup failed' });
         }
     });
 
