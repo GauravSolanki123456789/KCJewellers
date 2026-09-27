@@ -93,6 +93,78 @@ function Invoke-RawPrintBinary([string]$PrinterName, [string]$EscPosBase64) {
     }
 }
 
+function Normalize-TallyUrl([string]$Raw) {
+    $s = [string]$Raw
+    if (-not $s.Trim()) { $s = 'http://localhost:9000' }
+    if ($s -notmatch '^https?://') { $s = "http://$s" }
+    try {
+        $u = [Uri]$s
+        if (-not $u.Port -or $u.Port -le 0) {
+            $port = if ($u.Scheme -eq 'https') { 443 } else { 9000 }
+            $builder = New-Object System.UriBuilder $u
+            $builder.Port = $port
+            $u = $builder.Uri
+        }
+        return $u.ToString().TrimEnd('/')
+    } catch {
+        return 'http://localhost:9000'
+    }
+}
+
+function Test-TallyImportResponse([string]$XmlResponse) {
+    $raw = [string]$XmlResponse
+    if (-not $raw.Trim()) {
+        throw 'Empty response from Tally'
+    }
+    if ($raw -match '<LINEERROR>([^<]*)</LINEERROR>') {
+        $msg = $Matches[1].Trim()
+        if ($msg) { throw $msg }
+        throw 'Tally line error'
+    }
+    if ($raw -match '<ERRMSG[^>]*>([^<]*)</ERRMSG>') {
+        $msg = $Matches[1].Trim()
+        if ($msg) { throw $msg }
+    }
+    if ($raw -match '<ERRORS>(\d+)</ERRORS>') {
+        if ([int]$Matches[1] -gt 0) { throw 'Tally reported import errors' }
+    }
+    if ($raw -match '<CREATED>(\d+)</CREATED>') {
+        $c = [int]$Matches[1]
+        if ($c -gt 0) { return }
+    }
+    if ($raw -match '<ALTERED>(\d+)</ALTERED>') {
+        $a = [int]$Matches[1]
+        if ($a -gt 0) { return }
+    }
+    if ($raw -match 'Unknown Request|Could not find') {
+        throw ($raw.Substring(0, [Math]::Min(200, $raw.Length)))
+    }
+    if ($raw -match '<RESPONSE>') {
+        throw 'Tally did not create voucher (check company name and ledgers)'
+    }
+}
+
+function Invoke-TallyImport([string]$TallyUrl, [string]$Xml) {
+    $url = Normalize-TallyUrl $TallyUrl
+    $uri = [Uri]$url
+    $path = if ($uri.AbsolutePath -and $uri.AbsolutePath -ne '/') { $uri.AbsolutePath } else { '/' }
+    $req = [System.Net.HttpWebRequest]::Create("$($uri.Scheme)://$($uri.Host):$($uri.Port)$path")
+    $req.Method = 'POST'
+    $req.ContentType = 'text/xml; charset=utf-8'
+    $req.Timeout = 45000
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Xml)
+    $req.ContentLength = $bytes.Length
+    $stream = $req.GetRequestStream()
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Close()
+    $resp = $req.GetResponse()
+    $reader = New-Object System.IO.StreamReader $resp.GetResponseStream()
+    $body = $reader.ReadToEnd()
+    $reader.Close()
+    $resp.Close()
+    Test-TallyImportResponse $body
+}
+
 function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
     $resolved = Resolve-TscPrinterName $PrinterName
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -145,6 +217,26 @@ function Handle-Request($Context) {
             runtime = 'powershell'
             supportsReceipt = $true
             supportsLabels = $true
+            supportsTally = $true
+        }
+        return
+    }
+
+    if ($request.HttpMethod -eq 'POST' -and $path -eq '/tally-import') {
+        try {
+            $body = Read-RequestBody $request
+            $payload = @{}
+            if ($body) { $payload = $body | ConvertFrom-Json }
+            $tallyUrl = Normalize-TallyUrl ([string]($payload.tallyUrl))
+            $xml = [string]($payload.xml)
+            if (-not $xml.Trim()) {
+                Send-JsonResponse $Context 400 @{ ok = $false; error = 'No Tally XML' }
+                return
+            }
+            Invoke-TallyImport $tallyUrl $xml
+            Send-JsonResponse $Context 200 @{ ok = $true }
+        } catch {
+            Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message; tallyError = $_.Exception.Message }
         }
         return
     }
@@ -228,7 +320,7 @@ Write-Host ' KC ERP Print Service'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Labels: TSC TTP-244 Pro · Receipts: EPSON TM-m30III Receipt'
+Write-Host ' Labels: TSC TTP-244 Pro · Receipts: EPSON TM-m30III Receipt · Tally export'
 Write-Host ' Run CHECK-TSC-Printer.bat if labels fail.'
 Write-Host ' Press Ctrl+C to stop.'
 Write-Host ''

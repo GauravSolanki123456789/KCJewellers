@@ -32,6 +32,11 @@ async function postXmlViaLocalAgent(tallyUrl: string, xml: string): Promise<void
   } catch {
     data = {}
   }
+  if (r.status === 404) {
+    throw new Error(
+      'Print agent is outdated — close it and run START-KC-Label-Print.bat again (needs Tally export support).',
+    )
+  }
   if (!r.ok || !data.ok) {
     throw new Error(data.tallyError || data.error || `Tally import failed (${r.status})`)
   }

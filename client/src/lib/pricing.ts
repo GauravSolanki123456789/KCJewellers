@@ -408,7 +408,8 @@ function mcAmount(item: Item): number {
   const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0
   const pcs = linePieceCount(item)
   if (isMcPerPiece(item.mc_type)) return val * pcs
-  const wt = netWeight(item)
+  const metal = String(item.metal_type || '').toLowerCase()
+  const wt = metal.startsWith('silver') ? metalBillableWeight(item) : netWeight(item)
   return wt * val * pcs
 }
 

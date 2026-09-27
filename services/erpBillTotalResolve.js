@@ -5,18 +5,16 @@
 function linesNetFromPayload(body, linesRaw) {
     const sessionObj = body.session && typeof body.session === 'object' ? body.session : {};
     const fromSession = Number(sessionObj.netTotalInr);
-    if (Number.isFinite(fromSession) && fromSession > 0) {
+    if (Number.isFinite(fromSession)) {
         return Math.round(fromSession);
     }
-    const fromLines = (linesRaw || []).reduce(
-        (s, l) => s + (Number(l.lineTotalInr) || 0),
-        0,
-    );
-    if (fromLines > 0) {
+    const lines = linesRaw || [];
+    if (lines.length > 0) {
+        const fromLines = lines.reduce((s, l) => s + (Number(l.lineTotalInr) || 0), 0);
         return Math.round(fromLines);
     }
     const fromBody = Number(body.total_inr);
-    if (Number.isFinite(fromBody) && fromBody > 0) {
+    if (Number.isFinite(fromBody)) {
         return Math.round(fromBody);
     }
     return 0;
@@ -70,7 +68,7 @@ function resolveErpBillTotalFromPayload(body, linesRaw, billType, opts = {}) {
 function ensureSessionNetTotalInr(body, linesRaw) {
     const sessionObj = body.session && typeof body.session === 'object' ? body.session : {};
     const net = linesNetFromPayload(body, linesRaw);
-    if (net > 0) {
+    if (Number.isFinite(net)) {
         sessionObj.netTotalInr = net;
     }
     return sessionObj;

@@ -13,6 +13,17 @@ export function erpMcBillingNetGm(line: ErpBillLine): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
+/** MC/GM × weight — includes wastage % (and metal slab %) when applicable. */
+export function erpMcBillingWeightGm(line: ErpBillLine, slab: ErpRateSlab = 'R'): number {
+  const netWt = erpMcBillingNetGm(line)
+  if (netWt <= 0) return 0
+  const wastPct = Number(line.wastage_pct ?? 0) || 0
+  const metalMult = metalSlabPctMultiplier(line, slab)
+  if (metalMult != null && metalMult > 0) return Math.round(netWt * metalMult * 1000) / 1000
+  if (wastPct > 0) return Math.round(netWt * (1 + wastPct / 100) * 1000) / 1000
+  return netWt
+}
+
 const GST_PCT = 3
 
 /** Manual scanner lines typed as A (articles) or S (jewellery). */
@@ -156,8 +167,9 @@ export function computeManualAsLineBreakdown(
   const effMcRate = manualEffectiveMcRatePerUnit(line, slab)
   const pcs = Math.max(1, Number(line.qty) || 1)
   const perGm = isMcPerGmBillingType(line.mc_type)
-  const totalMcBase = perGm ? netWt * baseMcRate : pcs * baseMcRate
-  const totalMc = perGm ? netWt * effMcRate : pcs * effMcRate
+  const mcWt = perGm ? billedWt : netWt
+  const totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate
+  const totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate
 
   const fixedBase = Number(line.fixed_price ?? 0) || 0
   const fixedR = Number(line.fixed_price_r ?? 0) || 0

@@ -242,14 +242,33 @@ function computeSilverGiftMcGmBreakdown(
   }
 }
 
+/** Weight-based silver billing — not flat MRP (incl. SILVER JEWELLERY gift-style SKUs on silver metal). */
+export function shouldUseWeightSilverNotMrp(line: ErpBillLine): boolean {
+  if (isWeightBasedSilverGiftLine(line)) return true
+  const metal = String(line.metal_type || '').toLowerCase()
+  if (isGiftingItem({ metal_type: metal } as Item)) return false
+  if (!metal.startsWith('silver')) return false
+  const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
+  return wt > 0
+}
+
+export function applyInvoiceItemMrpMode(line: ErpBillLine, mrpNames: Set<string>): ErpBillLine {
+  const name = String(line.invoice_item_name || line.name || '').trim().toUpperCase()
+  if (!mrpNames.has(name)) return line
+  if (shouldUseWeightSilverNotMrp(line)) {
+    return { ...line, mrpMode: false, mrpListPrice: line.mrpListPrice ?? null }
+  }
+  return { ...line, mrpMode: true }
+}
+
 /** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
 export function isPiecePricedBillLine(line: ErpBillLine): boolean {
+  if (shouldUseWeightSilverNotMrp(line)) return false
   if (line.mrpMode) {
     const list = Number(line.mrpListPrice ?? 0)
     const fixed = Number(line.fixed_price ?? line.unitInr ?? 0)
     if (list > 0 || fixed > 0) return true
   }
-  if (isWeightBasedSilverGiftLine(line)) return false
   const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
   const mcType = String(line.mc_type || '').toUpperCase()
   if (mcType.includes('FIXED')) {

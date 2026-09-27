@@ -8,6 +8,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
+  applyInvoiceItemMrpMode,
+  shouldUseWeightSilverNotMrp,
   applyPiecePricedLineCalc,
   applyPieceSlabToLine,
   computeLineBreakdown,
@@ -684,6 +686,9 @@ export function ErpBillingWorkspace() {
         next.ratePerGram =
           r != null && Number.isFinite(r) ? Math.round(r * 100) / 100 : null
       }
+      if (shouldUseWeightSilverNotMrp(line)) {
+        next.mrpMode = false
+      }
       return next
     },
     [
@@ -1331,9 +1336,7 @@ export function ErpBillingWorkspace() {
       let line = productToLine(res.data.product, code, rateSlab)
       if (res.data.availability?.label) line.availability = res.data.availability.label
       const mrpNames = mrpInvoiceItemNames(gstInvoiceItems)
-      if (mrpNames.has(String(line.invoice_item_name || line.name || '').trim().toUpperCase())) {
-        line = { ...line, mrpMode: true }
-      }
+      line = applyInvoiceItemMrpMode(line, mrpNames)
       line = recalcLine(line)
       setLines((prev) => [...prev, line])
       setScanCode('')
@@ -1362,9 +1365,7 @@ export function ErpBillingWorkspace() {
         } else if (local && 'product' in local) {
           let line = productToLine(local.product, code, rateSlab)
           const mrpNames = mrpInvoiceItemNames(gstInvoiceItems)
-          if (mrpNames.has(String(line.invoice_item_name || line.name || '').trim().toUpperCase())) {
-            line = { ...line, mrpMode: true }
-          }
+          line = applyInvoiceItemMrpMode(line, mrpNames)
           line = recalcLine(line)
           setLines((prev) => [...prev, line])
         } else {

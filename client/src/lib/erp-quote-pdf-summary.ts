@@ -7,7 +7,7 @@ import {
   isGoldSlabRLine,
 } from '@/lib/erp-billing-display'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
-import { erpMcBillingNetGm } from '@/lib/erp-manual-as-line-pricing'
+import { erpMcBillingWeightGm } from '@/lib/erp-manual-as-line-pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
 
 /** Group key for summary estimate rows — same SKU/style/product/metal/MC slab. */
@@ -80,7 +80,7 @@ export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): 
     const qty = Math.max(1, Number(line.qty) || 1)
     return Math.round(mc * qty)
   }
-  const wt = erpMcBillingNetGm(line)
+  const wt = erpMcBillingWeightGm(line, rateSlab)
   if (wt <= 0) return null
   return Math.round(mc * wt)
 }

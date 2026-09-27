@@ -286,9 +286,18 @@ function resolveMcDiscountPct(item: Item, settings: ResellerSlabTierSettings): n
   return clampPct(settings.mc_discount_pct, 0, 100)
 }
 
+function mcBillingWeightGm(item: Item): number {
+  const metal = String(item.metal_type || '').toLowerCase()
+  if (metal.startsWith('silver')) {
+    const bill = metalBillableWeight(item)
+    if (bill > 0) return bill
+  }
+  return netWeight(item)
+}
+
 function mcPart(item: Item, mcDiscountPct: number): number {
   const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0
-  const wt = netWeight(item)
+  const wt = isMcPerPiece(item.mc_type) ? netWeight(item) : mcBillingWeightGm(item)
   const pcs = linePieceCount(item)
   const raw = isMcPerPiece(item.mc_type) ? val * pcs : wt * val * pcs
   const disc = clampPct(mcDiscountPct, 0, 100)

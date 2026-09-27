@@ -135,10 +135,14 @@ export function computeErpPieceSlabBreakdown(
   let metalPart: number
   let mc: number
 
+  const wastPct = Number(line.wastage_pct ?? 0) || 0
+  const mcWt =
+    mcGm && wastPct > 0 ? Math.round(netWt * (1 + wastPct / 100) * 1000) / 1000 : netWt
+
   const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0))
   if (mcGm) {
     metalPart = Math.round(metalRate * billWt)
-    mc = Math.round(mcRate * netWt)
+    mc = Math.round(mcRate * mcWt)
     if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100))
   } else {
     metalPart = Math.round(metalRate * billWt)
