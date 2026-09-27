@@ -43,21 +43,35 @@ function assertTallyVoucherDate(isoDate, voucherLabel) {
     return ymd;
 }
 
-function formatTallyAmount(amount, deemedPositive) {
+/**
+ * Tally Prime "Import Data" vouchers: ISDEEMEDPOSITIVE + signed AMOUNT.
+ * Credit lines: Yes + positive amount. Debit lines: No + negative amount.
+ * (Opposite of some legacy samples that keep AMOUNT positive and flip only the flag.)
+ */
+function formatTallyAmountSigned(amount, isCredit) {
     const n = Math.abs(Number(amount) || 0);
-    const signed = deemedPositive === 'Yes' ? n : -n;
+    const signed = isCredit ? n : -n;
     return signed.toFixed(2);
 }
 
-function ledgerEntryXml(ledgerName, amount, deemedPositive) {
+function ledgerEntryXml(ledgerName, amount, isCredit) {
     const name = String(ledgerName || '').trim();
     if (!name) return '';
+    const deemedPositive = isCredit ? 'Yes' : 'No';
     return `
           <ALLLEDGERENTRIES.LIST>
             <LEDGERNAME>${escapeXml(name)}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>${deemedPositive}</ISDEEMEDPOSITIVE>
-            <AMOUNT>${formatTallyAmount(amount, deemedPositive)}</AMOUNT>
+            <AMOUNT>${formatTallyAmountSigned(amount, isCredit)}</AMOUNT>
           </ALLLEDGERENTRIES.LIST>`;
+}
+
+function ledgerDr(ledgerName, amount) {
+    return ledgerEntryXml(ledgerName, amount, false);
+}
+
+function ledgerCr(ledgerName, amount) {
+    return ledgerEntryXml(ledgerName, amount, true);
 }
 
 function wrapImportEnvelope(companyName, voucherInnerXml) {
@@ -105,8 +119,8 @@ function buildSalesVoucherXml(opts) {
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
             <NARRATION>${escapeXml(narration || `ERP Sales ${voucherNumber}`)}</NARRATION>
-            ${ledgerEntryXml(partyName, amt, 'Yes')}
-            ${ledgerEntryXml(salesLedger, amt, 'No')}
+            ${ledgerDr(partyName, amt)}
+            ${ledgerCr(salesLedger, amt)}
           </VOUCHER>`;
     return wrapImportEnvelope(companyName, inner);
 }
@@ -133,8 +147,8 @@ function buildReceiptVoucherXml(opts) {
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
             <NARRATION>${escapeXml(narration || `ERP Receipt ${voucherNumber}`)}</NARRATION>
-            ${ledgerEntryXml(bankCash, amt, 'Yes')}
-            ${ledgerEntryXml(partyName, amt, 'No')}
+            ${ledgerDr(bankCash, amt)}
+            ${ledgerCr(partyName, amt)}
           </VOUCHER>`;
     return wrapImportEnvelope(companyName, inner);
 }
@@ -161,8 +175,8 @@ function buildPaymentVoucherXml(opts) {
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
             <NARRATION>${escapeXml(narration || `ERP Payment ${voucherNumber}`)}</NARRATION>
-            ${ledgerEntryXml(partyName, amt, 'Yes')}
-            ${ledgerEntryXml(bankCash, amt, 'No')}
+            ${ledgerDr(partyName, amt)}
+            ${ledgerCr(bankCash, amt)}
           </VOUCHER>`;
     return wrapImportEnvelope(companyName, inner);
 }
@@ -188,8 +202,8 @@ function buildPurchaseVoucherXml(opts) {
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
             <NARRATION>${escapeXml(narration || `ERP Purchase ${voucherNumber}`)}</NARRATION>
-            ${ledgerEntryXml(purchaseLedger, amt, 'Yes')}
-            ${ledgerEntryXml(partyName, amt, 'No')}
+            ${ledgerDr(purchaseLedger, amt)}
+            ${ledgerCr(partyName, amt)}
           </VOUCHER>`;
     return wrapImportEnvelope(companyName, inner);
 }
@@ -215,8 +229,8 @@ function buildCreditNoteVoucherXml(opts) {
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
             <NARRATION>${escapeXml(narration || `ERP Credit Note ${voucherNumber}`)}</NARRATION>
-            ${ledgerEntryXml(salesLedger, amt, 'Yes')}
-            ${ledgerEntryXml(partyName, amt, 'No')}
+            ${ledgerDr(salesLedger, amt)}
+            ${ledgerCr(partyName, amt)}
           </VOUCHER>`;
     return wrapImportEnvelope(companyName, inner);
 }

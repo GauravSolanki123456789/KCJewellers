@@ -182,7 +182,8 @@ var KcExhibitionBillingModule = (() => {
     const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0;
     const pcs = linePieceCount(item);
     if (isMcPerPiece(item.mc_type)) return val * pcs;
-    const wt = netWeight(item);
+    const metal = String(item.metal_type || "").toLowerCase();
+    const wt = metal.startsWith("silver") ? metalBillableWeight(item) : netWeight(item);
     return wt * val * pcs;
   }
   function stone(item) {
@@ -491,9 +492,17 @@ var KcExhibitionBillingModule = (() => {
     }
     return clampPct2(settings.mc_discount_pct, 0, 100);
   }
+  function mcBillingWeightGm(item) {
+    const metal = String(item.metal_type || "").toLowerCase();
+    if (metal.startsWith("silver")) {
+      const bill = metalBillableWeight(item);
+      if (bill > 0) return bill;
+    }
+    return netWeight(item);
+  }
   function mcPart(item, mcDiscountPct) {
     const val = Number(item.mc_rate ?? item.mc_value ?? 0) || 0;
-    const wt = netWeight(item);
+    const wt = isMcPerPiece(item.mc_type) ? netWeight(item) : mcBillingWeightGm(item);
     const pcs = linePieceCount(item);
     const raw = isMcPerPiece(item.mc_type) ? val * pcs : wt * val * pcs;
     const disc = clampPct2(mcDiscountPct, 0, 100);
@@ -750,10 +759,12 @@ var KcExhibitionBillingModule = (() => {
     const mcGm = !isMcPerPiece(line.mc_type);
     let metalPart;
     let mc;
+    const wastPct = Number(line.wastage_pct ?? 0) || 0;
+    const mcWt = mcGm && wastPct > 0 ? Math.round(netWt * (1 + wastPct / 100) * 1e3) / 1e3 : netWt;
     const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0));
     if (mcGm) {
       metalPart = Math.round(metalRate * billWt);
-      mc = Math.round(mcRate * netWt);
+      mc = Math.round(mcRate * mcWt);
       if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100));
     } else {
       metalPart = Math.round(metalRate * billWt);
@@ -885,9 +896,13 @@ var KcExhibitionBillingModule = (() => {
       if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct;
       if (s.purity != null) patch.purity = s.purity;
       if (s.fixed_price != null) {
-        patch.fixed_price = s.fixed_price;
-        patch.mrpListPrice = s.fixed_price;
-        patch.mrpMode = true;
+        const sizeWt = Number(s.net_weight ?? 0) || 0;
+        const silverWeightSku = !catalogProductUsesMrpPricing(product) && String(product.metal_type || "").toLowerCase().startsWith("silver") && sizeWt > 0;
+        if (!silverWeightSku) {
+          patch.fixed_price = s.fixed_price;
+          patch.mrpListPrice = s.fixed_price;
+          patch.mrpMode = true;
+        }
       }
       if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r;
       if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w;
@@ -1000,9 +1015,22 @@ var KcExhibitionBillingModule = (() => {
     return formatMetalSlabPctForDisplay(line, slab) !== "";
   }
   function isManualGridFieldVisible(field, line, rateSlab = "R") {
+    if (line.manualCategory === "old") {
+      const allowed = /* @__PURE__ */ new Set([
+        "name",
+        "weightGm",
+        "oldDustStoneGm",
+        "gross_weight",
+        "oldExchangePct",
+        "ratePerGram",
+        "invoice_item_name"
+      ]);
+      return allowed.has(field);
+    }
     if (field === "mc_rate_slab_r" && !billingShowsMcSlabRColumn(rateSlab)) return false;
-    if (line.manualCategory === "gift" || line.mrpMode) {
-      if (field === "ratePerGram" || field === "metal_type") return false;
+    if (field === "ratePerGram" || field === "metal_type") {
+      if (shouldUseWeightSilverNotMrp(line)) return true;
+      if (line.manualCategory === "gift" || line.mrpMode) return false;
     }
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
     if (field === "stone_charges") return lineHasFinishPicker(line);
@@ -1019,6 +1047,44 @@ var KcExhibitionBillingModule = (() => {
       if (isManualGridFieldVisible(key, line, rateSlab)) return key;
     }
     return null;
+  }
+
+  // src/lib/erp-old-exchange-pricing.ts
+  function isOldExchangeManualLine(line) {
+    return !!line.manualEntry && line.manualCategory === "old";
+  }
+  function deriveOldExchangeGrossWeight(line) {
+    const weight = Number(line.weightGm ?? line.originalWeightGm);
+    if (!Number.isFinite(weight) || weight < 0) return null;
+    const dust = Number(line.oldDustStoneGm ?? 0);
+    const dustAmt = Number.isFinite(dust) && dust > 0 ? dust : 0;
+    return Math.max(0, Math.round((weight - dustAmt) * 1e3) / 1e3);
+  }
+  function computeOldExchangeGrossAmount(line) {
+    const grossWt = deriveOldExchangeGrossWeight(line) ?? (Number(line.gross_weight) > 0 ? Number(line.gross_weight) : 0);
+    const pct = Number(line.oldExchangePct);
+    const rate = Number(line.ratePerGram);
+    if (grossWt <= 0 || !Number.isFinite(pct) || pct <= 0 || !Number.isFinite(rate) || rate <= 0) {
+      return 0;
+    }
+    return Math.round(grossWt * (pct / 100) * rate * 100) / 100;
+  }
+  function computeOldExchangeLineTotalInr(line) {
+    const amt = computeOldExchangeGrossAmount(line);
+    return amt > 0 ? -amt : 0;
+  }
+  function computeOldExchangeBreakdown(line) {
+    const total = computeOldExchangeLineTotalInr(line);
+    const credit = Math.abs(total);
+    return {
+      metal: 0,
+      mc: 0,
+      stone: 0,
+      cgst: 0,
+      sgst: 0,
+      taxable: -credit,
+      total
+    };
   }
 
   // src/lib/erp-manual-as-line-pricing.ts
@@ -1071,7 +1137,7 @@ var KcExhibitionBillingModule = (() => {
     if (silverPerG <= lineRate) return 0;
     return Math.round((silverPerG - lineRate) * billedWt);
   }
-  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0, wholesaleSilver, wholesaleGold, gstPct = GST_PCT) {
+  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0, wholesaleSilver, wholesaleGold, gstPct = GST_PCT, slabSettings) {
     const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     if (netWt <= 0) {
       return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 };
@@ -1097,8 +1163,18 @@ var KcExhibitionBillingModule = (() => {
     const effMcRate = manualEffectiveMcRatePerUnit(line, slab);
     const pcs = Math.max(1, Number(line.qty) || 1);
     const perGm = isMcPerGmBillingType(line.mc_type);
-    const totalMcBase = perGm ? netWt * baseMcRate : pcs * baseMcRate;
-    const totalMc = perGm ? netWt * effMcRate : pcs * effMcRate;
+    const mcWt = perGm ? billedWt : netWt;
+    let totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate;
+    let totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate;
+    if (!perGm && slabSettings && isMcPerPiece(line.mc_type)) {
+      const slabMc = pieceSlabMcRate(line, slab);
+      const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);
+      const mcDiscPct = Math.max(0, Math.min(100, Number(tier.mc_discount_pct) || 0));
+      if (mcDiscPct > 0 && (slabMc == null || Number(slabMc) === baseMcRate)) {
+        totalMcBase = pcs * baseMcRate;
+        totalMc = Math.round(pcs * baseMcRate * (1 - mcDiscPct / 100));
+      }
+    }
     const fixedBase = Number(line.fixed_price ?? 0) || 0;
     const fixedR = Number(line.fixed_price_r ?? 0) || 0;
     let fixedTotal = fixedBase;
@@ -1262,13 +1338,21 @@ var KcExhibitionBillingModule = (() => {
       mc_discount_pct: mcDisc > 0 && mcBase > mcPerG ? mcDisc : void 0
     };
   }
+  function shouldUseWeightSilverNotMrp(line) {
+    if (isWeightBasedSilverGiftLine(line)) return true;
+    const metal = String(line.metal_type || "").toLowerCase();
+    if (isGiftingItem({ metal_type: metal })) return false;
+    if (!metal.startsWith("silver")) return false;
+    const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
+    return wt > 0;
+  }
   function isPiecePricedBillLine(line) {
+    if (shouldUseWeightSilverNotMrp(line)) return false;
     if (line.mrpMode) {
       const list = Number(line.mrpListPrice ?? 0);
       const fixed = Number(line.fixed_price ?? line.unitInr ?? 0);
       if (list > 0 || fixed > 0) return true;
     }
-    if (isWeightBasedSilverGiftLine(line)) return false;
     const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     const mcType = String(line.mc_type || "").toUpperCase();
     if (mcType.includes("FIXED")) {
@@ -1389,6 +1473,9 @@ var KcExhibitionBillingModule = (() => {
   }
   function computeLineBreakdown(line, displayRates, slab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG = 0, silverPerG = 0, goldSlabRShowMc = true, opts) {
     const gstPct = erpBillGstPct(opts?.gstEnabled);
+    if (isOldExchangeManualLine(line)) {
+      return computeOldExchangeBreakdown(line);
+    }
     if (isSilverGiftMcGmLine(line)) {
       const bd2 = computeSilverGiftMcGmBreakdown(
         line,
@@ -1416,7 +1503,8 @@ var KcExhibitionBillingModule = (() => {
         goldPerG,
         wholesaleSilver,
         wholesaleGold,
-        gstPct
+        gstPct,
+        slabSettings
       );
     }
     if (isPiecePricedBillLine(line)) {
@@ -1557,13 +1645,15 @@ var KcExhibitionBillingModule = (() => {
     articles: ["SILVER ARTICLES", "SILVER ARTICLE"],
     jewellery: ["SILVER JEWELLERY", "SILVER JEWELRY"],
     bullion: ["SILVER BAR", "GRAINS", "SILVER BULLION"],
-    gift: ["GIFT ITEMS", "GIFT ITEM"]
+    gift: ["GIFT ITEMS", "GIFT ITEM"],
+    old: ["SILVER JEWELLERY", "SILVER JEWELRY"]
   };
   var BILLING_SCAN_SHORTCUTS = {
     A: "articles",
     S: "jewellery",
     B: "bullion",
-    G: "gift"
+    G: "gift",
+    O: "old"
   };
   function resolveBillingScanShortcut(code) {
     const key = code.trim().toUpperCase();
@@ -1617,6 +1707,18 @@ var KcExhibitionBillingModule = (() => {
       mrpMode: void 0
     };
     if (category === "gift") return base;
+    if (category === "old") {
+      return {
+        ...base,
+        name: "Old silver",
+        qty: 1,
+        metal_type: "silver",
+        manualCategory: "old",
+        oldDustStoneGm: null,
+        oldExchangePct: 92,
+        rateLocked: false
+      };
+    }
     return applyPieceSlabToLine(base, slab);
   }
   var GIFT_ENTRY_FIELD_ORDER = [
@@ -1730,9 +1832,19 @@ var KcExhibitionBillingModule = (() => {
     return out;
   }
   function isGiftManualLine(line) {
+    if (shouldUseWeightSilverNotMrp(line)) return false;
     return line.manualCategory === "gift" || !!line.mrpMode;
   }
+  var OLD_EXCHANGE_FIELD_ORDER = [
+    "name",
+    "weightGm",
+    "oldDustStoneGm",
+    "gross_weight",
+    "oldExchangePct",
+    "ratePerGram"
+  ];
   function entryFieldOrderForLine(line) {
+    if (line.manualCategory === "old") return OLD_EXCHANGE_FIELD_ORDER;
     return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER;
   }
   function nextManualEntryField(current, line, rateSlab = "R") {
@@ -1762,6 +1874,9 @@ var KcExhibitionBillingModule = (() => {
     return Math.round(m * (1 - disc / 100) * 100) / 100;
   }
   function applyGiftMrpPieceRate(line, slab, slabSettings) {
+    if (shouldUseWeightSilverNotMrp(line)) {
+      return { ...line, mrpMode: false, mrpListPrice: null, unitInr: null };
+    }
     const list = Number(line.mrpListPrice);
     if (!Number.isFinite(list) || list <= 0) return line;
     const slabPrice = giftMrpSlabPrice(list, slab, slabSettings);
@@ -1842,107 +1957,6 @@ var KcExhibitionBillingModule = (() => {
   }
 
   // src/lib/exhibition/exhibition-billing-bundle.ts
-  var BILL_TABLE_COLS = [
-    { key: "barcode", label: "Barcode" },
-    { key: "sku", label: "SKU" },
-    { key: "style_code", label: "Style" },
-    { key: "name", label: "Product" },
-    { key: "invoice_item_name", label: "Inv.item" },
-    { key: "hsn_code", label: "HSN" },
-    { key: "size", label: "Size" },
-    { key: "weightGm", label: "NetWt" },
-    { key: "gross_weight", label: "Gross" },
-    { key: "bags", label: "Bags" },
-    { key: "bag_wt", label: "BagWt" },
-    { key: "metal_slab_pct", label: "Metal%" },
-    { key: "purity", label: "Purity" },
-    { key: "wastage_pct", label: "Wast%" },
-    { key: "ratePerGram", label: "Rate" },
-    { key: "mc_rate", label: "MC" },
-    { key: "mc_rate_slab_r", label: "MC R" },
-    { key: "mc_type", label: "MCType" },
-    { key: "qty", label: "PCS" },
-    { key: "box_charges", label: "Box" },
-    { key: "stone_charges", label: "Finish" },
-    { key: "metal_type", label: "Metal" },
-    { key: "fixed_price", label: "Fixed" },
-    { key: "fixed_price_r", label: "Fixed R" },
-    { key: "amount", label: "Amt" }
-  ];
-  function billCellText(line, key, rateSlab) {
-    if (key === "barcode") return line.barcode || line.code || "";
-    if (key === "sku") return line.sku || "";
-    if (key === "style_code") return line.style_code || "";
-    if (key === "name") return line.name || line.product_name || "";
-    if (key === "invoice_item_name") return line.invoice_item_name || "";
-    if (key === "hsn_code") return line.hsn_code || "";
-    if (key === "size") return line.size || "";
-    if (key === "weightGm") return line.originalWeightGm ?? line.weightGm ?? "";
-    if (key === "gross_weight") return line.gross_weight ?? "";
-    if (key === "bags") return line.bags ?? "";
-    if (key === "bag_wt") return line.bag_wt ?? "";
-    if (key === "metal_slab_pct") return formatMetalSlabPctForDisplay(line, rateSlab) || "";
-    if (key === "purity") return line.purity ?? "";
-    if (key === "wastage_pct") return line.wastage_pct ?? "";
-    if (key === "ratePerGram") return line.ratePerGram ?? "";
-    if (key === "mc_rate") return line.mc_rate ?? "";
-    if (key === "mc_rate_slab_r") {
-      if (!billingShowsMcSlabRColumn(rateSlab)) return "";
-      const f = mcSlabFieldForBillingSlab(rateSlab);
-      return line[f] ?? "";
-    }
-    if (key === "mc_type") return line.mc_type || "";
-    if (key === "qty") return line.qty ?? line.pcs ?? "";
-    if (key === "box_charges") return line.box_charges ?? "";
-    if (key === "stone_charges") return line.stone_charges ?? "";
-    if (key === "metal_type") {
-      if (line.manualCategory === "gift" || line.mrpMode) return "";
-      return line.metal_type || "";
-    }
-    if (key === "fixed_price") return line.fixed_price ?? "";
-    if (key === "fixed_price_r") return line.fixed_price_r ?? "";
-    if (key === "amount") return line.lineTotalInr ?? "";
-    return "";
-  }
-  function displayText(raw) {
-    const s = String(raw ?? "").trim();
-    if (!s || s === "\u2014" || s === "-") return "";
-    return s;
-  }
-  function collapsedBillColumnHasData(line, key, rateSlab) {
-    if (key === "amount") {
-      const n = Number(line.lineTotalInr);
-      return Number.isFinite(n) && n > 0;
-    }
-    if (key === "mc_rate_slab_r") {
-      if (!billingShowsMcSlabRColumn(rateSlab)) return false;
-      const f = mcSlabFieldForBillingSlab(rateSlab);
-      return line[f] != null && displayText(line[f]) !== "";
-    }
-    if (key === "metal_slab_pct") return formatMetalSlabPctForDisplay(line, rateSlab) !== "";
-    const text = displayText(billCellText(line, key, rateSlab));
-    if (key === "box_charges" || key === "stone_charges") {
-      const n = Number(text);
-      return text !== "" && Number.isFinite(n) && n !== 0;
-    }
-    if (key === "wastage_pct") {
-      const n = Number(text);
-      return text !== "" && Number.isFinite(n) && n !== 0;
-    }
-    return text !== "";
-  }
-  function visibleCollapsedBillTableCols(lines, rateSlab) {
-    const base = BILL_TABLE_COLS.filter(
-      (c) => c.key !== "mc_rate_slab_r" || billingShowsMcSlabRColumn(rateSlab)
-    );
-    const collapsed = lines.filter((l) => !(l.manualEntry && l.manualEntryOpen));
-    if (!collapsed.length) return base;
-    return base.filter(
-      (col) =>
-        col.key === "amount" ||
-        collapsed.some((line) => collapsedBillColumnHasData(line, col.key, rateSlab))
-    );
-  }
   function calcLineTotal(line, rates, slab, slabSettingsRaw) {
     const slabSettings = parseSlabSettingsFromUser(slabSettingsRaw);
     const recalced = recalcExhibitionBillLine(line, {
@@ -1993,12 +2007,7 @@ var KcExhibitionBillingModule = (() => {
     giftMrpSlabPrice,
     cartTotalsFromLines,
     MANUAL_ENTRY_FIELD_ORDER,
-    GIFT_ENTRY_FIELD_ORDER,
-    BILL_TABLE_COLS,
-    billCellText,
-    visibleCollapsedBillTableCols,
-    billingShowsMcSlabRColumn,
-    mcSlabFieldForBillingSlab
+    GIFT_ENTRY_FIELD_ORDER
   };
   if (typeof window !== "undefined") {
     window.KcExhibitionBilling = api;
