@@ -188,8 +188,14 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
         <SettingsWorkspace
           settingsKey="tally"
           fields={[
-            { key: 'company', label: 'Tally company name' },
-            { key: 'serverUrl', label: 'Tally / API endpoint' },
+            { key: 'enabled', label: 'Enable day book export', placeholder: 'yes' },
+            { key: 'company', label: 'Tally company name (exact, as in TallyPrime)' },
+            {
+              key: 'serverUrl',
+              label: 'Tally HTTP endpoint',
+              placeholder: 'http://localhost:9000',
+            },
+            { key: 'apiKey', label: 'API / secret key (optional)', type: 'password' },
             { key: 'notes', label: 'Sync notes' },
           ]}
         />

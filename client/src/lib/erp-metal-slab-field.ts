@@ -73,6 +73,18 @@ export function isManualGridFieldVisible(
   line: ErpBillLine,
   rateSlab: ErpRateSlab = 'R',
 ): boolean {
+  if (line.manualCategory === 'old') {
+    const allowed = new Set<ManualBillGridField>([
+      'name',
+      'weightGm',
+      'oldDustStoneGm',
+      'gross_weight',
+      'oldExchangePct',
+      'ratePerGram',
+      'invoice_item_name',
+    ])
+    return allowed.has(field)
+  }
   if (field === 'mc_rate_slab_r' && !billingShowsMcSlabRColumn(rateSlab)) return false
   if (line.manualCategory === 'gift' || line.mrpMode) {
     if (field === 'ratePerGram' || field === 'metal_type') return false

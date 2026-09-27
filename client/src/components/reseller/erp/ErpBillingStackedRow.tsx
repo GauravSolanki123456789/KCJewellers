@@ -17,6 +17,7 @@ import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { billingShowsMcSlabRColumn, isManualGridFieldVisible } from '@/lib/erp-metal-slab-field'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import type { GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { X } from 'lucide-react'
 
 const WEIGHT_BAND: { key: keyof ErpBillLine | 'metal_slab_pct'; label: string }[] = [
@@ -60,6 +61,8 @@ const NUMERIC_KEYS = new Set<keyof ErpBillLine | 'metal_slab_pct'>([
   'stone_charges',
   'fixed_price',
   'fixed_price_r',
+  'oldDustStoneGm',
+  'oldExchangePct',
 ])
 
 type Props = {
@@ -90,6 +93,7 @@ type Props = {
   rowRef: (el: HTMLTableRowElement | null) => void
   rateSlab: ErpRateSlab
   slabSettings: ResellerSlabSettings
+  gstInvoiceItems?: GstInvoiceItem[]
   tableColSpan?: number
 }
 
@@ -118,8 +122,10 @@ export function ErpBillingStackedRow({
   rowRef,
   rateSlab,
   slabSettings,
+  gstInvoiceItems = [],
   tableColSpan = 26,
 }: Props) {
+  const oldExchange = line.manualCategory === 'old'
   const gift = isGiftManualLine(line)
   const giftManual = line.manualCategory === 'gift'
   const skuValue = String(line.sku || '')
@@ -175,6 +181,89 @@ export function ErpBillingStackedRow({
       </td>
       <td colSpan={tableColSpan} className="px-2 py-2">
         <div className="space-y-2">
+          {oldExchange ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-900">
+                  Old silver exchange (O)
+                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold tabular-nums text-rose-800">
+                    {formatErpInr(line.lineTotalInr ?? 0)}
+                  </p>
+                  <button type="button" className="text-rose-500" onClick={onDelete}>
+                    <X className="size-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
+                  Description
+                  <ErpBillingSuggestField
+                    value={String(line.name || '')}
+                    placeholder="Old item…"
+                    options={[]}
+                    autoFocus={focused('name')}
+                    blurOnCommit={false}
+                    inputRef={(el) => inputRef('name', el)}
+                    onChange={onProductChange}
+                    onAfterTab={() => onAdvance('name')}
+                    onCommit={(name) => {
+                      onProductChange(name)
+                      onAdvance('name')
+                    }}
+                  />
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
+                  Invoice item
+                  <select
+                    ref={(el) => inputRef('invoice_item_name', el)}
+                    className="mt-0.5 w-full rounded-xl border border-emerald-300 bg-white px-2 py-1.5 text-xs text-[var(--color-jewelry-black,#1a1814)]"
+                    value={String(line.invoice_item_name || '')}
+                    onChange={(e) => {
+                      const hit = gstInvoiceItems.find((it) => it.name === e.target.value)
+                      onPatch({
+                        invoice_item_name: e.target.value,
+                        hsn_code: hit?.hsn ?? line.hsn_code,
+                      })
+                    }}
+                  >
+                    <option value="">Select…</option>
+                    {gstInvoiceItems.map((it) => (
+                      <option key={it.id} value={it.name}>
+                        {it.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Weight (g)
+                  {bandInput('weightGm')}
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Dust / stone (g)
+                  {bandInput('oldDustStoneGm')}
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Gross wt (g)
+                  {bandInput('gross_weight', true)}
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Old %
+                  {bandInput('oldExchangePct')}
+                </label>
+                <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Old rate / g
+                  {bandInput('ratePerGram')}
+                </label>
+              </div>
+              <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/55">
+                Rate default: today silver − slab R offset − 3% old-metal. Edit rate to override. Credit
+                subtracts from bill total.
+              </p>
+            </>
+          ) : (
+          <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
             <label className="min-w-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--kc-accent,#8b1e2d)]">
               SKU
@@ -272,7 +361,7 @@ export function ErpBillingStackedRow({
           </div>
 
           <>
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {WEIGHT_BAND.filter((f) =>
                   isManualGridFieldVisible(f.key, line, rateSlab),
                 ).map((f) => (
@@ -418,6 +507,8 @@ export function ErpBillingStackedRow({
                 ))}
               </div>
             </>
+          </>
+          )}
         </div>
       </td>
     </tr>

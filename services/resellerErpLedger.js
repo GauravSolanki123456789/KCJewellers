@@ -1180,6 +1180,35 @@ function registerResellerErpLedgerRoutes(app, deps) {
         }
     });
 
+    const { exportDaybookToTally, testResellerTallyConnection } = require('./resellerErpTallyDaybook');
+
+    app.post('/api/reseller/erp/ledger/daybook/export-tally', checkAuth, erpGate, async (req, res) => {
+        try {
+            const date = parseDateOrNull(req.body?.date || req.query?.date);
+            if (!date) {
+                return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
+            }
+            const result = await exportDaybookToTally(query, req.user.id, { date });
+            res.json(result);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            console.error('erp ledger daybook export-tally:', e);
+            res.status(500).json({ error: e.message || 'Tally export failed' });
+        }
+    });
+
+    app.post('/api/reseller/erp/ledger/tally/test', checkAuth, erpGate, async (req, res) => {
+        try {
+            const result = await testResellerTallyConnection(query, req.user.id);
+            res.json(result);
+        } catch (e) {
+            const status = e.status || 500;
+            if (status !== 500) return res.status(status).json({ error: e.message });
+            res.status(500).json({ error: e.message || 'Tally test failed' });
+        }
+    });
+
     app.get('/api/reseller/erp/ledger/daybook/export', checkAuth, erpGate, async (req, res) => {
         try {
             const date = parseDateOrNull(req.query.date);

@@ -18,6 +18,7 @@ import {
 } from '@/lib/erp-piece-slab-pricing'
 import { lineHasMetalSlabPctInput } from '@/lib/erp-metal-slab-field'
 import { applyGiftMrpPieceRate } from '@/lib/erp-gift-mrp-pricing'
+import { computeOldExchangeBreakdown, isOldExchangeManualLine } from '@/lib/erp-old-exchange-pricing'
 import {
   computeManualAsLineBreakdown,
   isManualArticlesOrJewelleryLine,
@@ -432,6 +433,9 @@ export function computeLineBreakdown(
   opts?: ComputeLineBreakdownOpts,
 ) {
   const gstPct = erpBillGstPct(opts?.gstEnabled)
+  if (isOldExchangeManualLine(line)) {
+    return computeOldExchangeBreakdown(line)
+  }
   if (isSilverGiftMcGmLine(line)) {
     const bd = computeSilverGiftMcGmBreakdown(
       line,
@@ -553,6 +557,7 @@ export function shouldAutoSyncLineMetalRate(line: ErpBillLine): boolean {
   if (isPiecePricedBillLine(line)) return false
   const metal = String(line.metal_type || '').toLowerCase()
   if (line.manualEntry) {
+    if (line.manualCategory === 'old') return !line.rateLocked
     return (
       metal.startsWith('gold') ||
       metal.startsWith('silver') ||

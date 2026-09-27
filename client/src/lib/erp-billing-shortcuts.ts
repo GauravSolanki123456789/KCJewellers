@@ -10,13 +10,14 @@ import {
 } from '@/lib/erp-metal-slab-field'
 
 /** Scanner shortcut keys in billing → invoice item category */
-export type BillingManualCategory = 'articles' | 'jewellery' | 'bullion' | 'gift'
+export type BillingManualCategory = 'articles' | 'jewellery' | 'bullion' | 'gift' | 'old'
 
 const CATEGORY_LABELS: Record<BillingManualCategory, string[]> = {
   articles: ['SILVER ARTICLES', 'SILVER ARTICLE'],
   jewellery: ['SILVER JEWELLERY', 'SILVER JEWELRY'],
   bullion: ['SILVER BAR', 'GRAINS', 'SILVER BULLION'],
   gift: ['GIFT ITEMS', 'GIFT ITEM'],
+  old: ['SILVER JEWELLERY', 'SILVER JEWELRY'],
 }
 
 export const BILLING_SCAN_SHORTCUTS: Record<string, BillingManualCategory> = {
@@ -24,6 +25,7 @@ export const BILLING_SCAN_SHORTCUTS: Record<string, BillingManualCategory> = {
   S: 'jewellery',
   B: 'bullion',
   G: 'gift',
+  O: 'old',
 }
 
 export function resolveBillingScanShortcut(code: string): BillingManualCategory | null {
@@ -88,6 +90,18 @@ export function createManualBillLine(
     mrpMode: undefined,
   }
   if (category === 'gift') return base
+  if (category === 'old') {
+    return {
+      ...base,
+      name: 'Old silver',
+      qty: 1,
+      metal_type: 'silver',
+      manualCategory: 'old',
+      oldDustStoneGm: null,
+      oldExchangePct: 92,
+      rateLocked: false,
+    }
+  }
   return applyPieceSlabToLine(base, slab)
 }
 
@@ -283,7 +297,17 @@ export function isGiftManualLine(line: ErpBillLine): boolean {
   return line.manualCategory === 'gift' || !!line.mrpMode
 }
 
+export const OLD_EXCHANGE_FIELD_ORDER: ManualBillGridField[] = [
+  'name',
+  'weightGm',
+  'oldDustStoneGm',
+  'gross_weight',
+  'oldExchangePct',
+  'ratePerGram',
+]
+
 export function entryFieldOrderForLine(line: ErpBillLine): ManualBillGridField[] {
+  if (line.manualCategory === 'old') return OLD_EXCHANGE_FIELD_ORDER
   return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER
 }
 
@@ -309,6 +333,7 @@ export const STACKED_MANUAL_TAIL_ORDER: ManualBillGridField[] = [
 ]
 
 export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[] {
+  if (line.manualCategory === 'old') return OLD_EXCHANGE_FIELD_ORDER
   if (isGiftManualLine(line)) {
     return GIFT_ENTRY_FIELD_ORDER as ManualBillGridField[]
   }

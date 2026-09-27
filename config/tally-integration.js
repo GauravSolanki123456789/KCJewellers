@@ -11,6 +11,7 @@ class TallyIntegration {
         this.companyName = config.companyName || 'Default Company';
         this.enabled = config.enabled !== false;
         this.syncMode = config.syncMode || 'auto'; // 'auto' or 'manual'
+        this.apiKey = config.apiKey || '';
     }
 
     /**
@@ -264,7 +265,9 @@ class TallyIntegration {
      * Generate Tally XML for Sales Return
      */
     generateSalesReturnXML(salesReturn) {
-        const items = Array.isArray(creditNote.items) ? creditNote.items : JSON.parse(creditNote.items || '[]');
+        const items = Array.isArray(salesReturn.items)
+            ? salesReturn.items
+            : JSON.parse(salesReturn.items || '[]');
         
         const invoiceItems = items.map((item) => {
             const itemName = item.itemName || item.shortName || 'Jewelry Item';
@@ -440,6 +443,7 @@ class TallyIntegration {
                 headers: {
                     'Content-Type': 'application/xml',
                     'Content-Length': Buffer.byteLength(postData),
+                    ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
                     ...options.headers
                 },
                 timeout: options.timeout || 30000

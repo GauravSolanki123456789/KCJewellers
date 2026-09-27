@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import axios from '@/lib/axios'
 import {
@@ -57,6 +58,9 @@ type DaybookTransaction = {
   amount_inr: number
   received_inr: number
   paid_out_inr: number
+  debit_inr?: number
+  credit_inr?: number
+  balance_inr?: number
   description?: string
 }
 
@@ -67,6 +71,9 @@ type DaybookData = {
     received_inr: number
     paid_out_inr: number
     net_inr: number
+    total_debit_inr?: number
+    total_credit_inr?: number
+    closing_balance_inr?: number
     transaction_count: number
   }
   transactions: DaybookTransaction[]
@@ -947,6 +954,26 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
   }
 
+  const exportDaybookToTally = async () => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await axios.post<{ message?: string; synced?: number; failed?: number }>(
+        '/api/reseller/erp/ledger/daybook/export-tally',
+        { date: dayBookDate },
+      )
+      const extra =
+        res.data.failed != null && res.data.failed > 0
+          ? ` (${res.data.failed} failed — is TallyPrime running with HTTP enabled?)`
+          : ''
+      setMsg((res.data.message || 'Exported to Tally.') + extra)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const exportDaybook = async (format: 'csv' | 'pdf') => {
     if (!dayBook) return
     setBusy(true)
@@ -1392,12 +1419,12 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     { id: 'report' as const, label: 'Reports' },
   ]
 
-  const dayBookNet = useMemo(() => {
+  const dayBookLedger = useMemo(() => {
     const s = dayBook?.summary
     return {
-      received: s?.received_inr ?? 0,
-      paid: s?.paid_out_inr ?? 0,
-      net: s?.net_inr ?? 0,
+      debit: s?.total_debit_inr ?? 0,
+      credit: s?.total_credit_inr ?? 0,
+      balance: s?.closing_balance_inr ?? 0,
     }
   }, [dayBook])
 
@@ -2334,6 +2361,17 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           <div className="flex flex-wrap items-end justify-between gap-3">
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Day book</p>
             <div className="flex flex-wrap items-center gap-2">
+              {!laneMode ? (
+                <button
+                  type="button"
+                  className={`${erpBtnPrimary} inline-flex min-h-[40px] items-center gap-1.5 text-xs`}
+                  disabled={busy || !dayBookRows.length}
+                  onClick={() => void exportDaybookToTally()}
+                >
+                  <Upload className="size-4" />
+                  Export to Tally
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`${erpBtnGhost} inline-flex min-h-[40px] items-center gap-1.5 text-xs`}
@@ -2345,7 +2383,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               </button>
               <button
                 type="button"
-                className={`${erpBtnPrimary} inline-flex min-h-[40px] items-center gap-1.5 text-xs`}
+                className={`${erpBtnGhost} inline-flex min-h-[40px] items-center gap-1.5 text-xs`}
                 disabled={busy || !dayBookRows.length}
                 onClick={() => void exportDaybook('pdf')}
               >
@@ -2372,18 +2410,31 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               Unassigned only
             </label>
           </div>
+          {!laneMode ? (
+            <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+              Tally: configure company &amp; endpoint under{' '}
+              <Link href="/reseller/erp/tally" className="font-semibold text-emerald-900 underline">
+                ERP → Tally connectivity
+              </Link>
+              . Only official (non-Jainav) entries export.
+            </p>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Debit</p>
+              <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                {formatErpInr(dayBookLedger.debit)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
+              <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Credit</p>
+              <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                {formatErpInr(dayBookLedger.credit)}
+              </p>
+            </div>
             <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-emerald-800/70">Received</p>
-              <p className="font-bold tabular-nums text-emerald-900">{formatErpInr(dayBookNet.received)}</p>
-            </div>
-            <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Paid out</p>
-              <p className="font-bold tabular-nums">{formatErpInr(dayBookNet.paid)}</p>
-            </div>
-            <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Net</p>
-              <p className="font-bold tabular-nums">{formatErpInr(dayBookNet.net)}</p>
+              <p className="text-[10px] font-bold uppercase text-emerald-800/70">Balance</p>
+              <p className="font-bold tabular-nums text-emerald-900">{formatErpInr(dayBookLedger.balance)}</p>
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
@@ -2395,14 +2446,16 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                   <th className="px-3 py-2.5">Customer / party</th>
                   <th className="px-3 py-2.5">Mode</th>
                   <th className="px-3 py-2.5">Reference</th>
-                  <th className="px-3 py-2.5 text-right">Amount</th>
+                  <th className="hidden px-3 py-2.5 text-right sm:table-cell">Debit</th>
+                  <th className="hidden px-3 py-2.5 text-right sm:table-cell">Credit</th>
+                  <th className="px-3 py-2.5 text-right">Balance</th>
                   <th className="px-3 py-2.5 w-20" />
                 </tr>
               </thead>
               <tbody>
                 {dayBookRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                       No entries on this date.
                     </td>
                   </tr>
@@ -2420,14 +2473,14 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <td className="max-w-[160px] truncate px-3 py-2.5">{row.customer_name || '—'}</td>
                       <td className="px-3 py-2.5 uppercase">{row.payment_mode || '—'}</td>
                       <td className="max-w-[120px] truncate px-3 py-2.5">{row.reference || '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">
-                        {row.received_inr > 0 ? (
-                          <span className="text-emerald-800">{formatErpInr(row.received_inr)}</span>
-                        ) : row.paid_out_inr > 0 ? (
-                          <span className="text-rose-800">{formatErpInr(row.paid_out_inr)}</span>
-                        ) : (
-                          formatErpInr(row.amount_inr)
-                        )}
+                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums sm:table-cell">
+                        {row.debit_inr && row.debit_inr > 0 ? formatErpInr(row.debit_inr) : '—'}
+                      </td>
+                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums sm:table-cell">
+                        {row.credit_inr && row.credit_inr > 0 ? formatErpInr(row.credit_inr) : '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                        {row.balance_inr != null ? formatErpInr(row.balance_inr) : '—'}
                       </td>
                       <td className="px-2 py-2">
                         {canDeleteRecords &&

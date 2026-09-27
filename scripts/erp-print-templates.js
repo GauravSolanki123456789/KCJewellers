@@ -1434,7 +1434,8 @@ function roughKvRow(label, value, width = ROUGH_ESTIMATE_WIDTH, opts = {}) {
     if (!shouldShowRoughValue(value)) return '';
     const lblRaw = String(label || '').trim();
     const lbl = opts.boldLabel ? roughBold(lblRaw) : lblRaw;
-    const val = formatRoughRowValue(value);
+    const formatted = formatRoughRowValue(value);
+    const val = opts.multiply && formatted ? `* ${formatted}` : formatted;
     return roughPadRow(lbl, val, width);
 }
 
@@ -1598,7 +1599,57 @@ function isGiftEstimateLine(line) {
 
 function isGoldEstimateLine(line) {
     if (isGiftEstimateLine(line)) return false;
+    if (isOldExchangeEstimateLine(line)) return false;
     return String(line?.metal_type || '').toLowerCase().startsWith('gold');
+}
+
+function isOldExchangeEstimateLine(line) {
+    return line?.manualCategory === 'old';
+}
+
+function oldExchangeGrossWeightGm(line) {
+    const weight = Number(line?.weightGm ?? line?.originalWeightGm);
+    if (!Number.isFinite(weight) || weight < 0) return 0;
+    const dust = Number(line?.oldDustStoneGm ?? 0);
+    const dustAmt = Number.isFinite(dust) && dust > 0 ? dust : 0;
+    const g = Number(line?.gross_weight);
+    if (Number.isFinite(g) && g >= 0) return g;
+    return Math.max(0, Math.round((weight - dustAmt) * 1000) / 1000);
+}
+
+function buildMarlechaOldExchangeItemSection(line, idx, gstEnabled = true) {
+    const out = [];
+    const title = roughItemDisplayName(line) || 'Silver Item';
+    out.push(roughBold(`OLD ITEM ${idx} : ${title}`));
+    out.push(formatRoughDateTime(line?.added_at || line?.created_at || new Date()));
+    const wtIn = Number(line?.weightGm ?? line?.originalWeightGm);
+    pushIf(out, roughKvRow('Weight', Number.isFinite(wtIn) && wtIn > 0 ? wtIn.toFixed(3) : ''));
+    const dust = Number(line?.oldDustStoneGm);
+    if (Number.isFinite(dust) && dust > 0) {
+        pushIf(out, roughKvRow('Dust/Stone', dust.toFixed(3)));
+    }
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    const grossWt = oldExchangeGrossWeightGm(line);
+    pushIf(out, roughKvRow('Gross Weight', grossWt > 0 ? grossWt.toFixed(3) : ''));
+    const pct = Number(line?.oldExchangePct);
+    if (Number.isFinite(pct) && pct > 0) {
+        pushIf(out, roughKvRow('Old Percentage', `${pct.toFixed(2)}%`, ROUGH_ESTIMATE_WIDTH, { multiply: true }));
+    }
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    const rate = Number(line?.ratePerGram);
+    if (Number.isFinite(rate) && rate > 0) {
+        pushIf(out, roughKvRow('Old Rate/Gm', rate.toFixed(2), ROUGH_ESTIMATE_WIDTH, { multiply: true }));
+    }
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    const credit = Math.abs(Number(line?.lineTotalInr) || 0);
+    if (credit > 0) {
+        pushIf(out, roughKvRow('Gross', credit));
+    }
+    out.push('.'.repeat(ROUGH_ESTIMATE_WIDTH));
+    const total = Number(line?.lineTotalInr) || 0;
+    pushIf(out, roughKvRow('Nett (C.R)', total));
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
+    return { lines: out, taxable: total, savings: 0, total };
 }
 
 function roughItemDisplayName(line) {
@@ -1816,7 +1867,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     pushIf(out, roughKvRow('Weight (gm)', Number(line?.weightGm ?? line?.net_weight) || 0));
     const vPct = roughVAddnPercent(line, rateSlab, printFormats);
     if (vPct > 0) {
-        pushIf(out, roughKvRow('V. ADDN (%)', vPct.toFixed(2)));
+        pushIf(out, roughKvRow('V. ADDN (%)', `${vPct.toFixed(2)}%`, ROUGH_ESTIMATE_WIDTH, { multiply: true }));
     }
     pushIf(out, roughKvRow('Rate/Gm', roughRateForLine(line, rates)));
     const mcVal = roughMcValueAmount(line, rateSlab, printFormats);
@@ -1887,7 +1938,12 @@ function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, 
     pushIf(out, roughKvRow('Weight (gm)', Number(line?.weightGm ?? line?.net_weight) || 0));
     pushIf(out, roughKvRow('Less Weight', roughLessWeight(line)));
     pushIf(out, roughKvRow(roughGoldRateLabel(line), roughRateForLine(line, rates)));
-    pushIf(out, roughKvRow('V.ADDN (%)', roughVAddnPercent(line, rateSlab, printFormats)));
+    const vGold = roughVAddnPercent(line, rateSlab, printFormats);
+    if (Number(vGold) > 0) {
+        pushIf(out, roughKvRow('V.ADDN (%)', `${vGold}%`, ROUGH_ESTIMATE_WIDTH, { multiply: true }));
+    } else {
+        pushIf(out, roughKvRow('V.ADDN (%)', vGold));
+    }
     pushIf(out, roughKvRow('MC', roughMcDisplayValue(line, rateSlab, printFormats)));
     pushIf(out, roughKvRow('Other Charges', roughOtherCharges(line, { excludeDiamond: true })));
     pushIf(out, roughKvRow('Diamond Charges', Number(line?.diamond_charges) || 0));
@@ -1909,6 +1965,7 @@ function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, 
 }
 
 function buildMarlechaEstimateItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled = true) {
+    if (isOldExchangeEstimateLine(line)) return buildMarlechaOldExchangeItemSection(line, idx, gstEnabled);
     if (isGiftEstimateLine(line)) return buildMarlechaGiftItemSection(line, idx, gstEnabled);
     if (isGoldEstimateLine(line)) return buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled);
     return buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled);

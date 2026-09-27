@@ -91,9 +91,12 @@ export type DaybookExportData = {
   date: string
   lane_view?: boolean
   summary: {
-    received_inr: number
-    paid_out_inr: number
-    net_inr: number
+    received_inr?: number
+    paid_out_inr?: number
+    net_inr?: number
+    total_debit_inr?: number
+    total_credit_inr?: number
+    closing_balance_inr?: number
     transaction_count: number
   }
   transactions: {
@@ -102,9 +105,10 @@ export type DaybookExportData = {
     customer_name: string
     payment_mode: string
     reference: string
-    amount_inr: number
-    received_inr: number
-    paid_out_inr: number
+    amount_inr?: number
+    debit_inr?: number
+    credit_inr?: number
+    balance_inr?: number
     description?: string
   }[]
 }
@@ -116,24 +120,25 @@ function DaybookDocument({ data }: { data: DaybookExportData }) {
         <Text style={styles.title}>Day book</Text>
         <Text style={styles.sub}>{data.date}{data.lane_view ? ' (lane ledger)' : ''}</Text>
         <View style={styles.row}>
-          <Text style={styles.label}>Received</Text>
-          <Text>{formatPdfInr(data.summary.received_inr)}</Text>
+          <Text style={styles.label}>Total debit</Text>
+          <Text>{formatPdfInr(data.summary.total_debit_inr ?? 0)}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.label}>Paid out</Text>
-          <Text>{formatPdfInr(data.summary.paid_out_inr)}</Text>
+          <Text style={styles.label}>Total credit</Text>
+          <Text>{formatPdfInr(data.summary.total_credit_inr ?? 0)}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.label}>Net</Text>
-          <Text>{formatPdfInr(data.summary.net_inr)}</Text>
+          <Text style={styles.label}>Closing balance</Text>
+          <Text>{formatPdfInr(data.summary.closing_balance_inr ?? 0)}</Text>
         </View>
         <View style={styles.tableHeader}>
           <Text style={styles.c1}>Date</Text>
           <Text style={styles.c2}>Type</Text>
           <Text style={styles.c3}>Party</Text>
           <Text style={styles.c4}>Reference</Text>
-          <Text style={styles.c5}>Received</Text>
-          <Text style={styles.c6}>Paid</Text>
+          <Text style={styles.c5}>Debit</Text>
+          <Text style={styles.c6}>Credit</Text>
+          <Text style={styles.c7}>Balance</Text>
         </View>
         {data.transactions.map((t, i) => (
           <View key={`${t.reference}-${i}`} style={styles.tableRow}>
@@ -141,8 +146,9 @@ function DaybookDocument({ data }: { data: DaybookExportData }) {
             <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
             <Text style={styles.c3}>{t.customer_name}</Text>
             <Text style={styles.c4}>{t.reference || '—'}</Text>
-            <Text style={styles.c5}>{t.received_inr ? formatPdfInr(t.received_inr) : '—'}</Text>
-            <Text style={styles.c6}>{t.paid_out_inr ? formatPdfInr(t.paid_out_inr) : '—'}</Text>
+            <Text style={styles.c5}>{t.debit_inr ? formatPdfInr(t.debit_inr) : '—'}</Text>
+            <Text style={styles.c6}>{t.credit_inr ? formatPdfInr(t.credit_inr) : '—'}</Text>
+            <Text style={styles.c7}>{t.balance_inr != null ? formatPdfInr(t.balance_inr) : '—'}</Text>
           </View>
         ))}
       </Page>

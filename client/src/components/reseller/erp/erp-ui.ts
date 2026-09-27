@@ -171,7 +171,11 @@ export type ErpBillLine = {
   manualEntry?: boolean
   /** True while A/S/B/G stacked editor is open; collapses to the normal table row when done */
   manualEntryOpen?: boolean
-  manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift'
+  manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift' | 'old'
+  /** Old silver exchange — dust/stone deduction (g). */
+  oldDustStoneGm?: number | null
+  /** Old silver exchange — payout % of gross weight (e.g. 92). */
+  oldExchangePct?: number | null
   /** Set when this line is copied into a sales return / debit adjustment */
   source_bill_id?: number | null
   source_bill_number?: string | null

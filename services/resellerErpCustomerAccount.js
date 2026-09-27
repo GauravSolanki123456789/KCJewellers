@@ -115,51 +115,67 @@ function extractLinkedBillRefFromNarration(narration) {
     return null;
 }
 
-function interleaveSalesAndLinkedPayments(rows) {
-    const saleKinds = new Set(['sale', 'debit', 'credit', 'sales_return']);
-    const payKinds = new Set(['payment_in', 'bill_advance', 'suspense_in', 'payment_out']);
-    const sales = [];
-    const pays = [];
-    const other = [];
-    for (const r of rows) {
-        const k = String(r.kind || '').toLowerCase();
-        if (saleKinds.has(k)) sales.push(r);
-        else if (payKinds.has(k)) pays.push(r);
-        else other.push(r);
-    }
-    sales.sort((a, b) => {
-        const d = a.date.localeCompare(b.date);
+/** Oldest first — standard ledger order; running balance flows top to bottom. */
+function sortLedgerRowsChronologically(rows) {
+    return [...rows].sort((a, b) => {
+        const d = String(a.date || '').localeCompare(String(b.date || ''));
         if (d !== 0) return d;
+        const ra = rowKindRank(a.kind);
+        const rb = rowKindRank(b.kind);
+        if (ra !== rb) return ra - rb;
         return (a.sort_id || 0) - (b.sort_id || 0);
     });
-    const saleRefs = new Set(sales.map((s) => String(s.ref || '').trim().toUpperCase()).filter(Boolean));
-    const paysByBill = new Map();
-    const orphanPays = [];
-    for (const p of pays) {
-        const link = String(p.linked_bill_ref || '').trim().toUpperCase();
-        if (link && saleRefs.has(link)) {
-            if (!paysByBill.has(link)) paysByBill.set(link, []);
-            paysByBill.get(link).push(p);
-        } else {
-            orphanPays.push(p);
-        }
+}
+
+function billLedgerAmounts(kind, amountInr) {
+    const k = String(kind || 'sale').toLowerCase();
+    const amt = Number(amountInr) || 0;
+    const isCredit = k === 'credit' || k === 'sales_return';
+    return {
+        debit_inr: isCredit ? 0 : amt,
+        credit_inr: isCredit ? amt : 0,
+    };
+}
+
+function ledgerEntryLedgerAmounts(entryType, amountInr) {
+    const amt = Number(amountInr) || 0;
+    const creditTypes = new Set(['payment_in', 'bill_advance', 'suspense_in', 'purchase']);
+    let debit_inr = 0;
+    let credit_inr = 0;
+    if (creditTypes.has(entryType)) credit_inr = amt;
+    else if (entryType === 'payment_out' || entryType === 'expense' || entryType === 'salary') debit_inr = amt;
+    else if (entryType === 'adjustment') {
+        if (amt >= 0) credit_inr = amt;
+        else debit_inr = Math.abs(amt);
     }
-    orphanPays.sort((a, b) => {
-        const d = a.date.localeCompare(b.date);
-        if (d !== 0) return d;
-        return (a.sort_id || 0) - (b.sort_id || 0);
+    return { debit_inr, credit_inr };
+}
+
+function applyDaybookLedgerColumns(rows) {
+    let running = 0;
+    let totalDebit = 0;
+    let totalCredit = 0;
+    const transactions = rows.map((r) => {
+        const dc =
+            r.source === 'bill' || r.source === 'shadow_bill'
+                ? billLedgerAmounts(r.kind, r.amount_inr)
+                : ledgerEntryLedgerAmounts(r.kind, r.amount_inr);
+        totalDebit += dc.debit_inr;
+        totalCredit += dc.credit_inr;
+        running += dc.debit_inr - dc.credit_inr;
+        return {
+            ...r,
+            debit_inr: Math.round(dc.debit_inr * 100) / 100,
+            credit_inr: Math.round(dc.credit_inr * 100) / 100,
+            balance_inr: Math.round(running * 100) / 100,
+        };
     });
-    const out = [];
-    for (const s of sales) {
-        out.push(s);
-        const ref = String(s.ref || '').trim().toUpperCase();
-        const linked = (paysByBill.get(ref) || []).sort(
-            (a, b) => (a.sort_id || 0) - (b.sort_id || 0),
-        );
-        for (const p of linked) out.push(p);
-    }
-    out.push(...orphanPays, ...other);
-    return out;
+    return {
+        transactions,
+        total_debit_inr: Math.round(totalDebit * 100) / 100,
+        total_credit_inr: Math.round(totalCredit * 100) / 100,
+        closing_balance_inr: Math.round(running * 100) / 100,
+    };
 }
 
 function fmtReceiptDate(iso) {
@@ -427,7 +443,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         });
     }
 
-    const orderedRows = interleaveSalesAndLinkedPayments(rows);
+    const orderedRows = sortLedgerRowsChronologically(rows);
 
     let running = 0;
     const transactions = orderedRows.map((r) => {
@@ -665,6 +681,8 @@ async function buildDaybook(query, resellerUserId, opts) {
         paid += Number(r.paid_out_inr) || 0;
     }
 
+    const ledgerCols = applyDaybookLedgerColumns(rows);
+
     return {
         date: day,
         lane_view: laneView,
@@ -672,9 +690,12 @@ async function buildDaybook(query, resellerUserId, opts) {
             received_inr: Math.round(received * 100) / 100,
             paid_out_inr: Math.round(paid * 100) / 100,
             net_inr: Math.round((received - paid) * 100) / 100,
-            transaction_count: rows.length,
+            total_debit_inr: ledgerCols.total_debit_inr,
+            total_credit_inr: ledgerCols.total_credit_inr,
+            closing_balance_inr: ledgerCols.closing_balance_inr,
+            transaction_count: ledgerCols.transactions.length,
         },
-        transactions: rows,
+        transactions: ledgerCols.transactions,
     };
 }
 
@@ -682,11 +703,11 @@ function daybookToCsv(daybook) {
     const lines = [];
     const push = (row) => lines.push(row.map(accountCsvEscape).join(','));
     push(['Day book', daybook.date]);
-    push(['Received', daybook.summary.received_inr]);
-    push(['Paid out', daybook.summary.paid_out_inr]);
-    push(['Net', daybook.summary.net_inr]);
+    push(['Total debit', daybook.summary.total_debit_inr ?? '']);
+    push(['Total credit', daybook.summary.total_credit_inr ?? '']);
+    push(['Closing balance', daybook.summary.closing_balance_inr ?? '']);
     lines.push('');
-    push(['DATE', 'TYPE', 'CUSTOMER / PARTY', 'MODE', 'REFERENCE', 'RECEIVED', 'PAID OUT', 'AMOUNT']);
+    push(['DATE', 'TYPE', 'CUSTOMER / PARTY', 'MODE', 'REFERENCE', 'DEBIT', 'CREDIT', 'BALANCE']);
     for (const t of daybook.transactions) {
         push([
             fmtLedgerDate(t.entry_date),
@@ -694,9 +715,9 @@ function daybookToCsv(daybook) {
             t.customer_name,
             t.payment_mode,
             t.reference,
-            t.received_inr ? Number(t.received_inr).toFixed(2) : '',
-            t.paid_out_inr ? Number(t.paid_out_inr).toFixed(2) : '',
-            Number(t.amount_inr).toFixed(2),
+            t.debit_inr ? Number(t.debit_inr).toFixed(2) : '',
+            t.credit_inr ? Number(t.credit_inr).toFixed(2) : '',
+            t.balance_inr != null ? Number(t.balance_inr).toFixed(2) : '',
         ]);
     }
     return lines.join('\r\n');

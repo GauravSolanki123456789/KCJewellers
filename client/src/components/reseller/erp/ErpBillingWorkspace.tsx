@@ -77,6 +77,12 @@ import {
   type SoldBillConflict,
 } from '@/lib/erp-invoice-defaults'
 import {
+  computeOldExchangeLineTotalInr,
+  defaultOldExchangeRatePerG,
+  deriveOldExchangeGrossPatch,
+  isOldExchangeManualLine,
+} from '@/lib/erp-old-exchange-pricing'
+import {
   createManualBillLine,
   findInvoiceItemForCategory,
   findStyleForSku,
@@ -244,6 +250,8 @@ const MANUAL_EXTRA_COLS: BillTableCol[] = []
 
 const NUMERIC_EDIT_KEYS: (keyof ErpBillLine | 'metal_slab_pct')[] = [
   'weightGm',
+  'oldDustStoneGm',
+  'oldExchangePct',
   'gross_weight',
   'bag_wt',
   'bags',
@@ -541,6 +549,23 @@ export function ErpBillingWorkspace() {
       },
     ): ErpBillLine => {
       const gstOn = opts?.gstEnabled ?? gstEnabled
+      if (isOldExchangeManualLine(line)) {
+        const slab = opts?.slab ?? rateSlab
+        const s = opts?.silverPerG ?? silverPerG
+        const grossPatch = deriveOldExchangeGrossPatch(line, {})
+        let next: ErpBillLine = { ...line, ...grossPatch }
+        if (!next.rateLocked) {
+          next = {
+            ...next,
+            ratePerGram: defaultOldExchangeRatePerG(s, slab, slabSettings),
+          }
+        }
+        return {
+          ...next,
+          qty: 1,
+          lineTotalInr: computeOldExchangeLineTotalInr(next),
+        }
+      }
       if (isPiecePricedBillLine(line)) {
         const slab = opts?.slab ?? rateSlab
         const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings)
@@ -1241,11 +1266,15 @@ export function ErpBillingWorkspace() {
       return
     }
 
-    const shortcut = resolveBillingScanShortcut(code)
+      const shortcut = resolveBillingScanShortcut(code)
       if (shortcut) {
-      const invoiceItem = findInvoiceItemForCategory(shortcut, gstInvoiceItems)
+      const invoiceItem =
+        shortcut === 'old'
+          ? findInvoiceItemForCategory('jewellery', gstInvoiceItems) ||
+            findInvoiceItemForCategory('articles', gstInvoiceItems)
+          : findInvoiceItemForCategory(shortcut, gstInvoiceItems)
       if (!invoiceItem) {
-        setScanErrorMsg('Configure invoice item categories in GST settings first (A / S / B / G shortcuts).')
+        setScanErrorMsg('Configure invoice item categories in GST settings first (A / S / B / G / O shortcuts).')
         setScanCode('')
         scanRef.current?.focus()
         return
@@ -1253,7 +1282,7 @@ export function ErpBillingWorkspace() {
       setScanBusy(true)
       setScanErrorMsg(null)
       try {
-        if (!billingCatalogs[invoiceItem.name]) {
+        if (shortcut !== 'old' && !billingCatalogs[invoiceItem.name]) {
           const catalog = await loadBillingCatalog(invoiceItem.name)
           setBillingCatalogs((prev) => ({ ...prev, [invoiceItem.name]: catalog }))
         }
@@ -1367,6 +1396,9 @@ export function ErpBillingWorkspace() {
   }
 
   const applyManualWeightPatch = (line: ErpBillLine, patch: Partial<ErpBillLine>): Partial<ErpBillLine> => {
+    if (isOldExchangeManualLine(line) || isOldExchangeManualLine({ ...line, ...patch })) {
+      return deriveOldExchangeGrossPatch(line, patch)
+    }
     if (isManualArticlesOrJewelleryLine(line) || isManualArticlesOrJewelleryLine({ ...line, ...patch })) {
       const derived = deriveManualNetWeightPatch(line, patch)
       return derived ?? patch
@@ -1403,7 +1435,11 @@ export function ErpBillingWorkspace() {
         if (i !== idx) return l
         const weightPatch =
           l.manualEntry &&
-          ('gross_weight' in patch || 'bag_wt' in patch || 'bags' in patch)
+          ('gross_weight' in patch ||
+            'bag_wt' in patch ||
+            'bags' in patch ||
+            'weightGm' in patch ||
+            'oldDustStoneGm' in patch)
             ? applyManualWeightPatch(l, patch)
             : patch
         return recalcLine({ ...l, ...weightPatch })
@@ -2066,6 +2102,14 @@ export function ErpBillingWorkspace() {
       }
       case 'gross_weight':
         return line.gross_weight != null && Number.isFinite(Number(line.gross_weight)) ? line.gross_weight : ''
+      case 'oldDustStoneGm':
+        return line.oldDustStoneGm != null && Number.isFinite(Number(line.oldDustStoneGm))
+          ? line.oldDustStoneGm
+          : ''
+      case 'oldExchangePct':
+        return line.oldExchangePct != null && Number.isFinite(Number(line.oldExchangePct))
+          ? line.oldExchangePct
+          : ''
       case 'bags':
         return line.bags ?? ''
       case 'bag_wt':
@@ -2167,6 +2211,10 @@ export function ErpBillingWorkspace() {
       patch.rateLocked = true
       if (raw.trim() === '') patch.ratePerGram = null
     }
+    if (k === 'weightGm' && isOldExchangeManualLine(line)) {
+      patch.originalWeightGm = parsed
+      patch.weightGm = parsed
+    }
     if (k === 'fixed_price') {
       if (line.mrpMode || line.manualCategory === 'gift') {
         if (parsed != null) {
@@ -2257,6 +2305,12 @@ export function ErpBillingWorkspace() {
       const nextKey = nextBillTableField(tableCols, String(field), workingLine, rateSlab)
       if (nextKey) {
         focusManualCell(lineKey, nextKey as ManualBillGridField)
+        return
+      }
+      if (workingLine.manualCategory === 'old') {
+        setManualFocus(null)
+        collapseManualRow(idx)
+        requestAnimationFrame(() => scanRef.current?.focus())
         return
       }
       if (
@@ -3036,7 +3090,7 @@ export function ErpBillingWorkspace() {
                 {lines.length === 0 ? (
                   <tr>
                     <td colSpan={collapsedTableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Scan a barcode or press A / S / B / G for manual entry
+                      Scan a barcode or press A / S / B / G / O for manual entry
                     </td>
                   </tr>
                 ) : (
@@ -3155,11 +3209,13 @@ export function ErpBillingWorkspace() {
                                 mrpMode: true,
                               }
                             }
-                            updateLine(idx, next)
+                            if (line.manualEntry) updateManualLine(idx, next)
+                            else updateLine(idx, next)
                           }}
                           onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
                           rateSlab={rateSlab}
                           slabSettings={slabSettings}
+                          gstInvoiceItems={gstInvoiceItems}
                           tableColSpan={collapsedTableCols.length + 2}
                         />
                       )
