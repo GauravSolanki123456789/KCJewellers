@@ -2,6 +2,8 @@
  * Tally Prime — day book voucher XML (Import Data envelope).
  */
 
+const { tallyDateYmd: tallyDateYmdFromIso } = require('../services/erpDateNormalize');
+
 function escapeXml(str) {
     if (str == null) return '';
     return String(str)
@@ -28,10 +30,17 @@ function normalizeTallyUrl(raw) {
 }
 
 function tallyDateYmd(isoDate) {
-    const s = String(isoDate || '').slice(0, 10);
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (m) return `${m[1]}${m[2]}${m[3]}`;
-    return s.replace(/-/g, '').slice(0, 8);
+    return tallyDateYmdFromIso(isoDate);
+}
+
+function assertTallyVoucherDate(isoDate, voucherLabel) {
+    const ymd = tallyDateYmd(isoDate);
+    if (!/^\d{8}$/.test(ymd)) {
+        throw new Error(
+            `Voucher date is missing for: ${voucherLabel || 'voucher'}. Set a valid transaction date (yyyy-mm-dd) and retry.`,
+        );
+    }
+    return ymd;
 }
 
 function formatTallyAmount(amount, deemedPositive) {
@@ -87,10 +96,11 @@ function buildSalesVoucherXml(opts) {
     } = opts;
     const amt = Number(amount) || 0;
     const partyName = String(party || 'Walk-in').trim();
+    const dateYmd = assertTallyVoucherDate(date, `'Sales' voucher ${voucherNumber}`);
     const inner = `
           <VOUCHER VCHTYPE="Sales" ACTION="Create">
-            <DATE>${tallyDateYmd(date)}</DATE>
-            <EFFECTIVEDATE>${tallyDateYmd(date)}</EFFECTIVEDATE>
+            <DATE>${dateYmd}</DATE>
+            <EFFECTIVEDATE>${dateYmd}</EFFECTIVEDATE>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
@@ -114,10 +124,11 @@ function buildReceiptVoucherXml(opts) {
     const amt = Number(amount) || 0;
     const partyName = String(party || 'Walk-in').trim();
     const bankCash = String(cashOrBankLedger || 'Cash').trim();
+    const dateYmd = assertTallyVoucherDate(date, `'Receipt' voucher ${voucherNumber}`);
     const inner = `
           <VOUCHER VCHTYPE="Receipt" ACTION="Create">
-            <DATE>${tallyDateYmd(date)}</DATE>
-            <EFFECTIVEDATE>${tallyDateYmd(date)}</EFFECTIVEDATE>
+            <DATE>${dateYmd}</DATE>
+            <EFFECTIVEDATE>${dateYmd}</EFFECTIVEDATE>
             <VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME>
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
@@ -141,10 +152,11 @@ function buildPaymentVoucherXml(opts) {
     const amt = Number(amount) || 0;
     const partyName = String(party || 'Party').trim();
     const bankCash = String(cashOrBankLedger || 'Cash').trim();
+    const dateYmd = assertTallyVoucherDate(date, `'Payment' voucher ${voucherNumber}`);
     const inner = `
           <VOUCHER VCHTYPE="Payment" ACTION="Create">
-            <DATE>${tallyDateYmd(date)}</DATE>
-            <EFFECTIVEDATE>${tallyDateYmd(date)}</EFFECTIVEDATE>
+            <DATE>${dateYmd}</DATE>
+            <EFFECTIVEDATE>${dateYmd}</EFFECTIVEDATE>
             <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
@@ -167,10 +179,11 @@ function buildPurchaseVoucherXml(opts) {
     } = opts;
     const amt = Number(amount) || 0;
     const partyName = String(party || 'Supplier').trim();
+    const dateYmd = assertTallyVoucherDate(date, `'Purchase' voucher ${voucherNumber}`);
     const inner = `
           <VOUCHER VCHTYPE="Purchase" ACTION="Create">
-            <DATE>${tallyDateYmd(date)}</DATE>
-            <EFFECTIVEDATE>${tallyDateYmd(date)}</EFFECTIVEDATE>
+            <DATE>${dateYmd}</DATE>
+            <EFFECTIVEDATE>${dateYmd}</EFFECTIVEDATE>
             <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>
@@ -193,10 +206,11 @@ function buildCreditNoteVoucherXml(opts) {
     } = opts;
     const amt = Number(amount) || 0;
     const partyName = String(party || 'Walk-in').trim();
+    const dateYmd = assertTallyVoucherDate(date, `'Credit Note' voucher ${voucherNumber}`);
     const inner = `
           <VOUCHER VCHTYPE="Credit Note" ACTION="Create">
-            <DATE>${tallyDateYmd(date)}</DATE>
-            <EFFECTIVEDATE>${tallyDateYmd(date)}</EFFECTIVEDATE>
+            <DATE>${dateYmd}</DATE>
+            <EFFECTIVEDATE>${dateYmd}</EFFECTIVEDATE>
             <VOUCHERTYPENAME>Credit Note</VOUCHERTYPENAME>
             <VOUCHERNUMBER>${escapeXml(voucherNumber)}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${escapeXml(partyName)}</PARTYLEDGERNAME>

@@ -360,7 +360,11 @@ async function lookupCatalogImageUrl(query, keys) {
     return rows[0]?.image_url || null;
 }
 
+const { parseDateOrNull: parseErpDateOrNull, normDateIso } = require('./erpDateNormalize');
+
 function parseDateOrNull(v) {
+    const normalized = parseErpDateOrNull(v);
+    if (normalized) return normalized;
     if (v == null || v === '') return null;
     const raw = String(v).trim();
     const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(raw);
@@ -727,7 +731,7 @@ function mapBill(row) {
         lines,
         order_media: orderMedia,
         notes: row.notes,
-        bill_date: row.bill_date,
+        bill_date: normDateIso(row.bill_date) || row.bill_date,
         session: session && typeof session === 'object' ? session : null,
         compliance: compliance && typeof compliance === 'object' ? compliance : null,
         created_at: row.created_at,

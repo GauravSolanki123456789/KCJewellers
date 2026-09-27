@@ -3,6 +3,8 @@
  * Vouchers are posted from the shop PC via the local print agent (Tally on localhost).
  */
 
+const { normDateIso } = require('./erpDateNormalize');
+
 const {
     normalizeTallyUrl,
     buildSalesVoucherXml,
@@ -54,11 +56,24 @@ function normalizePartyName(name) {
     return String(name || 'Walk-in').trim();
 }
 
-async function buildTallyJobForRow(query, resellerUserId, row, tallyCfg) {
+function resolveVoucherIsoDate(row, exportDayIso) {
+    let iso = normDateIso(row.entry_date);
+    if (!iso && exportDayIso) iso = normDateIso(exportDayIso);
+    if (!iso && row.created_at) {
+        const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(row.created_at));
+        if (m) iso = m[1];
+    }
+    return iso;
+}
+
+async function buildTallyJobForRow(query, resellerUserId, row, tallyCfg, exportDayIso) {
     const kind = String(row.kind || '').toLowerCase();
     const ref = String(row.reference || '').trim() || `ERP-${row.row_key || Date.now()}`;
     const party = normalizePartyName(row.customer_name);
-    const date = row.entry_date;
+    const date = resolveVoucherIsoDate(row, exportDayIso);
+    if (!date) {
+        return { skipped: true, ref, error: `Missing voucher date for ${ref}` };
+    }
     const amt = Number(row.amount_inr) || 0;
     const companyName = tallyCfg.company;
     const narration = row.description || '';
@@ -208,7 +223,7 @@ async function buildDaybookTallyExportPack(query, resellerUserId, opts) {
     const jobs = [];
     const skipped = [];
     for (const row of daybook.transactions) {
-        const job = await buildTallyJobForRow(query, resellerUserId, row, tallyCfg);
+        const job = await buildTallyJobForRow(query, resellerUserId, row, tallyCfg, daybook.date);
         if (job.skipped) skipped.push(job);
         else if (job.xml) jobs.push(job);
     }

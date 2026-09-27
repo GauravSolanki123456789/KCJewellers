@@ -23,6 +23,7 @@ const {
     customerAccountToCsv,
     daybookToCsv,
 } = require('./resellerErpCustomerAccount');
+const { normDateIso } = require('./erpDateNormalize');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 
@@ -139,7 +140,7 @@ function mapLedgerEntry(row, extras = {}) {
     if (!row) return row;
     return {
         id: row.id,
-        entry_date: row.entry_date,
+        entry_date: normDateIso(row.entry_date) || row.entry_date,
         entry_type: row.entry_type,
         amount_inr: row.amount_inr != null ? Number(row.amount_inr) : 0,
         customer_id: row.customer_id,

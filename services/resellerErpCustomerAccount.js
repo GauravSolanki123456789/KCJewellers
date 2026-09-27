@@ -2,16 +2,10 @@
  * Customer account statement — official bills + payments (+ optional shadow bills for lane ledger).
  */
 
-function parseDateOrNull(v) {
-    if (!v) return null;
-    const s = String(v).trim().slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-}
+const { parseDateOrNull, normDateIso } = require('./erpDateNormalize');
 
 function normDate(d) {
-    if (!d) return '';
-    const s = String(d);
-    return s.includes('T') ? s.slice(0, 10) : s.slice(0, 10);
+    return normDateIso(d);
 }
 
 function accountCsvEscape(v) {
@@ -481,11 +475,12 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     };
 }
 
+/** CSV / PDF: dd/mm/yyyy (never dd-mm-yy — that breaks re-import and Tally). */
 function fmtLedgerDate(iso) {
-    if (!iso) return '';
-    const parts = String(iso).slice(0, 10).split('-');
-    if (parts.length !== 3) return iso;
-    return `${parts[2]}-${parts[1]}-${parts[0].slice(2)}`;
+    const s = normDateIso(iso);
+    if (!s) return '';
+    const [y, m, d] = s.split('-');
+    return `${d}/${m}/${y}`;
 }
 
 function postingTs(createdAt, fallbackDate) {

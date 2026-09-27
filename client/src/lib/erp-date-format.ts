@@ -23,12 +23,31 @@ function formatIstTime(iso: string): string {
   return `${String(h).padStart(2, '0')}:${min} ${ampm}`
 }
 
+/** dd-mm-yy from legacy CSV (never store this format). */
+function formatDdMmYyDash(raw: string): string | null {
+  const dmy2 = /^(\d{2})-(\d{2})-(\d{2})$/.exec(raw.trim())
+  if (!dmy2) return null
+  const yy = parseInt(dmy2[3], 10)
+  const yyyy = yy >= 70 ? 1900 + yy : 2000 + yy
+  return `${dmy2[1]}/${dmy2[2]}/${yyyy}`
+}
+
 export function formatErpDateDdMmYyyy(iso?: string | null): string {
   if (!iso) return '—'
-  const s = String(iso).trim().slice(0, 10)
+  const raw = String(iso).trim()
+  const legacy = formatDdMmYyDash(raw)
+  if (legacy) return legacy
+  const s = raw.slice(0, 10)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
   if (m) return `${m[3]}/${m[2]}/${m[1]}`
-  const parts = istCalendarParts(String(iso))
+  const isoT = /^(\d{4}-\d{2}-\d{2})T/.exec(raw)
+  if (isoT) {
+    const p = isoT[1].split('-')
+    return `${p[2]}/${p[1]}/${p[0]}`
+  }
+  // Avoid Date.parse on values like "Sat Sep 27" (wrong year in JS).
+  if (/^[A-Za-z]{3}\s/.test(raw)) return '—'
+  const parts = istCalendarParts(raw)
   if (parts) return `${parts.dd}/${parts.mm}/${parts.yyyy}`
   return s
 }
