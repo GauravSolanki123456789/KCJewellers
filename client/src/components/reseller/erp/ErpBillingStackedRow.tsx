@@ -10,6 +10,7 @@ import {
   uniqueSkusFromCatalog,
   type DesignBillingStyle,
 } from '@/lib/erp-billing-shortcuts'
+import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 import { findDesignOptionLabel, lineHasFinishPicker } from '@/lib/erp-catalog-product'
 import { ERP_MC_TYPE_OPTIONS, normalizeMcTypeInput } from '@/lib/erp-mc-type-field'
 import { giftMrpSlabPrice } from '@/lib/erp-gift-mrp-pricing'
@@ -381,7 +382,13 @@ export function ErpBillingStackedRow({
                   if (f.key === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
                   if (f.key === 'fixed_price_r') return gift || !!line.mrpMode
                   if (f.key === 'mc_rate_slab_r') return billingShowsMcSlabRColumn(rateSlab)
-                  if (giftManual && (f.key === 'metal_type' || f.key === 'ratePerGram')) return false
+                  if (
+                    giftManual &&
+                    !shouldUseWeightSilverNotMrp(line) &&
+                    (f.key === 'metal_type' || f.key === 'ratePerGram')
+                  ) {
+                    return false
+                  }
                   return true
                 }).map((f) => (
                   <label

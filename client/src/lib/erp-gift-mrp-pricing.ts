@@ -1,4 +1,8 @@
-import { erpSlabToKind, type ErpRateSlab } from '@/lib/erp-billing-pricing'
+import {
+  erpSlabToKind,
+  shouldUseWeightSilverNotMrp,
+  type ErpRateSlab,
+} from '@/lib/erp-billing-pricing'
 import { parseResellerSlabSettings, tierSettingsForSlab, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
@@ -41,6 +45,9 @@ export function applyGiftMrpPieceRate(
   slab: ErpRateSlab,
   slabSettings: ResellerSlabSettings,
 ): ErpBillLine {
+  if (shouldUseWeightSilverNotMrp(line)) {
+    return { ...line, mrpMode: false, mrpListPrice: null, unitInr: null }
+  }
   const list = Number(line.mrpListPrice)
   if (!Number.isFinite(list) || list <= 0) return line
   const slabPrice = giftMrpSlabPrice(list, slab, slabSettings)

@@ -484,6 +484,7 @@ export function computeLineBreakdown(
       wholesaleSilver,
       wholesaleGold,
       gstPct,
+      slabSettings,
     )
   }
 

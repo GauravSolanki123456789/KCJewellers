@@ -241,9 +241,16 @@ export function patchLineFromCatalogProduct(
     if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct
     if (s.purity != null) patch.purity = s.purity
     if (s.fixed_price != null) {
-      patch.fixed_price = s.fixed_price
-      patch.mrpListPrice = s.fixed_price
-      patch.mrpMode = true
+      const sizeWt = Number(s.net_weight ?? 0) || 0
+      const silverWeightSku =
+        !catalogProductUsesMrpPricing(product) &&
+        String(product.metal_type || '').toLowerCase().startsWith('silver') &&
+        sizeWt > 0
+      if (!silverWeightSku) {
+        patch.fixed_price = s.fixed_price
+        patch.mrpListPrice = s.fixed_price
+        patch.mrpMode = true
+      }
     }
     if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r
     if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w

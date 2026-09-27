@@ -11,6 +11,7 @@ const {
     buildPurchaseVoucherXml,
     buildCreditNoteVoucherXml,
     postXmlToTally,
+    postXmlToTallyWithLedgerBootstrap,
 } = require('../config/tally-daybook-xml');
 
 function parseTallySettings(settings) {
@@ -18,7 +19,7 @@ function parseTallySettings(settings) {
     const serverUrl = normalizeTallyUrl(block.serverUrl || block.tallyUrl || 'http://localhost:9000');
     const company = String(block.company || block.companyName || '').trim();
     const apiKey = String(block.apiKey || block.secret || '').trim();
-    const salesLedger = String(block.salesLedger || 'Sales Account').trim() || 'Sales Account';
+    const salesLedger = String(block.salesLedger || 'Sales').trim() || 'Sales';
     const purchaseLedger = String(block.purchaseLedger || 'Purchase Account').trim() || 'Purchase Account';
     const cashLedger = String(block.cashLedger || 'Cash').trim() || 'Cash';
     const bankLedger = String(block.bankLedger || 'Bank').trim() || 'Bank';
@@ -216,19 +217,27 @@ async function buildDaybookTallyExportPack(query, resellerUserId, opts) {
         date: daybook.date,
         tallyUrl: tallyCfg.serverUrl,
         company: tallyCfg.company,
+        salesLedger: tallyCfg.salesLedger,
+        purchaseLedger: tallyCfg.purchaseLedger,
+        cashLedger: tallyCfg.cashLedger,
+        bankLedger: tallyCfg.bankLedger,
         jobs,
         skipped,
         transaction_count: daybook.transactions.length,
     };
 }
 
-async function runTallyJobsOnHost(tallyUrl, jobs) {
+async function runTallyJobsOnHost(tallyUrl, jobs, ledgerCfg) {
     const results = [];
     let synced = 0;
     let failed = 0;
     for (const job of jobs) {
         try {
-            await postXmlToTally(tallyUrl, job.xml);
+            if (ledgerCfg) {
+                await postXmlToTallyWithLedgerBootstrap(tallyUrl, job.xml, ledgerCfg);
+            } else {
+                await postXmlToTally(tallyUrl, job.xml);
+            }
             synced += 1;
             results.push({ ok: true, ref: job.ref, type: job.type });
         } catch (e) {

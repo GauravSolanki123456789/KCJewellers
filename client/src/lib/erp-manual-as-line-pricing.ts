@@ -1,8 +1,11 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import {
+  erpSlabToKind,
   mcSlabFieldForBillingSlab,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
+import { tierSettingsForSlab, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
+import { isMcPerPiece } from '@/lib/pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
 import { lineHasMetalSlabPctInput, metalSlabPctMultiplier } from '@/lib/erp-metal-slab-field'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
@@ -138,6 +141,7 @@ export function computeManualAsLineBreakdown(
   wholesaleSilver?: number | null,
   wholesaleGold?: number | null,
   gstPct = GST_PCT,
+  slabSettings?: ResellerSlabSettings,
 ): PriceBreakdown {
   const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
   if (netWt <= 0) {
@@ -168,8 +172,17 @@ export function computeManualAsLineBreakdown(
   const pcs = Math.max(1, Number(line.qty) || 1)
   const perGm = isMcPerGmBillingType(line.mc_type)
   const mcWt = perGm ? billedWt : netWt
-  const totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate
-  const totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate
+  let totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate
+  let totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate
+  if (!perGm && slabSettings && isMcPerPiece(line.mc_type)) {
+    const slabMc = pieceSlabMcRate(line, slab)
+    const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
+    const mcDiscPct = Math.max(0, Math.min(100, Number(tier.mc_discount_pct) || 0))
+    if (mcDiscPct > 0 && (slabMc == null || Number(slabMc) === baseMcRate)) {
+      totalMcBase = pcs * baseMcRate
+      totalMc = Math.round(pcs * baseMcRate * (1 - mcDiscPct / 100))
+    }
+  }
 
   const fixedBase = Number(line.fixed_price ?? 0) || 0
   const fixedR = Number(line.fixed_price_r ?? 0) || 0

@@ -1,6 +1,10 @@
 import type { GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import { applyPieceSlabToLine, type ErpRateSlab } from '@/lib/erp-billing-pricing'
+import {
+  applyPieceSlabToLine,
+  shouldUseWeightSilverNotMrp,
+  type ErpRateSlab,
+} from '@/lib/erp-billing-pricing'
 import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 import { generateManualBarcode } from '@/lib/erp-manual-barcode'
 import {
@@ -294,6 +298,7 @@ export function uniqueSkuNames(skus: string[]): string[] {
 }
 
 export function isGiftManualLine(line: ErpBillLine): boolean {
+  if (shouldUseWeightSilverNotMrp(line)) return false
   return line.manualCategory === 'gift' || !!line.mrpMode
 }
 

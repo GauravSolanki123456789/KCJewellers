@@ -551,7 +551,10 @@ export function ErpBillingWorkspace() {
       },
     ): ErpBillLine => {
       const gstOn = opts?.gstEnabled ?? gstEnabled
-      if (isOldExchangeManualLine(line)) {
+      const baseLine = shouldUseWeightSilverNotMrp(line)
+        ? { ...line, mrpMode: false, mrpListPrice: null, unitInr: null }
+        : line
+      if (isOldExchangeManualLine(baseLine)) {
         const slab = opts?.slab ?? rateSlab
         const s = opts?.silverPerG ?? silverPerG
         const grossPatch = deriveOldExchangeGrossPatch(line, {})
@@ -568,9 +571,9 @@ export function ErpBillingWorkspace() {
           lineTotalInr: computeOldExchangeLineTotalInr(next),
         }
       }
-      if (isPiecePricedBillLine(line)) {
+      if (isPiecePricedBillLine(baseLine)) {
         const slab = opts?.slab ?? rateSlab
-        const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings)
+        const withMrp = applyGiftMrpPieceRate(baseLine, slab, slabSettings)
         const priced = { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) }
         if (priced.manualCategory === 'gift' || priced.mrpMode) {
           return { ...priced, ratePerGram: null, metal_type: null }
@@ -585,8 +588,8 @@ export function ErpBillingWorkspace() {
       const whGold = opts?.wholesaleGold !== undefined ? opts.wholesaleGold : wholesaleGold
       const whSilver = opts?.wholesaleSilver !== undefined ? opts.wholesaleSilver : wholesaleSilver
       const withOriginal = {
-        ...line,
-        originalWeightGm: line.originalWeightGm ?? line.weightGm,
+        ...baseLine,
+        originalWeightGm: baseLine.originalWeightGm ?? baseLine.weightGm,
       }
       const skipPieceSlabWeight =
         isWeightBasedSilverGiftLine(withOriginal) || isSilverGiftStockLine(withOriginal)
@@ -1461,7 +1464,12 @@ export function ErpBillingWorkspace() {
         }
         let patch = patchLineFromCatalogProduct(line, product) as Partial<ErpBillLine>
         const needsFinishPick = (product.finish_options?.length || 0) >= 2
-        if (patch.mrpMode && product.fixed_price && !needsFinishPick) {
+        if (
+          patch.mrpMode &&
+          product.fixed_price &&
+          !needsFinishPick &&
+          !shouldUseWeightSilverNotMrp({ ...line, ...patch })
+        ) {
           const list = product.fixed_price
           const slabPrice = giftMrpSlabPrice(list, rateSlab, slabSettings)
           patch = {
@@ -1470,6 +1478,14 @@ export function ErpBillingWorkspace() {
             fixed_price: slabPrice,
             unitInr: slabPrice,
             qty: Math.max(1, Number(line.qty) || 1),
+          }
+        }
+        if (shouldUseWeightSilverNotMrp({ ...line, ...patch })) {
+          patch = {
+            ...patch,
+            mrpMode: false,
+            mrpListPrice: null,
+            unitInr: null,
           }
         }
         return prev.map((l, i) => (i === lineIdx ? recalcLine({ ...l, ...patch }) : l))
@@ -2122,6 +2138,8 @@ export function ErpBillingWorkspace() {
       case 'wastage_pct':
         return billingWastageDisplay(line, rateSlab, goldSlabRShowMc)
       case 'ratePerGram':
+        if (shouldUseWeightSilverNotMrp(line)) return line.ratePerGram ?? ''
+        if (line.manualCategory === 'gift' || line.mrpMode) return ''
         return line.ratePerGram ?? ''
       case 'mc_rate':
         return billingMcDisplay(line, rateSlab, goldSlabRShowMc)
@@ -3163,7 +3181,7 @@ export function ErpBillingWorkspace() {
                               patch = { ...patch, ...patchLineFromCatalogSize(line, product, label) }
                             } else {
                               const hit = (line.designSizeOptions || []).find((s) => s.size_label === label)
-                              if (hit?.fixed_price_mrp != null) {
+                              if (hit?.fixed_price_mrp != null && !shouldUseWeightSilverNotMrp(line)) {
                                 const mrp = hit.fixed_price_mrp
                                 const slabPrice = giftMrpSlabPrice(mrp, rateSlab, slabSettings)
                                 patch = {
@@ -3200,7 +3218,7 @@ export function ErpBillingWorkspace() {
                           onPatch={(patch) => {
                             let next = { ...patch }
                             const listMrp = Number(next.mrpListPrice ?? line.mrpListPrice ?? 0)
-                            if (listMrp > 0) {
+                            if (listMrp > 0 && !shouldUseWeightSilverNotMrp({ ...line, ...next })) {
                               const slabPrice = giftMrpSlabPrice(listMrp, rateSlab, slabSettings)
                               next = {
                                 ...next,

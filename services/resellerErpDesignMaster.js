@@ -892,16 +892,37 @@ function registerDesignMasterRoutes(app, deps) {
             const invoiceItem = String(req.query.invoice_item || req.query.invoiceItem || '').trim();
             if (!invoiceItem) return res.status(400).json({ error: 'invoice_item required' });
             const norm = invoiceItem.toUpperCase();
-            const rows = await query(
-                `SELECT ds.style_code, sk.sku, sk.product_name, sk.product_names, sk.invoice_item_name
-                 FROM reseller_erp_design_styles ds
-                 JOIN reseller_erp_design_skus sk
-                   ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
-                 WHERE ds.reseller_user_id = $1
-                   AND upper(trim(coalesce(sk.invoice_item_name, ''))) = $2
-                 ORDER BY ds.style_code, sk.sku`,
-                [req.user.id, norm],
-            );
+            const isGiftInvoice = /^GIFT\s*ITEMS?$/.test(invoiceItem.trim());
+            let rows;
+            if (isGiftInvoice) {
+                rows = await query(
+                    `SELECT ds.style_code, sk.sku, sk.product_name, sk.product_names, sk.invoice_item_name
+                     FROM reseller_erp_design_styles ds
+                     JOIN reseller_erp_design_skus sk
+                       ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
+                     WHERE ds.reseller_user_id = $1
+                       AND (
+                         upper(trim(coalesce(sk.invoice_item_name, ''))) IN ($2, 'GIFT ITEM', 'GIFT ITEMS')
+                         OR (
+                           upper(ds.style_code) LIKE '%SILVER GIFT%'
+                           AND upper(trim(sk.sku)) LIKE '%GIFT%'
+                         )
+                       )
+                     ORDER BY ds.style_code, sk.sku`,
+                    [req.user.id, norm],
+                );
+            } else {
+                rows = await query(
+                    `SELECT ds.style_code, sk.sku, sk.product_name, sk.product_names, sk.invoice_item_name
+                     FROM reseller_erp_design_styles ds
+                     JOIN reseller_erp_design_skus sk
+                       ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
+                     WHERE ds.reseller_user_id = $1
+                       AND upper(trim(coalesce(sk.invoice_item_name, ''))) = $2
+                     ORDER BY ds.style_code, sk.sku`,
+                    [req.user.id, norm],
+                );
+            }
             const byStyle = Object.create(null);
             for (const r of rows) {
                 const code = r.style_code;

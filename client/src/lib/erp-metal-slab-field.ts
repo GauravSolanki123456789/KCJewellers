@@ -1,4 +1,5 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 export function billingShowsMcSlabRColumn(slab: ErpRateSlab): boolean {
@@ -86,8 +87,9 @@ export function isManualGridFieldVisible(
     return allowed.has(field)
   }
   if (field === 'mc_rate_slab_r' && !billingShowsMcSlabRColumn(rateSlab)) return false
-  if (line.manualCategory === 'gift' || line.mrpMode) {
-    if (field === 'ratePerGram' || field === 'metal_type') return false
+  if (field === 'ratePerGram' || field === 'metal_type') {
+    if (shouldUseWeightSilverNotMrp(line)) return true
+    if (line.manualCategory === 'gift' || line.mrpMode) return false
   }
   if (field === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
   if (field === 'stone_charges') return lineHasFinishPicker(line)

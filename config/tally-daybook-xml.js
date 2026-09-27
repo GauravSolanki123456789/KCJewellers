@@ -240,6 +240,51 @@ function parseTallyImportResponse(xmlResponse) {
     return { ok: true, created: 0, altered: 0, note: 'unparsed' };
 }
 
+function buildLedgerMasterXml(companyName, ledgerName, parentGroup) {
+    const inner = `
+          <LEDGER NAME="${escapeXml(ledgerName)}" ACTION="Create">
+            <PARENT>${escapeXml(parentGroup)}</PARENT>
+          </LEDGER>`;
+    return wrapImportEnvelope(companyName, inner);
+}
+
+function parseMissingLedgerName(errMsg) {
+    const raw = String(errMsg || '');
+    const m = raw.match(/Ledger ['"]([^'"]+)['"] does not exist/i);
+    return m ? m[1].trim() : null;
+}
+
+function resolveLedgerParentGroup(ledgerName, cfg) {
+    const n = String(ledgerName || '').trim();
+    if (!n || !cfg) return null;
+    const sales = String(cfg.salesLedger || '').trim();
+    const purchase = String(cfg.purchaseLedger || '').trim();
+    const cash = String(cfg.cashLedger || '').trim();
+    const bank = String(cfg.bankLedger || '').trim();
+    if (sales && n === sales) return 'Sales Accounts';
+    if (purchase && n === purchase) return 'Purchase Accounts';
+    if (cash && n === cash) return 'Cash-in-Hand';
+    if (bank && n === bank) return 'Bank Accounts';
+    if (/^sales/i.test(n)) return 'Sales Accounts';
+    if (/^purchase/i.test(n)) return 'Purchase Accounts';
+    if (/cash/i.test(n)) return 'Cash-in-Hand';
+    if (/bank/i.test(n)) return 'Bank Accounts';
+    return null;
+}
+
+async function postXmlToTallyWithLedgerBootstrap(tallyUrl, xml, ledgerCfg, timeoutMs = 45000) {
+    try {
+        return await postXmlToTally(tallyUrl, xml, timeoutMs);
+    } catch (e) {
+        const missing = parseMissingLedgerName(e.message);
+        const parent = missing ? resolveLedgerParentGroup(missing, ledgerCfg) : null;
+        if (!missing || !parent || !ledgerCfg?.companyName) throw e;
+        const masterXml = buildLedgerMasterXml(ledgerCfg.companyName, missing, parent);
+        await postXmlToTally(tallyUrl, masterXml, timeoutMs);
+        return await postXmlToTally(tallyUrl, xml, timeoutMs);
+    }
+}
+
 function postXmlToTally(tallyUrl, xml, timeoutMs = 45000) {
     const http = require('http');
     const https = require('https');
@@ -302,4 +347,6 @@ module.exports = {
     buildCreditNoteVoucherXml,
     parseTallyImportResponse,
     postXmlToTally,
+    postXmlToTallyWithLedgerBootstrap,
+    buildLedgerMasterXml,
 };

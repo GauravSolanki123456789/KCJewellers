@@ -11,6 +11,10 @@ export type TallyDaybookExportResponse = {
   date: string
   tallyUrl: string
   company: string
+  salesLedger?: string
+  purchaseLedger?: string
+  cashLedger?: string
+  bankLedger?: string
   jobs: TallyExportJob[]
   synced?: number
   failed?: number
@@ -19,11 +23,15 @@ export type TallyDaybookExportResponse = {
   requiresLocalAgent?: boolean
 }
 
-async function postXmlViaLocalAgent(tallyUrl: string, xml: string): Promise<void> {
+async function postXmlViaLocalAgent(
+  tallyUrl: string,
+  xml: string,
+  ledgerCfg?: { companyName: string; salesLedger?: string; purchaseLedger?: string; cashLedger?: string; bankLedger?: string },
+): Promise<void> {
   const r = await fetch(`${LOCAL_PRINT_AGENT_URL}/tally-import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tallyUrl, xml }),
+    body: JSON.stringify({ tallyUrl, xml, ledgerCfg }),
     signal: AbortSignal.timeout(60000),
   })
   let data: { ok?: boolean; error?: string; tallyError?: string } = {}
@@ -61,13 +69,20 @@ export async function exportDaybookToTallyLocal(date: string): Promise<TallyDayb
   }
 
   const tallyUrl = pack.tallyUrl || 'http://localhost:9000'
+  const ledgerCfg = {
+    companyName: pack.company,
+    salesLedger: pack.salesLedger,
+    purchaseLedger: pack.purchaseLedger,
+    cashLedger: pack.cashLedger,
+    bankLedger: pack.bankLedger,
+  }
   const results: TallyDaybookExportResponse['results'] = []
   let synced = 0
   let failed = 0
 
   for (const job of jobs) {
     try {
-      await postXmlViaLocalAgent(tallyUrl, job.xml)
+      await postXmlViaLocalAgent(tallyUrl, job.xml, ledgerCfg)
       synced += 1
       results.push({ ok: true, ref: job.ref, type: job.type })
     } catch (e) {

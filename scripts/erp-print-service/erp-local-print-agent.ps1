@@ -144,7 +144,54 @@ function Test-TallyImportResponse([string]$XmlResponse) {
     }
 }
 
-function Invoke-TallyImport([string]$TallyUrl, [string]$Xml) {
+function Build-TallyLedgerXml([string]$CompanyName, [string]$LedgerName, [string]$ParentGroup) {
+    $c = [System.Security.SecurityElement]::Escape([string]$CompanyName)
+    $l = [System.Security.SecurityElement]::Escape([string]$LedgerName)
+    $p = [System.Security.SecurityElement]::Escape([string]$ParentGroup)
+    return @"
+<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Vouchers</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>$c</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="$l" ACTION="Create">
+            <PARENT>$p</PARENT>
+          </LEDGER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>
+"@
+}
+
+function Resolve-TallyLedgerParent([string]$LedgerName, $LedgerCfg) {
+    if (-not $LedgerCfg) { return $null }
+    $n = [string]$LedgerName
+    $sales = [string]$LedgerCfg.salesLedger
+    $purchase = [string]$LedgerCfg.purchaseLedger
+    $cash = [string]$LedgerCfg.cashLedger
+    $bank = [string]$LedgerCfg.bankLedger
+    if ($sales -and $n -eq $sales) { return 'Sales Accounts' }
+    if ($purchase -and $n -eq $purchase) { return 'Purchase Accounts' }
+    if ($cash -and $n -eq $cash) { return 'Cash-in-Hand' }
+    if ($bank -and $n -eq $bank) { return 'Bank Accounts' }
+    if ($n -match '^Sales') { return 'Sales Accounts' }
+    if ($n -match '^Purchase') { return 'Purchase Accounts' }
+    if ($n -match 'Cash') { return 'Cash-in-Hand' }
+    if ($n -match 'Bank') { return 'Bank Accounts' }
+    return $null
+}
+
+function Invoke-TallyImport([string]$TallyUrl, [string]$Xml, $LedgerCfg) {
     $url = Normalize-TallyUrl $TallyUrl
     $uri = [Uri]$url
     $path = if ($uri.AbsolutePath -and $uri.AbsolutePath -ne '/') { $uri.AbsolutePath } else { '/' }
@@ -162,7 +209,23 @@ function Invoke-TallyImport([string]$TallyUrl, [string]$Xml) {
     $body = $reader.ReadToEnd()
     $reader.Close()
     $resp.Close()
-    Test-TallyImportResponse $body
+    try {
+        Test-TallyImportResponse $body
+    } catch {
+        $err = $_.Exception.Message
+        if ($err -match "Ledger ['`"]([^'`"]+)['`"] does not exist") {
+            $missing = $Matches[1]
+            $parent = Resolve-TallyLedgerParent $missing $LedgerCfg
+            $company = [string]$LedgerCfg.companyName
+            if ($parent -and $company.Trim()) {
+                $master = Build-TallyLedgerXml $company $missing $parent
+                Invoke-TallyImport $TallyUrl $master $null
+                Invoke-TallyImport $TallyUrl $Xml $LedgerCfg
+                return
+            }
+        }
+        throw
+    }
 }
 
 function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
@@ -233,7 +296,8 @@ function Handle-Request($Context) {
                 Send-JsonResponse $Context 400 @{ ok = $false; error = 'No Tally XML' }
                 return
             }
-            Invoke-TallyImport $tallyUrl $xml
+            $ledgerCfg = $payload.ledgerCfg
+            Invoke-TallyImport $tallyUrl $xml $ledgerCfg
             Send-JsonResponse $Context 200 @{ ok = $true }
         } catch {
             Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message; tallyError = $_.Exception.Message }

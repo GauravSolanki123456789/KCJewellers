@@ -195,7 +195,7 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               label: 'Tally on this PC',
               placeholder: 'http://localhost:9000',
             },
-            { key: 'salesLedger', label: 'Sales ledger', placeholder: 'Sales Account' },
+            { key: 'salesLedger', label: 'Sales ledger (exact Tally name)', placeholder: 'Sales' },
             { key: 'purchaseLedger', label: 'Purchase ledger', placeholder: 'Purchase Account' },
             { key: 'cashLedger', label: 'Cash ledger', placeholder: 'Cash' },
             { key: 'bankLedger', label: 'Bank ledger', placeholder: 'Bank' },

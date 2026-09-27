@@ -5,7 +5,10 @@
  */
 
 const http = require('http');
-const { postXmlToTally, normalizeTallyUrl } = require('../config/tally-daybook-xml');
+const {
+    postXmlToTallyWithLedgerBootstrap,
+    normalizeTallyUrl,
+} = require('../config/tally-daybook-xml');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -102,7 +105,10 @@ const server = http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ ok: false, error: 'No Tally XML' }));
                 return;
             }
-            const result = await postXmlToTally(tallyUrl, xml);
+            const ledgerCfg = payload.ledgerCfg && typeof payload.ledgerCfg === 'object'
+                ? payload.ledgerCfg
+                : null;
+            const result = await postXmlToTallyWithLedgerBootstrap(tallyUrl, xml, ledgerCfg);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, tally: result.parsed }));
         } catch (e) {
