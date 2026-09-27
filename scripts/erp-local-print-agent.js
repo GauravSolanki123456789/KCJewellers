@@ -5,6 +5,7 @@
  */
 
 const http = require('http');
+const { postXmlToTally, normalizeTallyUrl } = require('../config/tally-daybook-xml');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -84,8 +85,36 @@ const server = http.createServer(async (req, res) => {
                 port: PORT,
                 supportsReceipt: true,
                 supportsLabels: true,
+                supportsTally: true,
             }),
         );
+        return;
+    }
+
+    if (req.method === 'POST' && req.url === '/tally-import') {
+        try {
+            const body = await readBody(req);
+            const payload = JSON.parse(body || '{}');
+            const tallyUrl = normalizeTallyUrl(payload.tallyUrl || 'http://localhost:9000');
+            const xml = String(payload.xml || '');
+            if (!xml.trim()) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'No Tally XML' }));
+                return;
+            }
+            const result = await postXmlToTally(tallyUrl, xml);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, tally: result.parsed }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(
+                JSON.stringify({
+                    ok: false,
+                    error: e.message || 'Tally import failed',
+                    tallyError: e.message,
+                }),
+            );
+        }
         return;
     }
 

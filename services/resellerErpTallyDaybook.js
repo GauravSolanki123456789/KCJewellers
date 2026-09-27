@@ -1,22 +1,28 @@
 /**
  * Export official ERP day book rows to Tally Prime (per-reseller settings).
+ * Vouchers are posted from the shop PC via the local print agent (Tally on localhost).
  */
 
-const TallyIntegration = require('../config/tally-integration');
+const {
+    normalizeTallyUrl,
+    buildSalesVoucherXml,
+    buildReceiptVoucherXml,
+    buildPaymentVoucherXml,
+    buildPurchaseVoucherXml,
+    buildCreditNoteVoucherXml,
+    postXmlToTally,
+} = require('../config/tally-daybook-xml');
 
 function parseTallySettings(settings) {
     const block = settings?.tally && typeof settings.tally === 'object' ? settings.tally : {};
-    const enabledRaw = String(block.enabled ?? block.enable ?? '').trim().toLowerCase();
-    const enabled =
-        enabledRaw === '1' ||
-        enabledRaw === 'true' ||
-        enabledRaw === 'yes' ||
-        enabledRaw === 'on' ||
-        (!enabledRaw && String(block.serverUrl || block.company || '').trim());
-    const serverUrl = String(block.serverUrl || block.tallyUrl || 'http://localhost:9000').trim();
+    const serverUrl = normalizeTallyUrl(block.serverUrl || block.tallyUrl || 'http://localhost:9000');
     const company = String(block.company || block.companyName || '').trim();
     const apiKey = String(block.apiKey || block.secret || '').trim();
-    return { enabled, serverUrl, company, apiKey };
+    const salesLedger = String(block.salesLedger || 'Sales Account').trim() || 'Sales Account';
+    const purchaseLedger = String(block.purchaseLedger || 'Purchase Account').trim() || 'Purchase Account';
+    const cashLedger = String(block.cashLedger || 'Cash').trim() || 'Cash';
+    const bankLedger = String(block.bankLedger || 'Bank').trim() || 'Bank';
+    return { serverUrl, company, apiKey, salesLedger, purchaseLedger, cashLedger, bankLedger };
 }
 
 async function loadResellerErpSettings(query, resellerUserId) {
@@ -34,192 +40,162 @@ async function loadResellerErpSettings(query, resellerUserId) {
     return settings && typeof settings === 'object' ? settings : {};
 }
 
-function paymentModeLedger(mode) {
+function cashOrBankLedger(mode, tallyCfg) {
     const m = String(mode || '').trim().toLowerCase();
-    if (!m || m === '—' || m === '-') return 'Cash';
-    if (m === 'cash') return 'Cash';
-    if (['upi', 'neft', 'imps', 'cheque', 'card', 'bank', 'gpay'].includes(m)) return 'Bank';
-    return 'Bank';
-}
-
-function injectCompanyName(xml, companyName) {
-    if (!companyName) return xml;
-    if (xml.includes('<SVCURRENTCOMPANY>')) return xml;
-    return xml.replace(
-        '<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>',
-        `<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-                <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>`,
-    );
-}
-
-function mapBillToTallySales(b, customerName) {
-    let lines = b.lines_json;
-    if (typeof lines === 'string') {
-        try {
-            lines = JSON.parse(lines);
-        } catch {
-            lines = [];
-        }
+    if (m === 'cash') return tallyCfg.cashLedger;
+    if (['upi', 'neft', 'imps', 'cheque', 'card', 'bank', 'gpay', 'mixed'].includes(m)) {
+        return tallyCfg.bankLedger;
     }
-    const items = (Array.isArray(lines) ? lines : []).map((l) => ({
-        itemName: l.description || l.sku || l.style || 'Jewellery',
-        pcs: l.qty || l.pcs || 1,
-        rate: l.rate || l.silver_rate || 0,
-        total: l.line_total || l.total || l.amount || 0,
-    }));
-    if (!items.length) {
-        items.push({
-            itemName: 'Jewellery',
-            pcs: 1,
-            rate: Number(b.total_inr) || 0,
-            total: Number(b.total_inr) || 0,
-        });
-    }
-    return {
-        date: b.bill_date,
-        bill_no: b.bill_number,
-        customer_name: customerName || b.customer_name || 'Walk-in',
-        net_total: Number(b.total_inr) || 0,
-        items,
-        payment_method: 'Credit',
-    };
+    return tallyCfg.cashLedger;
 }
 
-async function syncDaybookRow(query, resellerUserId, tally, row, companyName) {
+function normalizePartyName(name) {
+    return String(name || 'Walk-in').trim();
+}
+
+async function buildTallyJobForRow(query, resellerUserId, row, tallyCfg) {
     const kind = String(row.kind || '').toLowerCase();
-    const ref = row.reference || '';
-    const party = row.customer_name || 'Party';
+    const ref = String(row.reference || '').trim() || `ERP-${row.row_key || Date.now()}`;
+    const party = normalizePartyName(row.customer_name);
     const date = row.entry_date;
     const amt = Number(row.amount_inr) || 0;
+    const companyName = tallyCfg.company;
+    const narration = row.description || '';
 
     if (row.source === 'bill' && row.bill_id) {
-        const bills = await query(
-            `SELECT b.*, COALESCE(c.name, b.customer_name) AS customer_name
-             FROM reseller_erp_bills b
-             LEFT JOIN reseller_erp_customers c ON c.id = b.customer_id
-             WHERE b.id = $1 AND b.reseller_user_id = $2 LIMIT 1`,
-            [row.bill_id, resellerUserId],
-        );
-        const b = bills[0];
-        if (!b) return { ok: false, ref, error: 'Bill not found' };
-        const billType = String(b.bill_type || 'sale').toLowerCase();
+        const billType = String(row.kind || 'sale').toLowerCase();
+        const voucherNumber = ref || `BILL-${row.bill_id}`;
         if (billType === 'credit' || billType === 'sales_return') {
-            const xml = injectCompanyName(
-                tally.generateSalesReturnXML({
+            return {
+                ref: voucherNumber,
+                type: 'Credit Note',
+                xml: buildCreditNoteVoucherXml({
+                    companyName,
                     date,
-                    ssr_no: ref || b.bill_number,
-                    customer_name: party,
-                    net_total: amt,
-                    total: amt,
-                    items: [{ itemName: 'Jewellery', pcs: 1, total: amt }],
+                    voucherNumber,
+                    party,
+                    amount: amt,
+                    salesLedger: tallyCfg.salesLedger,
+                    narration,
                 }),
-                companyName,
-            );
-            const result = await tally.sendToTally(xml);
-            return { ok: true, ref, type: 'Sales Return', result };
+            };
         }
-        if (billType === 'debit') {
-            const xml = injectCompanyName(
-                tally.generateSalesInvoiceXML({
-                    ...mapBillToTallySales(b, party),
-                    narration: `Debit note ${ref}`,
-                }),
+        return {
+            ref: voucherNumber,
+            type: 'Sales',
+            xml: buildSalesVoucherXml({
                 companyName,
-            );
-            const result = await tally.sendToTally(xml);
-            return { ok: true, ref, type: 'Debit Note', result };
-        }
-        const xml = injectCompanyName(
-            tally.generateSalesInvoiceXML(mapBillToTallySales(b, party)),
-            companyName,
-        );
-        const result = await tally.sendToTally(xml);
-        return { ok: true, ref, type: 'Sales', result };
+                date,
+                voucherNumber,
+                party,
+                amount: amt,
+                salesLedger: tallyCfg.salesLedger,
+                narration: narration || `Sale ${voucherNumber}`,
+            }),
+        };
     }
 
     if (kind === 'purchase') {
-        const xml = injectCompanyName(
-            tally.generatePurchaseVoucherXML({
+        return {
+            ref,
+            type: 'Purchase',
+            xml: buildPurchaseVoucherXml({
+                companyName,
                 date,
-                pv_no: ref,
-                supplier_name: party,
-                total: amt,
-                items: [{ itemName: 'Metal / Stock', weight: 1, total: amt }],
+                voucherNumber: ref,
+                party,
+                amount: amt,
+                purchaseLedger: tallyCfg.purchaseLedger,
+                narration: narration || `Purchase ${ref}`,
             }),
-            companyName,
-        );
-        const result = await tally.sendToTally(xml);
-        return { ok: true, ref, type: 'Purchase', result };
+        };
     }
 
     if (kind === 'payment_in' || kind === 'bill_advance' || kind === 'suspense_in') {
-        const xml = injectCompanyName(
-            tally.generatePaymentReceiptXML({
+        return {
+            ref,
+            type: 'Receipt',
+            xml: buildReceiptVoucherXml({
+                companyName,
                 date,
-                reference: ref,
+                voucherNumber: ref,
+                party,
                 amount: amt,
-                customer_name: party,
-                payment_method: paymentModeLedger(row.payment_mode),
-                transaction_type: 'Receipt',
-                description: row.description || 'Payment received',
+                cashOrBankLedger: cashOrBankLedger(row.payment_mode, tallyCfg),
+                narration: narration || 'Payment received',
             }),
-            companyName,
-        );
-        const result = await tally.sendToTally(xml);
-        return { ok: true, ref, type: 'Receipt', result };
+        };
     }
 
     if (kind === 'payment_out' || kind === 'expense' || kind === 'salary') {
-        const xml = injectCompanyName(
-            tally.generatePaymentReceiptXML({
+        return {
+            ref,
+            type: 'Payment',
+            xml: buildPaymentVoucherXml({
+                companyName,
                 date,
-                reference: ref,
+                voucherNumber: ref,
+                party,
                 amount: amt,
-                customer_name: party,
-                payment_method: paymentModeLedger(row.payment_mode),
-                transaction_type: 'Payment',
-                description: row.description || kind,
+                cashOrBankLedger: cashOrBankLedger(row.payment_mode, tallyCfg),
+                narration: narration || kind,
             }),
-            companyName,
-        );
-        const result = await tally.sendToTally(xml);
-        return { ok: true, ref, type: 'Payment', result };
+        };
     }
 
     if (kind === 'sale' && row.source === 'shadow_bill') {
-        return { ok: false, ref, skipped: true, error: 'Lane sale — not exported' };
+        return { skipped: true, ref, error: 'Lane entry — not exported' };
     }
 
     if (kind === 'adjustment') {
-        const xml = injectCompanyName(
-            tally.generateCashEntryXML({
+        const isReceipt = amt >= 0;
+        const abs = Math.abs(amt);
+        if (isReceipt) {
+            return {
+                ref,
+                type: 'Receipt',
+                xml: buildReceiptVoucherXml({
+                    companyName,
+                    date,
+                    voucherNumber: ref,
+                    party,
+                    amount: abs,
+                    cashOrBankLedger: tallyCfg.cashLedger,
+                    narration: narration || 'Adjustment',
+                }),
+            };
+        }
+        return {
+            ref,
+            type: 'Payment',
+            xml: buildPaymentVoucherXml({
+                companyName,
                 date,
-                reference: ref,
-                amount: Math.abs(amt),
-                customer_name: party,
-                description: row.description || 'Adjustment',
-                transaction_type: amt >= 0 ? 'Receipt' : 'Payment',
+                voucherNumber: ref,
+                party,
+                amount: abs,
+                cashOrBankLedger: tallyCfg.cashLedger,
+                narration: narration || 'Adjustment',
             }),
-            companyName,
-        );
-        const result = await tally.sendToTally(xml);
-        return { ok: true, ref, type: 'Adjustment', result };
+        };
     }
 
-    return { ok: false, ref, skipped: true, error: `Unsupported type: ${kind}` };
+    return { skipped: true, ref, error: `Unsupported type: ${kind}` };
 }
 
-async function exportDaybookToTally(query, resellerUserId, opts) {
+async function buildDaybookTallyExportPack(query, resellerUserId, opts) {
     const { buildDaybook } = require('./resellerErpCustomerAccount');
     const settings = await loadResellerErpSettings(query, resellerUserId);
+    const tallyBlock = settings?.tally && typeof settings.tally === 'object' ? settings.tally : {};
+    const enabledRaw = String(tallyBlock.enabled || 'yes').trim().toLowerCase();
+    if (['no', '0', 'false', 'off'].includes(enabledRaw)) {
+        throw Object.assign(new Error('Enable day book export under ERP → Tally connectivity.'), { status: 400 });
+    }
     const tallyCfg = parseTallySettings(settings);
-    if (!tallyCfg.serverUrl) {
-        throw Object.assign(new Error('Tally server URL not configured. Open ERP → Tally connectivity.'), {
+    if (!tallyCfg.company) {
+        throw Object.assign(new Error('Set Tally company name in ERP → Tally connectivity (exact name from Tally).'), {
             status: 400,
         });
-    }
-    if (!tallyCfg.company) {
-        throw Object.assign(new Error('Tally company name not configured.'), { status: 400 });
     }
 
     const daybook = await buildDaybook(query, resellerUserId, {
@@ -228,66 +204,104 @@ async function exportDaybookToTally(query, resellerUserId, opts) {
         unassignedOnly: false,
     });
 
-    const tally = new TallyIntegration({
-        tallyUrl: tallyCfg.serverUrl,
-        companyName: tallyCfg.company,
-        apiKey: tallyCfg.apiKey,
-        enabled: true,
-    });
-
-    const results = [];
-    let synced = 0;
-    let failed = 0;
-    let skipped = 0;
-
+    const jobs = [];
+    const skipped = [];
     for (const row of daybook.transactions) {
-        try {
-            const r = await syncDaybookRow(query, resellerUserId, tally, row, tallyCfg.company);
-            if (r.skipped) {
-                skipped += 1;
-                results.push(r);
-                continue;
-            }
-            if (r.ok) synced += 1;
-            else failed += 1;
-            results.push(r);
-        } catch (e) {
-            failed += 1;
-            results.push({ ok: false, ref: row.reference, error: e.message || String(e) });
-        }
+        const job = await buildTallyJobForRow(query, resellerUserId, row, tallyCfg);
+        if (job.skipped) skipped.push(job);
+        else if (job.xml) jobs.push(job);
     }
 
     return {
         date: daybook.date,
-        synced,
-        failed,
+        tallyUrl: tallyCfg.serverUrl,
+        company: tallyCfg.company,
+        jobs,
         skipped,
-        total: daybook.transactions.length,
-        results,
-        message:
-            failed === 0
-                ? `Exported ${synced} voucher(s) to Tally for ${daybook.date}.`
-                : `Exported ${synced}; ${failed} failed. Check Tally is open with ODBC/HTTP enabled.`,
+        transaction_count: daybook.transactions.length,
     };
+}
+
+async function runTallyJobsOnHost(tallyUrl, jobs) {
+    const results = [];
+    let synced = 0;
+    let failed = 0;
+    for (const job of jobs) {
+        try {
+            await postXmlToTally(tallyUrl, job.xml);
+            synced += 1;
+            results.push({ ok: true, ref: job.ref, type: job.type });
+        } catch (e) {
+            failed += 1;
+            results.push({ ok: false, ref: job.ref, type: job.type, error: e.message || String(e) });
+        }
+    }
+    return { synced, failed, results };
+}
+
+async function exportDaybookToTally(query, resellerUserId, opts) {
+    const pack = await buildDaybookTallyExportPack(query, resellerUserId, opts);
+    if (!pack.jobs.length) {
+        return {
+            ...pack,
+            synced: 0,
+            failed: 0,
+            results: [],
+            message:
+                pack.skipped.length
+                    ? 'No exportable vouchers for this day.'
+                    : 'No transactions on this date.',
+        };
+    }
+
+    return {
+        ...pack,
+        synced: 0,
+        failed: 0,
+        results: [],
+        message: `Prepared ${pack.jobs.length} voucher(s). Posting via this PC…`,
+        requiresLocalAgent: true,
+    };
+}
+
+async function executeTallyJobsOnServer(tallyUrl, jobs) {
+    return runTallyJobsOnHost(tallyUrl, jobs);
 }
 
 async function testResellerTallyConnection(query, resellerUserId) {
     const settings = await loadResellerErpSettings(query, resellerUserId);
     const tallyCfg = parseTallySettings(settings);
-    if (!tallyCfg.serverUrl) {
-        throw Object.assign(new Error('Tally server URL required'), { status: 400 });
+    if (!tallyCfg.company) {
+        throw Object.assign(new Error('Tally company name required'), { status: 400 });
     }
-    const tally = new TallyIntegration({
-        tallyUrl: tallyCfg.serverUrl,
-        companyName: tallyCfg.company || 'Default Company',
-        enabled: true,
-    });
-    return tally.testConnection();
+    const testXml = `<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>List of Companies</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>${tallyCfg.company.replace(/&/g, '&amp;')}</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+    </EXPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+    try {
+        const result = await postXmlToTally(tallyCfg.serverUrl, testXml, 15000);
+        return { success: true, message: 'Tally reachable on this PC', result };
+    } catch (e) {
+        return { success: false, message: e.message || 'Tally test failed' };
+    }
 }
 
 module.exports = {
     exportDaybookToTally,
+    buildDaybookTallyExportPack,
+    executeTallyJobsOnServer,
     testResellerTallyConnection,
     parseTallySettings,
     loadResellerErpSettings,
+    postXmlToTally,
 };

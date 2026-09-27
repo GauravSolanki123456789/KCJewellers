@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import axios from '@/lib/axios'
 import {
@@ -34,6 +33,7 @@ import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAc
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
+import { exportDaybookToTallyLocal } from '@/lib/erp-tally-export'
 import { downloadDaybookPdf, type DaybookExportData } from '@/lib/erp-ledger-statement-pdf'
 
 type ImportPreviewRow = ParsedBankRow & {
@@ -958,15 +958,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     setBusy(true)
     setMsg(null)
     try {
-      const res = await axios.post<{ message?: string; synced?: number; failed?: number }>(
-        '/api/reseller/erp/ledger/daybook/export-tally',
-        { date: dayBookDate },
-      )
-      const extra =
-        res.data.failed != null && res.data.failed > 0
-          ? ` (${res.data.failed} failed — is TallyPrime running with HTTP enabled?)`
-          : ''
-      setMsg((res.data.message || 'Exported to Tally.') + extra)
+      const res = await exportDaybookToTallyLocal(dayBookDate)
+      setMsg(res.message || 'Exported to Tally.')
     } catch (e) {
       alert(erpErr(e))
     } finally {
@@ -1491,7 +1484,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       </div>
 
       {msg ? (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
+        <p
+          className={
+            /failed|start kc erp|cannot reach tally/i.test(msg)
+              ? 'rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-[var(--color-jewelry-black,#1a1814)]'
+              : 'rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900'
+          }
+        >
+          {msg}
+        </p>
       ) : null}
 
       {tab === 'customer' ? (
@@ -2410,15 +2411,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               Unassigned only
             </label>
           </div>
-          {!laneMode ? (
-            <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-              Tally: configure company &amp; endpoint under{' '}
-              <Link href="/reseller/erp/tally" className="font-semibold text-emerald-900 underline">
-                ERP → Tally connectivity
-              </Link>
-              . Only official (non-Jainav) entries export.
-            </p>
-          ) : null}
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Debit</p>

@@ -8,6 +8,7 @@ export type LocalPrintAgentInfo = {
   ok: boolean
   supportsReceipt?: boolean
   supportsLabels?: boolean
+  supportsTally?: boolean
   runtime?: string
 }
 

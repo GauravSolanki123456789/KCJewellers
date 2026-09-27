@@ -192,9 +192,13 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
             { key: 'company', label: 'Tally company name (exact, as in TallyPrime)' },
             {
               key: 'serverUrl',
-              label: 'Tally HTTP endpoint',
+              label: 'Tally on this PC',
               placeholder: 'http://localhost:9000',
             },
+            { key: 'salesLedger', label: 'Sales ledger', placeholder: 'Sales Account' },
+            { key: 'purchaseLedger', label: 'Purchase ledger', placeholder: 'Purchase Account' },
+            { key: 'cashLedger', label: 'Cash ledger', placeholder: 'Cash' },
+            { key: 'bankLedger', label: 'Bank ledger', placeholder: 'Bank' },
             { key: 'apiKey', label: 'API / secret key (optional)', type: 'password' },
             { key: 'notes', label: 'Sync notes' },
           ]}
