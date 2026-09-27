@@ -67,7 +67,17 @@ DELETE FROM reseller_erp_stock_pieces
 WHERE reseller_user_id = 11
   AND status = 'sold';
 
+Get tally ready for connection : 
+F1
+Settings
+Select Connectivity.
+TallyPrime acts as to Server (or Both).
+"Enable ODBC" -> Yes.
+Set the Port to 9000.
+Ctrl + A
 
+Create a customer ledger :
+create -> ledger -> customer name type -> sundry debtors -> ctrl+A ( to save)
 ## ?? License
 Proprietary - Gaurav Softwares
 ---
