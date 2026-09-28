@@ -42,6 +42,29 @@ export function metalSlabPctMultiplier(line: ErpBillLine, slab: ErpRateSlab): nu
   return ui / 100
 }
 
+/**
+ * Net weight (g) for ERP lines — not pure/billable metal weight.
+ * When only billable weight is stored, recover net using metal slab %.
+ */
+export function erpLineNetWeightGm(line: ErpBillLine, slab: ErpRateSlab = 'R'): number {
+  const og = Number(line.originalWeightGm)
+  const wg = Number(line.weightGm ?? 0)
+  const hasOg = Number.isFinite(og) && og > 0
+  const hasWg = Number.isFinite(wg) && wg > 0
+  const mult = metalSlabPctMultiplier(line, slab)
+  if (mult != null && mult > 0 && mult < 1) {
+    if (hasOg && hasWg) {
+      const billFromOg = Math.round(og * mult * 1000) / 1000
+      if (Math.abs(billFromOg - wg) <= 0.05 || og >= wg * 0.99) return og
+      return Math.round((wg / mult) * 1000) / 1000
+    }
+    if (hasOg) return og
+    if (hasWg) return Math.round((wg / mult) * 1000) / 1000
+  }
+  if (hasOg) return og
+  return hasWg ? wg : 0
+}
+
 /** PDF / display — show the value the cashier entered (e.g. 89 → 89%). */
 export function formatMetalSlabPctForDisplay(line: ErpBillLine, slab: ErpRateSlab): string {
   const key = metalSlabPctStorageKey(slab)

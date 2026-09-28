@@ -118,6 +118,7 @@ import {
 } from '@/lib/erp-billing-table-cols'
 import {
   billingShowsMcSlabRColumn,
+  erpLineNetWeightGm,
   isManualGridFieldVisible,
   patchMetalSlabPct,
   normalizeMetalSlabPctForUiStorage,
@@ -647,7 +648,8 @@ export function ErpBillingWorkspace() {
           next.displayMcDiscountPct = bd.mc_discount_pct ?? null
         } else {
           const catalogRate = Number(line.mc_rate_catalog)
-          const netWt = Number(line.originalWeightGm ?? line.weightGm ?? wt) || 0
+          const netWt =
+            erpLineNetWeightGm(line, slab) || Number(line.originalWeightGm ?? line.weightGm ?? wt) || 0
           const usePieceSlab =
             lineHasPieceSlabFields(line) &&
             catalogRate > 0 &&

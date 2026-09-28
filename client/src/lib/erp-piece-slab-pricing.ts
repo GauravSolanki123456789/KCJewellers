@@ -5,6 +5,7 @@
  */
 import { isMcPerPiece, type PriceBreakdown } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+import { erpLineNetWeightGm } from '@/lib/erp-metal-slab-field'
 
 type ErpRateSlab = 'R' | 'W' | 'F'
 
@@ -59,7 +60,7 @@ export function pieceSlabMetalFraction(line: ErpBillLine, slab: ErpRateSlab): nu
 
 /** Billable weight for current slab (net × metal slab %). */
 export function pieceSlabBillableWeight(line: ErpBillLine, slab: ErpRateSlab): number {
-  const net = line.originalWeightGm ?? line.weightGm ?? 0
+  const net = erpLineNetWeightGm(line, slab)
   if (net <= 0) return 0
   const frac = pieceSlabMetalFraction(line, slab)
   return Math.round(net * frac * 1000) / 1000
@@ -100,7 +101,7 @@ export function resolveErpLineSilverMetalRatePerG(
 /** Apply slab-adjusted weight + per-slab MC to a bill line (before totals). */
 export function applyPieceSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpBillLine {
   if (!lineHasPieceSlabFields(line)) return line
-  const net = line.originalWeightGm ?? line.weightGm ?? null
+  const net = erpLineNetWeightGm(line, slab) || null
   return {
     ...line,
     originalWeightGm: net,
@@ -117,7 +118,7 @@ export function computeErpPieceSlabBreakdown(
   silverRateOffsetPerG = 0,
   mcDiscountPct = 0,
 ): PriceBreakdown {
-  const netWt = line.originalWeightGm ?? line.weightGm ?? 0
+  const netWt = erpLineNetWeightGm(line, slab)
   const billWt = pieceSlabBillableWeight(line, slab)
   const metalRate = resolveErpLineSilverMetalRatePerG(
     line,

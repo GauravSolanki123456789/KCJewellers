@@ -7,7 +7,11 @@ import {
 import { tierSettingsForSlab, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { isMcPerPiece } from '@/lib/pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
-import { lineHasMetalSlabPctInput, metalSlabPctMultiplier } from '@/lib/erp-metal-slab-field'
+import {
+  erpLineNetWeightGm,
+  lineHasMetalSlabPctInput,
+  metalSlabPctMultiplier,
+} from '@/lib/erp-metal-slab-field'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
 import type { PriceBreakdown } from '@/lib/pricing'
 
@@ -16,13 +20,13 @@ export function erpMcBillingNetGm(line: ErpBillLine): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-/** MC/GM × weight — includes wastage % (and metal slab %) when applicable. */
+/** MC/GM × weight — wastage adds to MC wt; metal slab % does not (MC × net wt, metal × pure wt). */
 export function erpMcBillingWeightGm(line: ErpBillLine, slab: ErpRateSlab = 'R'): number {
-  const netWt = erpMcBillingNetGm(line)
+  const netWt = erpLineNetWeightGm(line, slab) || erpMcBillingNetGm(line)
   if (netWt <= 0) return 0
   const wastPct = Number(line.wastage_pct ?? 0) || 0
   const metalMult = metalSlabPctMultiplier(line, slab)
-  if (metalMult != null && metalMult > 0) return Math.round(netWt * metalMult * 1000) / 1000
+  if (metalMult != null && metalMult > 0) return netWt
   if (wastPct > 0) return Math.round(netWt * (1 + wastPct / 100) * 1000) / 1000
   return netWt
 }
@@ -143,7 +147,7 @@ export function computeManualAsLineBreakdown(
   gstPct = GST_PCT,
   slabSettings?: ResellerSlabSettings,
 ): PriceBreakdown {
-  const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
+  const netWt = erpLineNetWeightGm(line, slab) || 0
   if (netWt <= 0) {
     return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 }
   }
@@ -171,7 +175,16 @@ export function computeManualAsLineBreakdown(
   const effMcRate = manualEffectiveMcRatePerUnit(line, slab)
   const pcs = Math.max(1, Number(line.qty) || 1)
   const perGm = isMcPerGmBillingType(line.mc_type)
-  const mcWt = perGm ? billedWt : netWt
+  let mcWt = netWt
+  if (perGm) {
+    if (metalMult != null && metalMult > 0) {
+      mcWt = netWt
+    } else if (wastPct > 0) {
+      mcWt = billedWt
+    } else {
+      mcWt = netWt
+    }
+  }
   let totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate
   let totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate
   if (!perGm && slabSettings && isMcPerPiece(line.mc_type)) {
