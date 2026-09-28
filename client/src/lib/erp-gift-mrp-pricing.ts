@@ -1,5 +1,6 @@
 import {
   erpSlabToKind,
+  isRetailQuoteSlab,
   shouldUseWeightSilverNotMrp,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
@@ -11,6 +12,7 @@ export function giftMrpDiscountPct(
   slab: ErpRateSlab,
   slabSettings: ResellerSlabSettings,
 ): number {
+  if (isRetailQuoteSlab(slab)) return 0
   const clamp = (n: unknown) => Math.max(0, Math.min(100, Number(n) || 0))
   const own = clamp(tierSettingsForSlab(slabSettings, erpSlabToKind(slab), 'gifting').gift_discount_pct)
   if (slab === 'F' && own === 0) {

@@ -1,9 +1,9 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
-import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { isRetailQuoteSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 export function billingShowsMcSlabRColumn(slab: ErpRateSlab): boolean {
-  return slab === 'R'
+  return slab === 'R' || isRetailQuoteSlab(slab)
 }
 import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 

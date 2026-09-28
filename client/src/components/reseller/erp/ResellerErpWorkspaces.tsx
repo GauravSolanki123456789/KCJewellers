@@ -22,6 +22,7 @@ import {
   erpInputCls,
   erpErr,
   normalizeErpCustomerSlab,
+  type ErpRateSlabCode,
   type ErpBill,
   type ErpBillLine,
   type ErpCustomer,
@@ -128,7 +129,7 @@ export function CustomersWorkspace() {
     birthdate: '',
     anniversary_date: '',
     notes: '',
-    rate_slab: 'R' as 'R' | 'W' | 'F',
+    rate_slab: 'R' as ErpRateSlabCode,
   })
   const [editingId, setEditingId] = useState<number | null>(null)
 
@@ -157,7 +158,7 @@ export function CustomersWorkspace() {
     birthdate: '',
     anniversary_date: '',
     notes: '',
-    rate_slab: 'R' as 'R' | 'W' | 'F',
+    rate_slab: 'R' as ErpRateSlabCode,
   })
 
   const loadCustomerIntoForm = (c: ErpCustomer) => {
@@ -466,11 +467,12 @@ export function CustomersWorkspace() {
             <select
               className={`${erpInputCls} mt-1`}
               value={form.rate_slab}
-              onChange={(e) => setForm({ ...form, rate_slab: e.target.value as 'R' | 'W' | 'F' })}
+              onChange={(e) => setForm({ ...form, rate_slab: e.target.value as ErpRateSlabCode })}
             >
               <option value="R">Slab R (Retail)</option>
               <option value="W">Slab W (Wholesale)</option>
               <option value="F">Slab F</option>
+              <option value="Q">Slab RQUOTE (full retail)</option>
             </select>
           </label>
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">

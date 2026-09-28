@@ -368,12 +368,21 @@ export function ErpSalesBillsWorkspace() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            className={`${erpBtnPrimary} inline-flex min-h-[44px] items-center gap-2 px-4 text-sm`}
+            disabled={busy || selected.size === 0}
+            onClick={() => void exportRows(bills.filter((b) => selected.has(b.id)))}
+          >
+            <FileSpreadsheet className="size-4" />
+            Export selected ({selected.size || 0})
+          </button>
+          <button
+            type="button"
             className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white"
             disabled={busy || bills.length === 0}
             onClick={() => void exportRows(bills)}
           >
             <Download className="size-4" />
-            Export all
+            Export all in view
           </button>
           {canDeleteRecords ? (
           <button

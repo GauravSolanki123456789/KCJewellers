@@ -32,7 +32,25 @@ import {
 } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
-export type ErpRateSlab = 'R' | 'W' | 'F'
+export type ErpRateSlab = 'R' | 'W' | 'F' | 'Q'
+
+/** Slab R quote — full retail silver/MC/MRP, no Slab R catalogue discounts. */
+export function isRetailQuoteSlab(slab: ErpRateSlab): boolean {
+  return slab === 'Q'
+}
+
+export function normalizeErpRateSlab(raw: unknown): ErpRateSlab {
+  const s = String(raw || 'R').trim().toUpperCase().replace(/^SLAB\s*/, '')
+  if (s === 'Q' || s === 'RQUOTE' || s === 'RQ') return 'Q'
+  if (s === 'W' || s === 'WHOLESALE') return 'W'
+  if (s === 'F') return 'F'
+  return 'R'
+}
+
+export function rateSlabDisplayLabel(slab: ErpRateSlab): string {
+  if (slab === 'Q') return 'RQUOTE'
+  return slab
+}
 
 export function mcSlabFieldForBillingSlab(
   slab: ErpRateSlab,
@@ -45,14 +63,15 @@ export function mcSlabFieldForBillingSlab(
 export function erpSlabToKind(slab: ErpRateSlab): CatalogSlabKind {
   if (slab === 'W') return 'slab_w'
   if (slab === 'F') return 'slab_f'
+  if (isRetailQuoteSlab(slab)) return 'standard'
   return 'slab_r'
 }
 
 /** Parse rate slab from legacy bill notes (`Rate slab W · address`). */
 export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | null {
-  const m = String(notes || '').match(/Rate slab\s+([RWF])\b/i)
+  const m = String(notes || '').match(/Rate slab\s+(RQUOTE|RQ|[RWFQ])\b/i)
   if (!m) return null
-  return m[1].toUpperCase() as ErpRateSlab
+  return normalizeErpRateSlab(m[1])
 }
 
 /** Silver gift catalogue rows (SILVER GIFT ITEMS / GIFT ITEMS) — match storefront slab pricing. */
@@ -534,9 +553,11 @@ export function computeLineBreakdown(
       : slab === 'R'
         ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0)
         : 0
-    const mcDisc = isMcPerPiece(adjusted.mc_type)
-      ? Math.max(0, Number(tier.mc_discount_pct) || 0)
-      : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0)
+    const mcDisc = isRetailQuoteSlab(slab)
+      ? 0
+      : isMcPerPiece(adjusted.mc_type)
+        ? Math.max(0, Number(tier.mc_discount_pct) || 0)
+        : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0)
     let bd = computeErpPieceSlabBreakdown(
       adjusted,
       slab,

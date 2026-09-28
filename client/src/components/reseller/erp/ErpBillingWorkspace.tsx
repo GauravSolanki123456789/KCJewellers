@@ -1586,7 +1586,7 @@ export function ErpBillingWorkspace() {
                   : String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
               mc_rate:
-                rateSlab === 'R'
+                rateSlab === 'R' || rateSlab === 'Q'
                   ? (num('mc_rate') ?? l.mc_rate)
                   : (slabMc ?? null),
               mc_rate_catalog: num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate,
@@ -2603,6 +2603,7 @@ export function ErpBillingWorkspace() {
               <option value="R">R</option>
               <option value="W">W</option>
               <option value="F">F</option>
+              <option value="Q">RQUOTE</option>
             </select>
           </div>
           <div className="flex flex-col justify-end">

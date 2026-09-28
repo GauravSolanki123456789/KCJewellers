@@ -719,6 +719,11 @@ function isSlabR(rateSlab) {
     return String(rateSlab || 'R').toUpperCase() === 'R';
 }
 
+function isRetailQuoteSlab(rateSlab) {
+    const s = String(rateSlab || 'R').toUpperCase();
+    return s === 'Q' || s === 'RQUOTE' || s === 'RQ';
+}
+
 function isSilverLine(line) {
     return String(line?.metal_type || '').toLowerCase().startsWith('silver');
 }
@@ -875,7 +880,7 @@ function buildLinesTable(lines, lineWidth = 48, rateSlab = 'R', printFormats = n
 function buildSavingsBlock(bill, rates) {
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
-    if (rateSlab !== 'R') return '';
+    if (rateSlab !== 'R' || isRetailQuoteSlab(rateSlab)) return '';
     let sumMetalDisc = 0;
     let sumMcDisc = 0;
     for (const line of bill.lines || []) {
@@ -1061,6 +1066,12 @@ function roughField(label, value, labelWidth = 14) {
 
 function roughDash(width = 20) {
     return '-'.repeat(Math.min(width, ROUGH_ESTIMATE_WIDTH));
+}
+
+/** Right-aligned short underline (under amount column on Epson estimate). */
+function roughValueUnderline(width = ROUGH_ESTIMATE_WIDTH, dashLen = 9) {
+    const len = Math.min(Math.max(4, dashLen), width);
+    return ' '.repeat(Math.max(0, width - len)) + '-'.repeat(len);
 }
 
 function isMcPerPieceType(mcType) {
@@ -1621,31 +1632,30 @@ function buildMarlechaOldExchangeItemSection(line, idx, gstEnabled = true) {
     const out = [];
     const title = roughItemDisplayName(line) || 'Silver Item';
     out.push(roughBold(`OLD ITEM ${idx} : ${title}`));
-    out.push(formatRoughDateTime(line?.added_at || line?.created_at || new Date()));
     const wtIn = Number(line?.weightGm ?? line?.originalWeightGm);
     pushIf(out, roughKvRow('Weight', Number.isFinite(wtIn) && wtIn > 0 ? wtIn.toFixed(3) : ''));
     const dust = Number(line?.oldDustStoneGm);
     if (Number.isFinite(dust) && dust > 0) {
         pushIf(out, roughKvRow('Dust/Stone', dust.toFixed(3)));
+        pushIf(out, roughValueUnderline());
     }
-    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     const grossWt = oldExchangeGrossWeightGm(line);
     pushIf(out, roughKvRow('Gross Weight', grossWt > 0 ? grossWt.toFixed(3) : ''));
     const pct = Number(line?.oldExchangePct);
     if (Number.isFinite(pct) && pct > 0) {
         pushIf(out, roughKvRow('Old Percentage', `${pct.toFixed(2)}%`, ROUGH_ESTIMATE_WIDTH, { multiply: true }));
+        pushIf(out, roughValueUnderline());
     }
-    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     const rate = Number(line?.ratePerGram);
     if (Number.isFinite(rate) && rate > 0) {
         pushIf(out, roughKvRow('Old Rate/Gm', rate.toFixed(2), ROUGH_ESTIMATE_WIDTH, { multiply: true }));
+        pushIf(out, roughValueUnderline());
     }
-    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     const credit = Math.abs(Number(line?.lineTotalInr) || 0);
     if (credit > 0) {
         pushIf(out, roughKvRow('Gross', credit));
     }
-    out.push('.'.repeat(ROUGH_ESTIMATE_WIDTH));
+    out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
     const total = Number(line?.lineTotalInr) || 0;
     pushIf(out, roughKvRow('Nett (C.R)', total));
     out.push(roughDash(ROUGH_ESTIMATE_WIDTH));
@@ -1754,6 +1764,7 @@ function roughMcAmountInr(line, rateSlab, printFormats) {
 }
 
 function roughMcDiscountAmount(line, rateSlab, rates, printFormats) {
+    if (isRetailQuoteSlab(rateSlab)) return 0;
     if (isGoldEstimateLine(line)) return 0;
     const pf = printFormats || {};
     const before = Number(line?.displayMcBeforeDiscount);
@@ -1778,7 +1789,8 @@ function roughMcDiscountAmount(line, rateSlab, rates, printFormats) {
     return 0;
 }
 
-function roughSilverRateDiscountInfo(line, rates) {
+function roughSilverRateDiscountInfo(line, rates, rateSlab = 'R') {
+    if (isRetailQuoteSlab(rateSlab)) return { amount: 0, label: 'Disc on Silver Rate' };
     const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
     const liveSilver = rates?.silver != null ? Number(rates.silver) : null;
     const lineRate = line?.ratePerGram != null ? Number(line.ratePerGram) : null;
@@ -1828,7 +1840,7 @@ function roughPreDiscountSubtotal(line, rates, rateSlab, printFormats) {
 
 function roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats) {
     const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
-    const silverDisc = roughSilverRateDiscountInfo(line, rates);
+    const silverDisc = roughSilverRateDiscountInfo(line, rates, rateSlab);
     const mcDisc = roughMcDiscountAmount(line, rateSlab, rates, printFormats);
     const totalDisc =
         (roughDiscountVisible(silverDisc.amount) ? silverDisc.amount : 0) +
@@ -1836,7 +1848,16 @@ function roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats) {
     return Math.max(0, Math.round(preDisc - totalDisc));
 }
 
-function roughGiftDiscountInfo(line, gstEnabled = true) {
+function roughGiftDiscountInfo(line, gstEnabled = true, rateSlab = 'R') {
+    if (isRetailQuoteSlab(rateSlab)) {
+        const qty = Number(line?.qty) || 1;
+        const effPer =
+            Number(line?.fixed_price_r) > 0
+                ? Number(line.fixed_price_r)
+                : Number(line?.unitInr ?? line?.fixed_price) || 0;
+        const taxable = effPer > 0 ? Math.round(effPer * qty * 100) / 100 : 0;
+        return { basePer: effPer, effPer, mrpTotal: taxable, disc: 0, taxable };
+    }
     const qty = Number(line?.qty) || 1;
     const basePer =
         Number(line?.mrpListPrice) > 0
@@ -1881,12 +1902,12 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     const preDisc = roughPreDiscountSubtotal(line, rates, rateSlab, printFormats);
     out.push(roughSandwichAmount(preDisc));
 
-    const silverDisc = roughSilverRateDiscountInfo(line, rates);
+    const silverDisc = roughSilverRateDiscountInfo(line, rates, rateSlab);
     const mcDisc = roughMcDiscountAmount(line, rateSlab, rates, printFormats);
-    if (roughDiscountVisible(silverDisc.amount)) {
+    if (!isRetailQuoteSlab(rateSlab) && roughDiscountVisible(silverDisc.amount)) {
         pushIf(out, roughDiscountRow(silverDisc.label, silverDisc.amount));
     }
-    if (roughDiscountVisible(mcDisc)) {
+    if (!isRetailQuoteSlab(rateSlab) && roughDiscountVisible(mcDisc)) {
         pushIf(out, roughDiscountRow('Disc on MC Value', mcDisc));
     }
 
@@ -1907,10 +1928,10 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     return { lines: out, taxable, savings, total: itemTotal };
 }
 
-function buildMarlechaGiftItemSection(line, idx, gstEnabled = true) {
+function buildMarlechaGiftItemSection(line, idx, rateSlab = 'R', gstEnabled = true) {
     const out = [];
     const tag = String(line?.barcode || line?.code || '').trim();
-    const gift = roughGiftDiscountInfo(line, gstEnabled);
+    const gift = roughGiftDiscountInfo(line, gstEnabled, rateSlab);
     out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
     if (tag) out.push(`Tag : ${tag}`);
     if (gift.basePer > 0) pushIf(out, roughKvRow('MRP', gift.basePer));
@@ -1966,13 +1987,14 @@ function buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, 
 
 function buildMarlechaEstimateItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled = true) {
     if (isOldExchangeEstimateLine(line)) return buildMarlechaOldExchangeItemSection(line, idx, gstEnabled);
-    if (isGiftEstimateLine(line)) return buildMarlechaGiftItemSection(line, idx, gstEnabled);
+    if (isGiftEstimateLine(line)) return buildMarlechaGiftItemSection(line, idx, rateSlab, gstEnabled);
     if (isGoldEstimateLine(line)) return buildMarlechaGoldItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled);
     return buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled);
 }
 
 function computeSlabRLineDiscounts(line, rates, rateSlab = 'R') {
     const out = { metalDisc: 0, mcDisc: 0 };
+    if (isRetailQuoteSlab(rateSlab)) return out;
     const wt = Number(line.weightGm ?? line.net_weight) || 0;
     if (wt <= 0) return out;
     const liveSilver = rates?.silver != null ? Number(rates.silver) : null;

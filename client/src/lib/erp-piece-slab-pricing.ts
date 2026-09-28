@@ -6,8 +6,7 @@
 import { isMcPerPiece, type PriceBreakdown } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { erpLineNetWeightGm } from '@/lib/erp-metal-slab-field'
-
-type ErpRateSlab = 'R' | 'W' | 'F'
+import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 /** Parse Excel fraction: 1 = 100%, 0.94 = 94%, 94 = 94%. */
 export function parseMetalSlabFraction(raw: unknown): number {
@@ -31,6 +30,12 @@ export function lineHasPieceSlabFields(line: ErpBillLine): boolean {
 }
 
 export function pieceSlabMcRate(line: ErpBillLine, slab: ErpRateSlab): number | null {
+  if (slab === 'Q') {
+    if (line.mc_rate_slab_r != null && Number.isFinite(Number(line.mc_rate_slab_r))) {
+      return Number(line.mc_rate_slab_r)
+    }
+    return line.mc_rate ?? null
+  }
   if (slab === 'W') {
     if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
       return Number(line.mc_rate_slab_w)
@@ -49,6 +54,9 @@ export function pieceSlabMcRate(line: ErpBillLine, slab: ErpRateSlab): number | 
 }
 
 export function pieceSlabMetalFraction(line: ErpBillLine, slab: ErpRateSlab): number {
+  if (slab === 'Q') {
+    return parseMetalSlabFraction(line.metal_slab_r_pct ?? 1)
+  }
   if (slab === 'W') {
     return parseMetalSlabFraction(line.metal_slab_w_pct ?? line.metal_slab_r_pct ?? 1)
   }

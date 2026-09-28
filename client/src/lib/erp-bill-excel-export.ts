@@ -5,6 +5,7 @@ import {
   computeErpQuoteTotals,
   enrichErpBillLinesForDisplay,
 } from '@/lib/erp-quote-pdf'
+import { rateSlabDisplayLabel, normalizeErpRateSlab } from '@/lib/erp-billing-pricing'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 
 const LINE_HEADERS = [
@@ -67,7 +68,7 @@ function buildSummaryTable(
     ['Mobile', session.mobile || ''],
     ['GSTIN', session.customerGst || ''],
     ['Address', session.address || ''],
-    ['Rate slab', session.rateSlab || ''],
+    ['Rate slab', session.rateSlab ? rateSlabDisplayLabel(normalizeErpRateSlab(session.rateSlab)) : ''],
     ['Status', bill.status],
     ['Payment', session.paymentMethod || ''],
     ['Advance paid (₹)', session.advancePaidInr ?? ''],
@@ -158,7 +159,18 @@ export async function downloadEstimatesDetailExcel(
     ['Combined estimations report'],
     [new Date().toISOString().slice(0, 10)],
     [],
-    ['Quote no', 'Date', 'Customer', 'Items', 'Net total (₹)', 'Status', 'Notes'],
+    [
+      'Quote no',
+      'Date',
+      'Customer',
+      'Mobile',
+      'GSTIN',
+      'Address',
+      'Items',
+      'Net total (₹)',
+      'Status',
+      'Notes',
+    ],
   ]
   let grandNet = 0
   let grandItems = 0
@@ -169,14 +181,22 @@ export async function downloadEstimatesDetailExcel(
     const totals = computeErpQuoteTotals({ ...bill, lines: enriched }, slabSettingsRaw)
     grandNet += totals.net
     grandItems += totals.count
+    const noteParts: string[] = []
+    if (session.rateSlab) {
+      noteParts.push(`Rate slab ${rateSlabDisplayLabel(normalizeErpRateSlab(session.rateSlab))}`)
+    }
+    if (bill.notes) noteParts.push(String(bill.notes))
     summaryRows.push([
       bill.bill_number,
       formatErpDateDdMmYyyy(bill.bill_date ?? bill.created_at),
       bill.customer_name || '',
+      session.mobile || '',
+      session.customerGst || '',
+      session.address || '',
       enriched.length,
       totals.net,
       bill.status || '',
-      bill.notes || session.rateSlab ? `Rate slab ${session.rateSlab || ''}` : '',
+      noteParts.join(' · '),
     ])
 
     const rows: (string | number)[][] = []
@@ -219,7 +239,7 @@ export async function downloadEstimatesDetailExcel(
   summaryRows.push(['Combined items', grandItems])
   summaryRows.push(['Combined net total (₹)', Math.round(grandNet * 100) / 100])
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
-  setColumnWidths(wsSummary, [18, 14, 22, 10, 14, 12, 24])
+  setColumnWidths(wsSummary, [18, 14, 20, 14, 18, 28, 8, 14, 12, 24])
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary', true)
 
   const slug = `estimates-${new Date().toISOString().slice(0, 10)}`

@@ -546,6 +546,7 @@ async function rememberManualBillPrefix(query, userId, billNumber) {
 
 function normalizeCustomerRateSlab(raw) {
     const s = String(raw || '').trim().toUpperCase().replace(/^SLAB\s*/, '');
+    if (s === 'Q' || s === 'RQUOTE' || s === 'RQ') return 'Q';
     if (s === 'W' || s === 'WHOLESALE') return 'W';
     if (s === 'F') return 'F';
     return 'R';

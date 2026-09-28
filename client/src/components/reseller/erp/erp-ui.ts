@@ -254,10 +254,11 @@ export type ErpCustomer = {
   rate_slab?: string | null
 }
 
-export type ErpRateSlabCode = 'R' | 'W' | 'F'
+export type ErpRateSlabCode = 'R' | 'W' | 'F' | 'Q'
 
 export function normalizeErpCustomerSlab(raw?: string | null): ErpRateSlabCode {
   const s = String(raw || '').trim().toUpperCase().replace(/^SLAB\s*/, '')
+  if (s === 'Q' || s === 'RQUOTE' || s === 'RQ') return 'Q'
   if (s === 'W' || s === 'WHOLESALE') return 'W'
   if (s === 'F') return 'F'
   return 'R'

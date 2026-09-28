@@ -35,7 +35,7 @@ export function billingMcDisplay(
   if (isGoldSlabRMcPricing(line, slab, goldSlabRShowMc) && line.displayMcInr != null && line.displayMcInr > 0) {
     return Math.round(line.displayMcInr)
   }
-  if (slab !== 'R') {
+  if (slab !== 'R' && slab !== 'Q') {
     const slabMc = pieceSlabMcRate(line, slab)
     if (slabMc != null && Number(slabMc) > 0) return Math.round(Number(slabMc))
   }

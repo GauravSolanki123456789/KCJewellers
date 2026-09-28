@@ -1,6 +1,7 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import {
   erpSlabToKind,
+  isRetailQuoteSlab,
   mcSlabFieldForBillingSlab,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
@@ -46,7 +47,7 @@ export function isManualArticlesOrJewelleryLine(line: ErpBillLine): boolean {
 /** Legacy: MC slab column as ₹/gm discount off catalog MC when no slab MC rate is set. */
 export function manualMcDiscountPerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
   if (!line.manualEntry) return 0
-  if (slab === 'W' || slab === 'F') return 0
+  if (slab === 'W' || slab === 'F' || isRetailQuoteSlab(slab)) return 0
   const slabMc = pieceSlabMcRate(line, slab)
   if (slabMc != null && Number(slabMc) > 0) return 0
   const field = mcSlabFieldForBillingSlab(slab)
