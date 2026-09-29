@@ -329,8 +329,11 @@ function cell(
     case 'metal':
       if (line.manualCategory === 'gift' || line.mrpMode || isPiecePricedBillLine(line)) return '—'
       return line.metal_type || '—'
-    case 'fixed':
+    case 'fixed': {
+      const list = Number(line.mrpListPrice ?? 0)
+      if ((line.mrpMode || line.manualCategory === 'gift') && list > 0) return String(list)
       return line.fixed_price != null && line.fixed_price > 0 ? String(line.fixed_price) : '—'
+    }
     case 'amt':
       if (ratesUnfixed) return ''
       return line.lineTotalInr != null

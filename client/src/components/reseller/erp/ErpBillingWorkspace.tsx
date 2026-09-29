@@ -284,6 +284,12 @@ function parseNumericCellValue(v: string): number | null {
 function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'): ErpBillLine {
   const wt = p.net_weight ?? p.gross_weight ?? null
   const metal = (p.metal_type || 'silver').toLowerCase()
+  const listMrp = Number(p.fixed_price ?? 0) || 0
+  const weightGm = wt != null ? Number(wt) : null
+  const isFixedGift =
+    listMrp > 0 &&
+    (!weightGm || weightGm <= 0) &&
+    (metal.startsWith('gift') || metal.includes('gifting') || metal === 'gift items')
   const base: ErpBillLine = {
     name: p.product_name || p.name || code,
     code,
@@ -316,6 +322,8 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     item_code: p.item_code ?? undefined,
     imageUrl: p.image_url ?? null,
     fixed_price: p.fixed_price ?? null,
+    mrpListPrice: isFixedGift ? listMrp : null,
+    mrpMode: isFixedGift ? true : undefined,
     stock_piece_id: p.id,
     availability: null,
     lineTotalInr: null,

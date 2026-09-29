@@ -273,11 +273,23 @@ export function shouldUseWeightSilverNotMrp(line: ErpBillLine): boolean {
 
 export function applyInvoiceItemMrpMode(line: ErpBillLine, mrpNames: Set<string>): ErpBillLine {
   const name = String(line.invoice_item_name || line.name || '').trim().toUpperCase()
-  if (!mrpNames.has(name)) return line
+  const fromInvoice = mrpNames.has(name)
+  const item = lineToItem(line)
+  const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
+  const fixedGiftStock = isFixedPriceCatalogItem(item) && wt <= 0 && Number(item.fixed_price ?? 0) > 0
+  if (!fromInvoice && !fixedGiftStock) return line
   if (shouldUseWeightSilverNotMrp(line)) {
     return { ...line, mrpMode: false, mrpListPrice: line.mrpListPrice ?? null }
   }
-  return { ...line, mrpMode: true }
+  const list =
+    Number(line.mrpListPrice) > 0
+      ? Number(line.mrpListPrice)
+      : Number(line.fixed_price ?? 0) || 0
+  return {
+    ...line,
+    mrpMode: true,
+    mrpListPrice: list > 0 ? list : line.mrpListPrice ?? null,
+  }
 }
 
 /** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
@@ -508,7 +520,8 @@ export function computeLineBreakdown(
   }
 
   if (isPiecePricedBillLine(line)) {
-    const priced = applyPiecePricedLineCalc(line, opts?.gstEnabled !== false)
+    const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings)
+    const priced = applyPiecePricedLineCalc(withMrp, opts?.gstEnabled !== false)
     const total = Number(priced.lineTotalInr) || 0
     if (gstPct <= 0) {
       const taxable = Math.round(total)
