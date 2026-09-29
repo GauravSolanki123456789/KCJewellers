@@ -36,6 +36,7 @@ function registerStockCheckRoutes(app, deps) {
 
             const rows = await query(
                 `SELECT p.barcode, p.sku, p.style_code, p.product_name, p.size,
+                        p.avg_weight, p.gross_weight,
                         p.floor_id, p.box_id,
                         f.name AS floor_name, f.code AS floor_code,
                         b.code AS box_code, b.label AS box_label
@@ -55,6 +56,14 @@ function registerStockCheckRoutes(app, deps) {
                     style_code: r.style_code || null,
                     product_name: r.product_name || null,
                     size: r.size || null,
+                    avg_weight:
+                        r.avg_weight != null && Number.isFinite(Number(r.avg_weight))
+                            ? Number(r.avg_weight)
+                            : null,
+                    gross_weight:
+                        r.gross_weight != null && Number.isFinite(Number(r.gross_weight))
+                            ? Number(r.gross_weight)
+                            : null,
                     floor_id: r.floor_id || null,
                     floor_name: r.floor_name || r.floor_code || null,
                     box_id: r.box_id || null,

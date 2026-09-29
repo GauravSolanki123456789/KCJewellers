@@ -16,6 +16,13 @@ import {
 } from 'lucide-react'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   buildReportData,
   buildFloorSummary,
   previewStockCheckPdf,
@@ -31,6 +38,9 @@ import {
   scopeFromArray,
   scopeToArray,
   uniqueScans,
+  computeStockCheckWeightSummary,
+  formatStockCheckWeightGm,
+  stockCheckPieceWeightGm,
   type StockCheckArchive,
   type StockCheckDraft,
   type StockCheckScanRow,
@@ -66,7 +76,7 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 function buildStats(scopeBarcodes: Map<string, StockCheckScopeBarcode>, scans: StockCheckScanRow[]) {
   const uniq = uniqueScans(scans)
-  const scannedSet = new Set(uniq.map((s) => s.barcode))
+  const scannedSet = new Set(uniq.filter((s) => s.found).map((s) => s.barcode))
   const uniqueFound = uniq.filter((s) => s.found).length
   const missingBarcodes: string[] = []
   for (const code of scopeBarcodes.keys()) {
@@ -98,8 +108,10 @@ export function ErpStockCheckWorkspace() {
   const [draftName, setDraftName] = useState('')
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([])
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [outOfScopeBarcode, setOutOfScopeBarcode] = useState<string | null>(null)
   const scanRef = useRef<HTMLInputElement>(null)
   const hydratedRef = useRef(false)
+  const scannerBlocked = !!outOfScopeBarcode
 
   useEffect(() => {
     setDrafts(loadDrafts())
@@ -214,37 +226,58 @@ export function ErpStockCheckWorkspace() {
   }, [scopeAll, selectedBoxIds, selectedFloorIds, buildScopeLabel, scopeBarcodes, scopeLoaded])
 
   const uniqueScanRows = useMemo(() => uniqueScans(scans), [scans])
-  const scannedBarcodeSet = useMemo(() => new Set(uniqueScanRows.map((s) => s.barcode)), [uniqueScanRows])
+  /** Duplicate detection applies only to barcodes in the loaded scope. */
+  const scannedInScopeSet = useMemo(
+    () => new Set(uniqueScanRows.filter((s) => s.found).map((s) => s.barcode)),
+    [uniqueScanRows],
+  )
   const stats = useMemo(
     () => buildStats(scopeBarcodes, scans),
     [scopeBarcodes, scans],
   )
+  const weightStats = useMemo(
+    () => computeStockCheckWeightSummary(scopeBarcodes, scans),
+    [scopeBarcodes, scans],
+  )
+
+  const dismissOutOfScopeModal = () => {
+    setOutOfScopeBarcode(null)
+    window.setTimeout(() => scanRef.current?.focus(), 0)
+  }
 
   const pushScan = (raw: string) => {
+    if (scannerBlocked) return
     const barcode = raw.trim().toUpperCase()
     if (!barcode) return
     if (!scopeLoaded) {
       setMsg('Load scope first (floors/boxes).')
       return
     }
-    if (scannedBarcodeSet.has(barcode)) {
+    const hit = scopeBarcodes.get(barcode)
+    if (!hit) {
+      setScanCode('')
+      setOutOfScopeBarcode(barcode)
+      return
+    }
+    if (scannedInScopeSet.has(barcode)) {
       setMsg(`Already scanned: ${barcode}`)
       setScanCode('')
       scanRef.current?.focus()
       return
     }
-    const hit = scopeBarcodes.get(barcode)
+    const wt = stockCheckPieceWeightGm(hit)
     const row: StockCheckScanRow = {
       id: `${barcode}-${Date.now()}`,
       barcode,
-      found: !!hit,
-      sku: hit?.sku ?? null,
-      product_name: hit?.product_name ?? null,
+      found: true,
+      sku: hit.sku ?? null,
+      product_name: hit.product_name ?? null,
+      weight_gm: wt > 0 ? wt : null,
       scannedAt: Date.now(),
     }
     setScans((prev) => [row, ...prev])
     setScanCode('')
-    setMsg(hit ? `Found: ${barcode}` : `Not in scope: ${barcode}`)
+    setMsg(`Found: ${barcode}`)
     scanRef.current?.focus()
   }
 
@@ -363,43 +396,74 @@ export function ErpStockCheckWorkspace() {
   }
 
   const exportCsv = () => {
-    const header = ['Barcode', 'Status', 'SKU', 'Product', 'Scanned at']
+    const header = ['Barcode', 'Status', 'Wt (g)', 'SKU', 'Product', 'Scanned at']
     const rows = uniqueScanRows.map((s) => [
       s.barcode,
       s.found ? 'FOUND' : 'NOT IN SCOPE',
+      formatStockCheckWeightGm(s.weight_gm ?? 0),
       s.sku || '',
       s.product_name || '',
       new Date(s.scannedAt).toLocaleString('en-IN'),
     ])
-    downloadCsv(`stock-check-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows])
+    const summary = [
+      [],
+      ['Weight summary (g)'],
+      ['In scope total', formatStockCheckWeightGm(weightStats.totalScopeGm)],
+      ['Scanned', formatStockCheckWeightGm(weightStats.scannedGm)],
+      ['Pending', formatStockCheckWeightGm(weightStats.pendingGm)],
+    ]
+    downloadCsv(`stock-check-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows, ...summary])
     setMsg('Scan log CSV downloaded.')
   }
 
   const exportSummaryCsv = () => {
-    const header = ['Barcode', 'In scope', 'SKU', 'Product', 'Floor', 'Box']
-    const scannedSet = new Set(uniqueScanRows.map((s) => s.barcode))
+    const header = ['Barcode', 'In scope', 'Wt (g)', 'SKU', 'Product', 'Floor', 'Box']
+    const scannedSet = new Set(uniqueScanRows.filter((s) => s.found).map((s) => s.barcode))
     const rows: string[][] = []
     for (const [code, meta] of scopeBarcodes) {
       rows.push([
         code,
         scannedSet.has(code) ? 'SCANNED' : 'NOT SCANNED',
+        formatStockCheckWeightGm(stockCheckPieceWeightGm(meta)),
         meta.sku || '',
         meta.product_name || '',
         meta.floor_name || '',
         meta.box_code || '',
       ])
     }
-    for (const s of uniqueScanRows.filter((x) => !x.found)) {
-      rows.push([s.barcode, 'NOT IN SCOPE', s.sku || '', s.product_name || '', '', ''])
-    }
-    downloadCsv(`stock-check-report-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows])
+    const summary = [
+      [],
+      ['Weight summary (g)'],
+      ['In scope total', formatStockCheckWeightGm(weightStats.totalScopeGm)],
+      ['Scanned', formatStockCheckWeightGm(weightStats.scannedGm)],
+      ['Pending', formatStockCheckWeightGm(weightStats.pendingGm)],
+    ]
+    downloadCsv(`stock-check-report-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows, ...summary])
     setMsg('Full report CSV downloaded.')
   }
 
   const exportFloorCsv = () => {
     const summary = buildFloorSummary(scopeToArray(scopeBarcodes), uniqueScanRows)
-    const header = ['Floor', 'Box', 'In scope', 'Found', 'Missing']
-    const rows = summary.map((f) => [f.floor, f.box, String(f.inScope), String(f.found), String(f.missing)])
+    const header = [
+      'Floor',
+      'Box',
+      'In scope (pcs)',
+      'Found (pcs)',
+      'Missing (pcs)',
+      'Scope wt (g)',
+      'Scanned wt (g)',
+      'Pending wt (g)',
+    ]
+    const rows = summary.map((f) => [
+      f.floor,
+      f.box,
+      String(f.inScope),
+      String(f.found),
+      String(f.missing),
+      formatStockCheckWeightGm(f.scopeWtGm),
+      formatStockCheckWeightGm(f.scannedWtGm),
+      formatStockCheckWeightGm(f.pendingWtGm),
+    ])
     downloadCsv(`stock-check-floors-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows])
     setMsg('Floor / box summary CSV downloaded.')
   }
@@ -494,6 +558,34 @@ export function ErpStockCheckWorkspace() {
 
   return (
     <div className="space-y-4">
+      <Dialog
+        open={!!outOfScopeBarcode}
+        onOpenChange={(open) => {
+          if (!open) dismissOutOfScopeModal()
+        }}
+      >
+        <DialogContent
+          className="border-rose-200 bg-white sm:max-w-md"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-rose-950">Product not found / not in scope</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/75">
+            This barcode is not in your loaded scope. Check the floor/box selection or load a wider scope.
+          </p>
+          <p className="mt-2 rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-3 py-2 font-mono text-base font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            {outOfScopeBarcode}
+          </p>
+          <DialogFooter className="mt-2 sm:justify-stretch">
+            <button type="button" className={`${erpBtnPrimary} min-h-[44px] w-full`} onClick={dismissOutOfScopeModal}>
+              OK
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className={`${erpCardCls} flex flex-wrap items-start justify-between gap-3`}>
         <div>
           <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
@@ -595,9 +687,16 @@ export function ErpStockCheckWorkspace() {
           <input
             ref={scanRef}
             className={`${erpInputCls} mb-3 w-full text-sm`}
-            placeholder={scopeLoaded ? 'Scan barcode…' : 'Load scope first'}
+            placeholder={
+              scannerBlocked
+                ? 'Acknowledge alert to continue…'
+                : scopeLoaded
+                  ? 'Scan barcode…'
+                  : 'Load scope first'
+            }
             value={scanCode}
-            disabled={!scopeLoaded}
+            disabled={!scopeLoaded || scannerBlocked}
+            aria-disabled={!scopeLoaded || scannerBlocked}
             onChange={(e) => setScanCode(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -606,14 +705,27 @@ export function ErpStockCheckWorkspace() {
               }
             }}
           />
-          <div className="mb-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-            <div className="rounded-lg bg-amber-100 px-2 py-1.5 text-amber-950">Found: {stats.uniqueFound}</div>
-            <div className="rounded-lg bg-red-100 px-2 py-1.5 text-red-950">Missing: {stats.uniqueMissingScope}</div>
-            <div className="rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5">
+          <div className="mb-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
+            <div className="rounded-lg bg-amber-100 px-2 py-1.5 font-medium text-amber-950">
+              Found: {stats.uniqueFound}
+            </div>
+            <div className="rounded-lg bg-red-100 px-2 py-1.5 font-medium text-red-950">
+              Missing: {stats.uniqueMissingScope}
+            </div>
+            <div className="rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5 font-medium text-[var(--color-jewelry-black,#1a1814)]">
               In scope: {scopeBarcodes.size}
             </div>
-            <div className="rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5">
-              Unique scans: {uniqueScanRows.length}
+            <div className="rounded-lg bg-[var(--color-slate-900,#f7f4ef)] px-2 py-1.5 font-medium text-[var(--color-jewelry-black,#1a1814)]">
+              Scanned: {uniqueScanRows.length}
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 font-medium text-emerald-950">
+              Wt scanned: {formatStockCheckWeightGm(weightStats.scannedGm)} g
+            </div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 font-medium text-rose-950">
+              Wt pending: {formatStockCheckWeightGm(weightStats.pendingGm)} g
+            </div>
+            <div className="rounded-lg border border-[var(--color-slate-900,#e8e4dc)] bg-white px-2 py-1.5 font-medium text-[var(--color-jewelry-black,#1a1814)] sm:col-span-2 lg:col-span-1">
+              Wt in scope: {formatStockCheckWeightGm(weightStats.totalScopeGm)} g
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -720,6 +832,7 @@ export function ErpStockCheckWorkspace() {
                 <th className="px-2 py-2">#</th>
                 <th className="px-2 py-2">Barcode</th>
                 <th className="px-2 py-2">Status</th>
+                <th className="px-2 py-2">Wt (g)</th>
                 <th className="px-2 py-2">SKU</th>
                 <th className="px-2 py-2">Product</th>
                 <th className="px-2 py-2">Time</th>
@@ -728,7 +841,7 @@ export function ErpStockCheckWorkspace() {
             <tbody>
               {uniqueScanRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                  <td colSpan={7} className="px-3 py-6 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                     No scans yet.
                   </td>
                 </tr>
@@ -736,11 +849,14 @@ export function ErpStockCheckWorkspace() {
                 uniqueScanRows.map((s, i) => (
                   <tr
                     key={s.id}
-                    className={s.found ? 'bg-amber-100 text-amber-950' : 'bg-red-50 text-red-900'}
+                    className="bg-amber-100 text-amber-950"
                   >
                     <td className="px-2 py-1.5">{uniqueScanRows.length - i}</td>
                     <td className="px-2 py-1.5 font-mono font-semibold">{s.barcode}</td>
-                    <td className="px-2 py-1.5">{s.found ? 'In scope' : 'Not present'}</td>
+                    <td className="px-2 py-1.5">In scope</td>
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {formatStockCheckWeightGm(s.weight_gm ?? 0)}
+                    </td>
                     <td className="px-2 py-1.5">{s.sku || '—'}</td>
                     <td className="px-2 py-1.5">{s.product_name || '—'}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
