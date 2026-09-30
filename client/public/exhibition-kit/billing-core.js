@@ -131,6 +131,25 @@ var KcExhibitionBillingModule = (() => {
   function goldStorefrontTotal(preGstBase, gstPct) {
     return Math.round(preGstBase * (1 + gstPct / 100));
   }
+  function erpGoldBillableWeightGm(netWt, purityPct2, wastagePct) {
+    const net = Number(netWt) || 0;
+    if (net <= 0) return 0;
+    const p = Math.max(0, Number(purityPct2) || 0) / 100;
+    const w = Math.max(0, Number(wastagePct) || 0) / 100;
+    const factor = p + w;
+    if (factor <= 0) return Math.floor(net * 1e3 + 1e-9) / 1e3;
+    return Math.floor(net * factor * 1e3 + 1e-9) / 1e3;
+  }
+  function erpGoldMetalPartInr(netWt, purityPct2, wastagePct, ratePerG, pcs = 1) {
+    const net = Number(netWt) || 0;
+    if (net <= 0) return 0;
+    const p = Math.max(0, Number(purityPct2) || 0) / 100;
+    const w = Math.max(0, Number(wastagePct) || 0) / 100;
+    const factor = p + w;
+    const q = Math.max(1, Number(pcs) || 1);
+    if (factor <= 0) return Math.round(net * ratePerG * q * 100) / 100;
+    return Math.round(net * factor * ratePerG * q * 100) / 100;
+  }
   function isDiamondItem(item) {
     const mt = (item?.metal_type ?? "").toString().toLowerCase();
     return mt.startsWith("diamond") || mt.includes("diamond");
@@ -189,13 +208,8 @@ var KcExhibitionBillingModule = (() => {
   function stone(item) {
     return Number(item.stone_charges || 0) || 0;
   }
-  function goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPart2, stoneAmt) {
-    if (mcPart2 === 0 && stoneAmt === 0 && wastagePct > 0) {
-      return Math.round(
-        netWt * metalRate * (100 + wastagePct) * (100 + gstPct) / 1e4
-      );
-    }
-    const metalPart = Math.floor(netWt * metalRate * (100 + wastagePct) / 100);
+  function goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPart2, stoneAmt, purityPct2) {
+    const metalPart = erpGoldMetalPartInr(netWt, purityPct2, wastagePct, metalRate, 1);
     return goldStorefrontTotal(metalPart + mcPart2 + stoneAmt, gstPct);
   }
   function attachWastageFields(item, isGold, netWt, metalRate, metalPart, row) {
@@ -275,14 +289,14 @@ var KcExhibitionBillingModule = (() => {
       const metalRate = isGold ? rate : rate * (effectivePurity > 0 ? effectivePurity / 100 : 1);
       const wastagePct = isGold ? resolveProductWastagePercent(item) : 0;
       const pcs = linePieceCount(item);
-      const metalPart = isGold ? Math.floor(netWt * metalRate * (100 + wastagePct) / 100) * pcs : metalRate * billWt * pcs;
+      const metalPart = isGold ? erpGoldMetalPartInr(netWt, purity, wastagePct, metalRate, pcs) : metalRate * billWt * pcs;
       const mcPartVal = isGold ? Math.round(mcAmount(item)) : mcAmount(item);
       const stoneAmt2 = (isGold ? Math.round(stone(item)) : stone(item)) * pcs;
       const baseRetail2 = metalPart + mcPartVal + stoneAmt2;
       const gstPct = Number(gstRate ?? item.gst_rate ?? 3) || 3;
       const categoryDisc2 = categoryDiscountPct(item);
       if (categoryDisc2 > 0) {
-        const totalBeforeDiscount3 = isGold ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPartVal, stoneAmt2) : baseRetail2 * (1 + gstPct / 100);
+        const totalBeforeDiscount3 = isGold ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPartVal, stoneAmt2, purity) : baseRetail2 * (1 + gstPct / 100);
         const total3 = totalBeforeDiscount3 * (1 - categoryDisc2 / 100);
         const gstAmt2 = totalBeforeDiscount3 - baseRetail2;
         return attachWastageFields(item, isGold, netWt, metalRate, metalPart, {
@@ -305,9 +319,9 @@ var KcExhibitionBillingModule = (() => {
       const acctDisc2 = accountDiscountPct(wIn, 0);
       const base = baseRetail2 * (1 + markup2 / 100);
       const useGoldTagFormula = isGold && !wIn && Math.abs(markup2) < 1e-6 && mcPartVal === 0 && stoneAmt2 === 0;
-      const totalBeforeDiscount2 = isGold ? useGoldTagFormula ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0) : goldStorefrontTotal(base, gstPct) : base * (1 + gstPct / 100);
+      const totalBeforeDiscount2 = isGold ? useGoldTagFormula ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0, purity) : goldStorefrontTotal(base, gstPct) : base * (1 + gstPct / 100);
       const total2 = acctDisc2 > 0 ? totalBeforeDiscount2 * (1 - acctDisc2 / 100) : totalBeforeDiscount2;
-      const retailBeforePromo2 = isGold ? mcPartVal === 0 && stoneAmt2 === 0 ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0) : goldStorefrontTotal(baseRetail2, gstPct) : baseRetail2 * (1 + gstPct / 100);
+      const retailBeforePromo2 = isGold ? mcPartVal === 0 && stoneAmt2 === 0 ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0, purity) : goldStorefrontTotal(baseRetail2, gstPct) : baseRetail2 * (1 + gstPct / 100);
       const gstAmt = totalBeforeDiscount2 - base;
       const wholesaleActive2 = !!wIn && (acctDisc2 > 0 || Math.abs(markup2) > 1e-6);
       return attachWastageFields(item, isGold, netWt, metalRate, metalPart, {
@@ -587,7 +601,11 @@ var KcExhibitionBillingModule = (() => {
     const purity = purityPct(item);
     const wastageDiscPts = clampPct2(settings.wastage_discount_pct, 0, 100);
     const wastageDiscForBillWt = kind === "slab_f" ? wastageDiscPts : 0;
-    const billWt = kind === "slab_f" && wastageDiscForBillWt > 0 ? billableWithSlabWastage(item, wastageDiscForBillWt) : metalBillableWeight(item);
+    const goldWastageForBill = isGold ? effectiveGoldWastagePct(
+      item,
+      kind === "slab_w" || kind === "slab_f" ? wastageDiscPts : 0
+    ) : 0;
+    const billWt = isGold ? erpGoldBillableWeightGm(netWt, purity, goldWastageForBill) : kind === "slab_f" && wastageDiscForBillWt > 0 ? billableWithSlabWastage(item, wastageDiscForBillWt) : metalBillableWeight(item);
     const fineRate = resolveFineMetalRatePerG(item, rates, effectiveSlab);
     if (fineRate <= 0 || netWt <= 0 || billWt <= 0) {
       return calculateBreakdown(item, rates, gst, wholesale ?? void 0, pricingOptions);
@@ -601,24 +619,14 @@ var KcExhibitionBillingModule = (() => {
     let wastageAmount;
     let mcBeforeDiscount;
     const pcs = linePieceCount(item);
-    if (isGold && kind === "slab_r" && slab.goldSlabRUseMcPricing !== false) {
-      const effectiveWastage = effectiveGoldWastagePct(item, wastageDiscPts);
-      metalPart = Math.floor(netWt * metalRate) * pcs;
-      const wastageAsMc = Math.floor(netWt * metalRate * effectiveWastage / 100) * pcs;
-      const itemMcRaw = Math.round(mcPart(item, 0));
-      mcBeforeDiscount = wastageAsMc + itemMcRaw;
-      mc = mcDisc > 0 ? Math.round(mcBeforeDiscount * (1 - mcDisc / 100)) : mcBeforeDiscount;
-      stone2 = Math.round(stonePart(item)) * pcs;
-    } else if (isGold) {
-      wastagePctVal = effectiveGoldWastagePct(
-        item,
-        kind === "slab_w" || kind === "slab_f" ? wastageDiscPts : 0
-      );
-      metalPart = Math.floor(netWt * metalRate * (100 + wastagePctVal) / 100) * pcs;
+    if (isGold) {
+      wastagePctVal = goldWastageForBill;
+      metalPart = erpGoldMetalPartInr(netWt, purity, wastagePctVal, metalRate, pcs);
       const mcRaw = Math.round(mcPart(item, 0));
       mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw;
       if (mcDisc > 0 && mcRaw > mc) mcBeforeDiscount = mcRaw;
-      wastageAmount = Math.max(0, metalPart - Math.floor(netWt * metalRate) * pcs);
+      const pureMetal = erpGoldMetalPartInr(netWt, purity, 0, metalRate, pcs);
+      wastageAmount = Math.max(0, Math.round((metalPart - pureMetal) * 100) / 100);
       stone2 = Math.round(stonePart(item)) * pcs;
     } else {
       metalPart = metalRate * billWt * pcs;
@@ -1073,6 +1081,53 @@ var KcExhibitionBillingModule = (() => {
       rate_per_gram: metalRate,
       net_weight: netWt,
       billable_weight_gm: billWt
+    };
+  }
+
+  // src/lib/erp-gift-mrp-pricing.ts
+  function resolveGiftMrpListPrice(line) {
+    const stored = Number(line.mrpListPrice);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
+    if (line.manualCategory === "gift" || line.mrpMode) {
+      const fixed2 = Number(line.fixed_price ?? line.unitInr ?? 0);
+      return Number.isFinite(fixed2) && fixed2 > 0 ? fixed2 : 0;
+    }
+    const inv = String(line.invoice_item_name || "").toUpperCase();
+    const item = lineToItem(line);
+    const fixedPriceGift = isFixedPriceCatalogItem(item) && wt <= 0;
+    if (!fixedPriceGift && !inv.includes("GIFT ITEM")) return 0;
+    const fixed = Number(line.fixed_price ?? line.unitInr ?? 0);
+    return Number.isFinite(fixed) && fixed > 0 ? fixed : 0;
+  }
+  function giftMrpDiscountPct(slab, slabSettings) {
+    if (isRetailQuoteSlab(slab)) return 0;
+    const clamp = (n) => Math.max(0, Math.min(100, Number(n) || 0));
+    const own = clamp(tierSettingsForSlab(slabSettings, erpSlabToKind(slab), "gifting").gift_discount_pct);
+    if (slab === "F" && own === 0) {
+      return clamp(tierSettingsForSlab(slabSettings, "slab_w", "gifting").gift_discount_pct);
+    }
+    return own;
+  }
+  function giftMrpSlabPrice(mrp, slab, slabSettings) {
+    const m = Number(mrp);
+    if (!Number.isFinite(m) || m <= 0) return 0;
+    const disc = giftMrpDiscountPct(slab, slabSettings);
+    return Math.round(m * (1 - disc / 100) * 100) / 100;
+  }
+  function applyGiftMrpPieceRate(line, slab, slabSettings) {
+    if (shouldUseWeightSilverNotMrp(line)) {
+      return { ...line, mrpMode: false, mrpListPrice: null, unitInr: null };
+    }
+    const list = resolveGiftMrpListPrice(line);
+    if (list <= 0) return line;
+    const slabPrice = giftMrpSlabPrice(list, slab, slabSettings);
+    return {
+      ...line,
+      mrpListPrice: list,
+      fixed_price: slabPrice,
+      unitInr: slabPrice,
+      mrpMode: true
     };
   }
 
@@ -1548,7 +1603,8 @@ var KcExhibitionBillingModule = (() => {
       );
     }
     if (isPiecePricedBillLine(line)) {
-      const priced = applyPiecePricedLineCalc(line, opts?.gstEnabled !== false);
+      const withMrp = applyGiftMrpPieceRate(line, slab, slabSettings);
+      const priced = applyPiecePricedLineCalc(withMrp, opts?.gstEnabled !== false);
       const total = Number(priced.lineTotalInr) || 0;
       if (gstPct <= 0) {
         const taxable3 = Math.round(total);
@@ -1896,37 +1952,6 @@ var KcExhibitionBillingModule = (() => {
   }
   function firstManualEntryField(line) {
     return entryFieldOrderForLine(line)[0] ?? "sku";
-  }
-
-  // src/lib/erp-gift-mrp-pricing.ts
-  function giftMrpDiscountPct(slab, slabSettings) {
-    if (isRetailQuoteSlab(slab)) return 0;
-    const clamp = (n) => Math.max(0, Math.min(100, Number(n) || 0));
-    const own = clamp(tierSettingsForSlab(slabSettings, erpSlabToKind(slab), "gifting").gift_discount_pct);
-    if (slab === "F" && own === 0) {
-      return clamp(tierSettingsForSlab(slabSettings, "slab_w", "gifting").gift_discount_pct);
-    }
-    return own;
-  }
-  function giftMrpSlabPrice(mrp, slab, slabSettings) {
-    const m = Number(mrp);
-    if (!Number.isFinite(m) || m <= 0) return 0;
-    const disc = giftMrpDiscountPct(slab, slabSettings);
-    return Math.round(m * (1 - disc / 100) * 100) / 100;
-  }
-  function applyGiftMrpPieceRate(line, slab, slabSettings) {
-    if (shouldUseWeightSilverNotMrp(line)) {
-      return { ...line, mrpMode: false, mrpListPrice: null, unitInr: null };
-    }
-    const list = Number(line.mrpListPrice);
-    if (!Number.isFinite(list) || list <= 0) return line;
-    const slabPrice = giftMrpSlabPrice(list, slab, slabSettings);
-    return {
-      ...line,
-      fixed_price: slabPrice,
-      unitInr: slabPrice,
-      mrpMode: true
-    };
   }
 
   // src/lib/exhibition/exhibition-bill-line-recalc.ts

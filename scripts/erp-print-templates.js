@@ -1812,10 +1812,25 @@ function roughGoldRateLabel(line) {
 }
 
 function roughVAddnPercent(line, rateSlab, printFormats) {
+    if (isGoldEstimateLine(line)) {
+        const wast = line?.displayWastagePct ?? line?.wastage_pct;
+        const n = Number(wast);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    }
     if (isGoldSlabRMcMode(line, rateSlab, printFormats)) return 0;
     const wast = line?.displayWastagePct ?? line?.wastage_pct;
     const n = Number(wast);
     return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function erpGoldBillableWeightGmJs(netWt, purityPct, wastagePct) {
+    const net = Number(netWt) || 0;
+    if (net <= 0) return 0;
+    const p = Math.max(0, Number(purityPct) || 0) / 100;
+    const w = Math.max(0, Number(wastagePct) || 0) / 100;
+    const factor = p + w;
+    if (factor <= 0) return Math.floor(net * 1000 + 1e-9) / 1000;
+    return Math.floor(net * factor * 1000 + 1e-9) / 1000;
 }
 
 function roughMetalValueForLine(line, rates, rateSlab, printFormats) {
@@ -1824,7 +1839,11 @@ function roughMetalValueForLine(line, rates, rateSlab, printFormats) {
     if (wt <= 0 || rate <= 0) return 0;
     if (isGoldEstimateLine(line)) {
         const vPct = roughVAddnPercent(line, rateSlab, printFormats);
-        return Math.round(rate * wt * (1 + vPct / 100) * 100) / 100;
+        const purity = Number(line?.purity) || 75;
+        const p = Math.max(0, purity) / 100;
+        const w = Math.max(0, vPct) / 100;
+        const factor = p + w;
+        return Math.round(wt * factor * rate * 100) / 100;
     }
     const vaddnG = Number(roughVAddnGrams(line, rateSlab, printFormats)) || 0;
     return Math.round(rate * (wt + vaddnG) * 100) / 100;

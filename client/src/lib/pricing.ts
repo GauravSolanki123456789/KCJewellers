@@ -213,6 +213,39 @@ export function goldStorefrontTotal(preGstBase: number, gstPct: number): number 
   return Math.round(preGstBase * (1 + gstPct / 100))
 }
 
+/** ERP gold: billable gm = net × (purity% + wastage%), truncated to 3 decimals. */
+export function erpGoldBillableWeightGm(
+  netWt: number,
+  purityPct: number,
+  wastagePct: number,
+): number {
+  const net = Number(netWt) || 0
+  if (net <= 0) return 0
+  const p = Math.max(0, Number(purityPct) || 0) / 100
+  const w = Math.max(0, Number(wastagePct) || 0) / 100
+  const factor = p + w
+  if (factor <= 0) return Math.floor(net * 1000 + 1e-9) / 1000
+  return Math.floor(net * factor * 1000 + 1e-9) / 1000
+}
+
+/** ERP gold metal ₹ (before MC / stone) — full wt×(purity+wastage), metal rounded to 2 dp. */
+export function erpGoldMetalPartInr(
+  netWt: number,
+  purityPct: number,
+  wastagePct: number,
+  ratePerG: number,
+  pcs = 1,
+): number {
+  const net = Number(netWt) || 0
+  if (net <= 0) return 0
+  const p = Math.max(0, Number(purityPct) || 0) / 100
+  const w = Math.max(0, Number(wastagePct) || 0) / 100
+  const factor = p + w
+  const q = Math.max(1, Number(pcs) || 1)
+  if (factor <= 0) return Math.round(net * ratePerG * q * 100) / 100
+  return Math.round(net * factor * ratePerG * q * 100) / 100
+}
+
 /** Consistent weight getter: net_wt ?? net_weight ?? weight ?? avg_wt. Returns null if none set. */
 export function getItemWeight(item: Item | null | undefined): number | null {
   if (!item) return null
@@ -452,13 +485,9 @@ function goldTagFormulaTotal(
   gstPct: number,
   mcPart: number,
   stoneAmt: number,
+  purityPct: number,
 ): number {
-  if (mcPart === 0 && stoneAmt === 0 && wastagePct > 0) {
-    return Math.round(
-      (netWt * metalRate * (100 + wastagePct) * (100 + gstPct)) / 10000,
-    )
-  }
-  const metalPart = Math.floor((netWt * metalRate * (100 + wastagePct)) / 100)
+  const metalPart = erpGoldMetalPartInr(netWt, purityPct, wastagePct, metalRate, 1)
   return goldStorefrontTotal(metalPart + mcPart + stoneAmt, gstPct)
 }
 
@@ -578,7 +607,7 @@ export function calculateBreakdown(
     const wastagePct = isGold ? resolveProductWastagePercent(item) : 0
     const pcs = linePieceCount(item)
     const metalPart = isGold
-      ? Math.floor((netWt * metalRate * (100 + wastagePct)) / 100) * pcs
+      ? erpGoldMetalPartInr(netWt, purity, wastagePct, metalRate, pcs)
       : metalRate * billWt * pcs
     const mcPartVal = isGold ? Math.round(mcAmount(item)) : mcAmount(item)
     const stoneAmt = (isGold ? Math.round(stone(item)) : stone(item)) * pcs
@@ -588,7 +617,7 @@ export function calculateBreakdown(
 
     if (categoryDisc > 0) {
       const totalBeforeDiscount = isGold
-        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPartVal, stoneAmt)
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, mcPartVal, stoneAmt, purity)
         : baseRetail * (1 + gstPct / 100)
       const total = totalBeforeDiscount * (1 - categoryDisc / 100)
       const gstAmt = totalBeforeDiscount - baseRetail
@@ -616,14 +645,14 @@ export function calculateBreakdown(
       isGold && !wIn && Math.abs(markup) < 1e-6 && mcPartVal === 0 && stoneAmt === 0
     const totalBeforeDiscount = isGold
       ? useGoldTagFormula
-        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0)
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0, purity)
         : goldStorefrontTotal(base, gstPct)
       : base * (1 + gstPct / 100)
     const total =
       acctDisc > 0 ? totalBeforeDiscount * (1 - acctDisc / 100) : totalBeforeDiscount
     const retailBeforePromo = isGold
       ? mcPartVal === 0 && stoneAmt === 0
-        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0)
+        ? goldTagFormulaTotal(netWt, metalRate, wastagePct, gstPct, 0, 0, purity)
         : goldStorefrontTotal(baseRetail, gstPct)
       : baseRetail * (1 + gstPct / 100)
     const gstAmt = totalBeforeDiscount - base

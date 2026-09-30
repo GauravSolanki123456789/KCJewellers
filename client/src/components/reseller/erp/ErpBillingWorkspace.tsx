@@ -628,19 +628,23 @@ export function ErpBillingWorkspace() {
       }
       const isGoldSlabR =
         slab === 'R' && String(line.metal_type || '').toLowerCase().startsWith('gold')
-      if (isGoldSlabR && mcMode !== false) {
-        next.displayWastagePct = 0
-        next.displayMcInr = bd.mc > 0 ? bd.mc : null
-        next.displayMcBeforeDiscount =
-          bd.mc_before_discount != null && bd.mc_before_discount > bd.mc
-            ? bd.mc_before_discount
-            : null
-        next.displayMcDiscountPct = bd.mc_discount_pct ?? null
-      } else if (isGoldSlabR) {
+      if (isGoldSlabR) {
         next.displayWastagePct = line.wastage_pct ?? bd.wastage_pct ?? null
-        next.displayMcInr = null
-        next.displayMcBeforeDiscount = null
-        next.displayMcDiscountPct = null
+        if (mcMode !== false && bd.mc > 0) {
+          next.displayMcInr = bd.mc
+          next.displayMcBeforeDiscount =
+            bd.mc_before_discount != null && bd.mc_before_discount > bd.mc
+              ? bd.mc_before_discount
+              : null
+          next.displayMcDiscountPct = bd.mc_discount_pct ?? null
+        } else {
+          next.displayMcInr = bd.mc > 0 ? bd.mc : null
+          next.displayMcBeforeDiscount =
+            bd.mc_before_discount != null && bd.mc_before_discount > bd.mc
+              ? bd.mc_before_discount
+              : null
+          next.displayMcDiscountPct = bd.mc_discount_pct ?? null
+        }
       } else if (
         slab === 'R' &&
         String(line.metal_type || '').toLowerCase().startsWith('silver') &&
@@ -3589,9 +3593,8 @@ export function ErpBillingWorkspace() {
 
                         if ('edit' in col && col.edit) {
                           const k = col.key as ManualBillGridField
-                          const goldSlabRField =
-                            isGoldSlabRLine(line, rateSlab) &&
-                            (k === 'wastage_pct' || k === 'mc_rate')
+                          const goldSlabRMcReadOnly =
+                            isGoldSlabRLine(line, rateSlab) && k === 'mc_rate'
                           const mcHint = k === 'mc_rate' ? billingMcDiscountHint(line, rateSlab, goldSlabRShowMc) : null
                           const refKey = `${lineKey}-${String(k)}`
                           const isManualFocused = manualFocus?.lineKey === lineKey && manualFocus.field === k
@@ -3609,11 +3612,11 @@ export function ErpBillingWorkspace() {
                                   line.manualEntry
                                     ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
                                     : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
-                                } ${goldSlabRField ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''}`}
-                                readOnly={goldSlabRField}
+                                } ${goldSlabRMcReadOnly ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''}`}
+                                readOnly={goldSlabRMcReadOnly}
                                 title={
-                                  goldSlabRField
-                                    ? mcHint || 'Slab R gold — wastage is shown as making charges (auto)'
+                                  goldSlabRMcReadOnly
+                                    ? mcHint || 'Slab R gold — MC from catalogue (edit MC column on manual rows)'
                                     : undefined
                                 }
                                 value={
@@ -3648,7 +3651,7 @@ export function ErpBillingWorkspace() {
                                   }
                                 }}
                                 onChange={(e) => {
-                                  if (goldSlabRField) return
+                                  if (goldSlabRMcReadOnly) return
                                   const v = e.target.value
                                   if (isNumericField) {
                                     if (!isPartialDecimalInput(v)) return
@@ -3682,6 +3685,59 @@ export function ErpBillingWorkspace() {
                             </td>
                           )
                         }
+
+                        if (
+                          !line.manualEntry &&
+                          (col.key === 'wastage_pct' || col.key === 'ratePerGram') &&
+                          String(line.metal_type || '').toLowerCase().startsWith('gold') &&
+                          !isPiecePricedBillLine(line) &&
+                          !isOldExchangeManualLine(line) &&
+                          (Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0) > 0
+                        ) {
+                          const k = col.key as 'wastage_pct' | 'ratePerGram'
+                          const refKey = `${lineKey}-${col.key}`
+                          return (
+                            <td key={col.key} className="px-1 py-1">
+                              <input
+                                ref={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                type="text"
+                                inputMode="decimal"
+                                className="w-full min-w-0 rounded border border-[var(--color-slate-700,#e8e4df)] bg-white px-1 py-1 tabular-nums text-[11px] text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50"
+                                value={cellInputDisplayValue(lineKey, col.key, line)}
+                                onFocus={() => {
+                                  setManualEditingCell(refKey)
+                                  const current = cellVal(line, col.key)
+                                  setCellDrafts((prev) => ({
+                                    ...prev,
+                                    [refKey]:
+                                      prev[refKey] ??
+                                      (current === 0 || current === '0' ? '' : String(current ?? '')),
+                                  }))
+                                }}
+                                onBlur={() => {
+                                  if (manualEditingCell === refKey) setManualEditingCell(null)
+                                  const draft = cellDraftsRef.current[refKey]
+                                  if (draft !== undefined) {
+                                    commitNumericCell(idx, line, k, draft)
+                                    setCellDrafts((prev) => {
+                                      const next = { ...prev }
+                                      delete next[refKey]
+                                      return next
+                                    })
+                                  }
+                                }}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  if (!isPartialDecimalInput(v)) return
+                                  setCellDrafts((prev) => ({ ...prev, [refKey]: v }))
+                                }}
+                              />
+                            </td>
+                          )
+                        }
+
                         const display = String(cellVal(line, col.key) ?? '')
                         return (
                           <td

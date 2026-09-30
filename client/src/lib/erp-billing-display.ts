@@ -15,12 +15,16 @@ export function isGoldSlabRMcPricing(
   return isGoldSlabRLine(line, slab) && goldSlabRShowMc !== false
 }
 
-/** Grid / PDF display for wastage % — Slab R gold shows 0 when MC mode is on. */
+/** Grid / PDF display for wastage % — gold shows catalogue / edited wastage. */
 export function billingWastageDisplay(
   line: ErpBillLine,
   slab: ErpRateSlab,
   goldSlabRShowMc = true,
 ): string | number {
+  if (isGoldSlabRLine(line, slab)) {
+    if (line.displayWastagePct != null) return line.displayWastagePct
+    return line.wastage_pct ?? ''
+  }
   if (isGoldSlabRMcPricing(line, slab, goldSlabRShowMc)) return 0
   if (line.displayWastagePct != null) return line.displayWastagePct
   return line.wastage_pct ?? ''
