@@ -64,6 +64,15 @@ export function ErpProductsWorkspace() {
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
   const [dupScanBusy, setDupScanBusy] = useState(false)
   const [selectedPieceIds, setSelectedPieceIds] = useState<number[]>([])
+  const [printRepeatByPcs, setPrintRepeatByPcs] = useState(false)
+
+  useEffect(() => {
+    try {
+      setPrintRepeatByPcs(localStorage.getItem('kc-erp-print-repeat-by-pcs') === '1')
+    } catch {
+      /* ignore */
+    }
+  }, [])
   const [designTree, setDesignTree] = useState<
     { style_code: string; skus: { sku: string; product_name?: string | null }[] }[]
   >([])
@@ -343,6 +352,7 @@ export function ErpProductsWorkspace() {
         pieceIds: orderedSelected,
         printerProfileId: workstation.printerProfileId,
         hardware: hw,
+        repeatByPcs: printRepeatByPcs,
       })
       setMsgTone(result.ok ? 'ok' : 'err')
       setMsg(result.message)
@@ -558,6 +568,26 @@ export function ErpProductsWorkspace() {
                 ? `Generate barcodes (${selectedPieceIds.length} selected)`
                 : 'Generate barcodes'}
             </button>
+            <label
+              className="flex min-h-[44px] max-w-full cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+              title="For fixed/MRP gift items only — prints one label per PCS (e.g. 6 pcs → 6 identical barcodes)"
+            >
+              <input
+                type="checkbox"
+                className="size-4 shrink-0"
+                checked={printRepeatByPcs}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setPrintRepeatByPcs(on)
+                  try {
+                    localStorage.setItem('kc-erp-print-repeat-by-pcs', on ? '1' : '0')
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              />
+              <span className="leading-snug">× PCS labels (fixed/MRP)</span>
+            </label>
             <button
               type="button"
               className={erpBtnGhost}
@@ -660,6 +690,7 @@ export function ErpProductsWorkspace() {
           scaleProfileId={workstation.scaleProfileId}
           printerProfileId={workstation.printerProfileId}
           rfidEnabled={rfidEnabled}
+          printRepeatByPcs={printRepeatByPcs}
           onSelectedIdsChange={setSelectedPieceIds}
         />
       </div>

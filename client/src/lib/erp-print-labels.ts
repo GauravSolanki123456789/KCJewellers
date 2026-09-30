@@ -59,6 +59,8 @@ export type PrintStockLabelsOptions = {
   pieceOverrides?: Record<number, PrintLabelPieceOverride>
   printerProfileId?: string | null
   hardware?: ErpHardwareSettings | null
+  /** Fixed/MRP gift rows: print the same barcode once per PCS (e.g. 6 → 6 labels). */
+  repeatByPcs?: boolean
 }
 
 export type PrintStockLabelsResult = {
@@ -87,6 +89,7 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
   if (opts.pieceOverrides && Object.keys(opts.pieceOverrides).length) {
     body.piece_overrides = opts.pieceOverrides
   }
+  if (opts.repeatByPcs) body.repeat_by_pcs = true
 
   const res = await axios.post<{
     results: PrintResult[]

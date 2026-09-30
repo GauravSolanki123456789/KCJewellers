@@ -10,6 +10,7 @@ const {
     findSoldBarcodeConflicts,
     restorePiecesInStock,
     markReturnedPiecesSoldAgain,
+    assertStockAvailableForBillLines,
 } = require('./resellerErpStockPieces');
 const { registerFloorRoutes } = require('./resellerErpFloors');
 const { registerTagOpsRoutes } = require('./resellerErpTagOps');
@@ -1488,6 +1489,11 @@ function registerResellerErpRoutes(app, deps) {
                         conflicts,
                     });
                 }
+                try {
+                    await assertStockAvailableForBillLines(query, req.user.id, lines);
+                } catch (stockErr) {
+                    return res.status(409).json({ error: stockErr.message || 'Insufficient stock' });
+                }
             }
             const typePrefix = billTypePrefix(billType);
             const billNumber =
@@ -1709,6 +1715,11 @@ function registerResellerErpRoutes(app, deps) {
                             error: 'One or more items are already sold',
                             conflicts,
                         });
+                    }
+                    try {
+                        await assertStockAvailableForBillLines(query, req.user.id, lines);
+                    } catch (stockErr) {
+                        return res.status(409).json({ error: stockErr.message || 'Insufficient stock' });
                     }
                 }
             }

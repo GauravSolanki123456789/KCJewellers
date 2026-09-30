@@ -610,28 +610,126 @@ async function unlinkRfidRows(query, resellerUserId, rows) {
     }
 }
 
-async function markPiecesSold(query, resellerUserId, lines, billId) {
-    const barcodes = (lines || [])
-        .map((l) => (l.barcode || l.code || '').trim())
-        .filter(Boolean);
-    if (!barcodes.length) return;
+function lineBillQty(line) {
+    const q = Number(line && line.qty);
+    return Number.isFinite(q) && q > 0 ? Math.floor(q) : 1;
+}
 
+/** Fixed MRP / gift rows: one barcode, pcs > 0, no weight-based billing. */
+function isQtyTrackedFixedPricePiece(piece) {
+    if (!piece) return false;
+    const fp = Number(piece.fixed_price);
+    if (!Number.isFinite(fp) || fp <= 0) return false;
+    const wt = Number(piece.avg_weight ?? piece.gross_weight ?? 0);
+    if (Number.isFinite(wt) && wt > 0) return false;
+    const mt = String(piece.metal_type || '').toLowerCase();
+    return (
+        mt.startsWith('gift') ||
+        mt.includes('gifting') ||
+        mt === 'gift items' ||
+        mt === 'gift item'
+    );
+}
+
+async function fetchStockPieceRowForLine(query, resellerUserId, line, inStockOnly = false) {
+    const pieceId = lineStockPieceId(line);
+    if (pieceId) {
+        const rows = await query(
+            `SELECT * FROM reseller_erp_stock_pieces
+             WHERE reseller_user_id = $1 AND id = $2
+             ${inStockOnly ? "AND status = 'in_stock'" : ''}
+             LIMIT 1`,
+            [resellerUserId, pieceId],
+        );
+        if (rows[0]) return rows[0];
+    }
+    const barcode = lineStockBarcode(line);
+    if (!barcode) return null;
+    const rows = await query(
+        `SELECT * FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1 AND lower(trim(barcode)) = lower($2)
+         ${inStockOnly ? "AND status = 'in_stock'" : ''}
+         ORDER BY id DESC
+         LIMIT 1`,
+        [resellerUserId, barcode],
+    );
+    return rows[0] || null;
+}
+
+async function decrementQtyTrackedPiece(query, resellerUserId, pieceId, qty, billId, shadowMode) {
+    const q = Math.max(1, Math.floor(Number(qty) || 1));
+    const soldStatus = shadowMode ? 'shadow_sold' : 'sold';
+    const rows = await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            pcs = GREATEST(0, pcs - $1),
+            status = CASE WHEN (pcs - $1) <= 0 THEN $5 ELSE 'in_stock' END,
+            sold_bill_id = CASE
+                WHEN (pcs - $1) <= 0 AND $5 = 'sold' THEN $2
+                WHEN (pcs - $1) > 0 THEN NULL
+                ELSE sold_bill_id
+            END,
+            shadow_bill_id = CASE
+                WHEN (pcs - $1) <= 0 AND $5 = 'shadow_sold' THEN $2
+                WHEN (pcs - $1) > 0 THEN NULL
+                ELSE shadow_bill_id
+            END,
+            rfid_tag = CASE WHEN (pcs - $1) <= 0 THEN NULL ELSE rfid_tag END,
+            updated_at = NOW()
+         WHERE reseller_user_id = $3 AND id = $4 AND status = 'in_stock' AND pcs >= $1
+         RETURNING id, barcode, item_code, pcs`,
+        [q, billId, resellerUserId, pieceId, soldStatus],
+    );
+    return rows[0] || null;
+}
+
+async function incrementQtyTrackedPiece(query, resellerUserId, pieceId, qty) {
+    const q = Math.max(1, Math.floor(Number(qty) || 1));
+    const rows = await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            pcs = pcs + $1,
+            status = 'in_stock',
+            sold_bill_id = NULL,
+            shadow_bill_id = NULL,
+            updated_at = NOW()
+         WHERE reseller_user_id = $2 AND id = $3
+         RETURNING id, item_code`,
+        [q, resellerUserId, pieceId],
+    );
+    return rows[0] || null;
+}
+
+async function assertStockAvailableForBillLines(query, resellerUserId, lines) {
+    for (const line of lines || []) {
+        const piece = await fetchStockPieceRowForLine(query, resellerUserId, line, true);
+        if (!piece || !isQtyTrackedFixedPricePiece(piece)) continue;
+        const need = lineBillQty(line);
+        const have = Number(piece.pcs) || 0;
+        if (have < need) {
+            const bc = String(piece.barcode || lineStockBarcode(line) || '').trim();
+            throw new Error(
+                have > 0
+                    ? `Only ${have} pc(s) left in stock for ${bc} (bill needs ${need}).`
+                    : `Out of stock for ${bc}.`,
+            );
+        }
+    }
+}
+
+async function markFullBarcodesSold(query, resellerUserId, barcodes, billId) {
+    if (!barcodes.length) return;
     const linked = await query(
         `SELECT barcode, rfid_tag FROM reseller_erp_stock_pieces
          WHERE reseller_user_id = $1 AND barcode = ANY($2::text[])
            AND status = 'in_stock' AND rfid_tag IS NOT NULL`,
         [resellerUserId, barcodes],
     );
-
     await query(
         `UPDATE reseller_erp_stock_pieces SET
             status = 'sold', sold_bill_id = $1, rfid_tag = NULL, updated_at = NOW()
          WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
         [billId, resellerUserId, barcodes],
     );
-
     await unlinkRfidRows(query, resellerUserId, linked);
-
     const itemCodes = await query(
         `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
          WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
@@ -639,6 +737,43 @@ async function markPiecesSold(query, resellerUserId, lines, billId) {
     );
     for (const row of itemCodes) {
         await syncStockAlertCounts(query, resellerUserId, row.item_code);
+    }
+}
+
+async function markPiecesSold(query, resellerUserId, lines, billId) {
+    const fullSoldBarcodes = [];
+    const seenBarcode = new Set();
+    const touchedItemCodes = new Set();
+
+    for (const line of lines || []) {
+        const piece = await fetchStockPieceRowForLine(query, resellerUserId, line, true);
+        if (piece && isQtyTrackedFixedPricePiece(piece)) {
+            const updated = await decrementQtyTrackedPiece(
+                query,
+                resellerUserId,
+                piece.id,
+                lineBillQty(line),
+                billId,
+                false,
+            );
+            if (!updated) {
+                const bc = String(piece.barcode || '').trim();
+                throw new Error(`Not enough pieces in stock for ${bc}.`);
+            }
+            if (updated.item_code) touchedItemCodes.add(updated.item_code);
+            continue;
+        }
+        const bc = lineStockBarcode(line);
+        if (!bc) continue;
+        const key = bc.toLowerCase();
+        if (seenBarcode.has(key)) continue;
+        seenBarcode.add(key);
+        fullSoldBarcodes.push(bc);
+    }
+
+    await markFullBarcodesSold(query, resellerUserId, fullSoldBarcodes, billId);
+    for (const code of touchedItemCodes) {
+        await syncStockAlertCounts(query, resellerUserId, code);
     }
 }
 
@@ -672,6 +807,17 @@ async function syncAlertsForPieceIds(query, resellerUserId, pieceIds) {
 async function restorePiecesInStock(query, resellerUserId, lines) {
     const restoredIds = [];
     for (const line of lines || []) {
+        const pieceRow = await fetchStockPieceRowForLine(query, resellerUserId, line, false);
+        if (pieceRow && isQtyTrackedFixedPricePiece(pieceRow)) {
+            const updated = await incrementQtyTrackedPiece(
+                query,
+                resellerUserId,
+                pieceRow.id,
+                lineBillQty(line),
+            );
+            if (updated?.id) restoredIds.push(updated.id);
+            continue;
+        }
         const pieceId = lineStockPieceId(line);
         const barcode = lineStockBarcode(line);
         let rows = [];
@@ -680,7 +826,7 @@ async function restorePiecesInStock(query, resellerUserId, lines) {
                 `UPDATE reseller_erp_stock_pieces SET
                     status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
                  WHERE reseller_user_id = $1 AND id = $2
-                   AND status IN ('sold', 'lane')
+                   AND status IN ('sold', 'lane', 'shadow_sold')
                  RETURNING id`,
                 [resellerUserId, pieceId],
             );
@@ -688,11 +834,11 @@ async function restorePiecesInStock(query, resellerUserId, lines) {
         if (!rows.length && barcode) {
             rows = await query(
                 `UPDATE reseller_erp_stock_pieces SET
-                    status = 'in_stock', sold_bill_id = NULL, updated_at = NOW()
+                    status = 'in_stock', sold_bill_id = NULL, shadow_bill_id = NULL, updated_at = NOW()
                  WHERE id = (
                     SELECT id FROM reseller_erp_stock_pieces
                     WHERE reseller_user_id = $1
-                      AND status IN ('sold', 'lane')
+                      AND status IN ('sold', 'lane', 'shadow_sold')
                       AND lower(barcode) = lower($2)
                     ORDER BY id
                     LIMIT 1
@@ -711,6 +857,19 @@ async function markReturnedPiecesSoldAgain(query, resellerUserId, lines) {
     const touchedIds = [];
     for (const line of lines || []) {
         const soldBillId = Number(line.source_bill_id) || null;
+        const piece = await fetchStockPieceRowForLine(query, resellerUserId, line, true);
+        if (piece && isQtyTrackedFixedPricePiece(piece)) {
+            const updated = await decrementQtyTrackedPiece(
+                query,
+                resellerUserId,
+                piece.id,
+                lineBillQty(line),
+                soldBillId,
+                false,
+            );
+            if (updated?.id) touchedIds.push(updated.id);
+            continue;
+        }
         const pieceId = lineStockPieceId(line);
         const barcode = lineStockBarcode(line);
         let rows = [];
@@ -746,33 +905,76 @@ async function markReturnedPiecesSoldAgain(query, resellerUserId, lines) {
 
 /** Jainav / cash SCB — hide from ROL / stock scan / inventory, keep RFID and official products look. */
 async function markPiecesShadowSold(query, resellerUserId, lines, shadowBillId) {
-    const barcodes = (lines || [])
-        .map((l) => (l.barcode || l.code || '').trim())
-        .filter(Boolean);
-    if (!barcodes.length) return;
     const billId = Number(shadowBillId);
-    await query(
-        `UPDATE reseller_erp_stock_pieces SET
-            status = 'shadow_sold',
-            shadow_bill_id = $1,
-            sold_bill_id = NULL,
-            updated_at = NOW()
-         WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
-        [Number.isFinite(billId) && billId > 0 ? billId : null, resellerUserId, barcodes],
-    );
-    const itemCodes = await query(
-        `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
-         WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
-        [resellerUserId, barcodes],
-    );
-    for (const row of itemCodes) {
-        await syncStockAlertCounts(query, resellerUserId, row.item_code);
+    const shadowId = Number.isFinite(billId) && billId > 0 ? billId : null;
+    const fullSoldBarcodes = [];
+    const seenBarcode = new Set();
+    const touchedItemCodes = new Set();
+
+    for (const line of lines || []) {
+        const piece = await fetchStockPieceRowForLine(query, resellerUserId, line, true);
+        if (piece && isQtyTrackedFixedPricePiece(piece)) {
+            const updated = await decrementQtyTrackedPiece(
+                query,
+                resellerUserId,
+                piece.id,
+                lineBillQty(line),
+                shadowId,
+                true,
+            );
+            if (!updated) {
+                const bc = String(piece.barcode || '').trim();
+                throw new Error(`Not enough pieces in stock for ${bc}.`);
+            }
+            if (updated.item_code) touchedItemCodes.add(updated.item_code);
+            continue;
+        }
+        const bc = lineStockBarcode(line);
+        if (!bc) continue;
+        const key = bc.toLowerCase();
+        if (seenBarcode.has(key)) continue;
+        seenBarcode.add(key);
+        fullSoldBarcodes.push(bc);
+    }
+
+    if (fullSoldBarcodes.length) {
+        await query(
+            `UPDATE reseller_erp_stock_pieces SET
+                status = 'shadow_sold',
+                shadow_bill_id = $1,
+                sold_bill_id = NULL,
+                updated_at = NOW()
+             WHERE reseller_user_id = $2 AND barcode = ANY($3::text[]) AND status = 'in_stock'`,
+            [shadowId, resellerUserId, fullSoldBarcodes],
+        );
+        const itemCodes = await query(
+            `SELECT DISTINCT item_code FROM reseller_erp_stock_pieces
+             WHERE reseller_user_id = $1 AND barcode = ANY($2::text[]) AND item_code IS NOT NULL`,
+            [resellerUserId, fullSoldBarcodes],
+        );
+        for (const row of itemCodes) {
+            await syncStockAlertCounts(query, resellerUserId, row.item_code);
+        }
+    }
+    for (const code of touchedItemCodes) {
+        await syncStockAlertCounts(query, resellerUserId, code);
     }
 }
 
 async function restorePiecesFromShadowSold(query, resellerUserId, lines) {
     const restoredIds = [];
     for (const line of lines || []) {
+        const pieceRow = await fetchStockPieceRowForLine(query, resellerUserId, line, false);
+        if (pieceRow && isQtyTrackedFixedPricePiece(pieceRow)) {
+            const updated = await incrementQtyTrackedPiece(
+                query,
+                resellerUserId,
+                pieceRow.id,
+                lineBillQty(line),
+            );
+            if (updated?.id) restoredIds.push(updated.id);
+            continue;
+        }
         const pieceId = lineStockPieceId(line);
         const barcode = lineStockBarcode(line);
         let rows = [];
@@ -2308,6 +2510,23 @@ function registerStockPieceRoutes(app, deps) {
             }
             pieces = await enrichPiecesWithLocation(query, req.user.id, pieces);
 
+            const repeatByPcs =
+                req.body.repeat_by_pcs === true ||
+                req.body.repeat_by_pcs === 1 ||
+                String(req.body.repeat_by_pcs || '').trim() === '1';
+            if (repeatByPcs) {
+                const expanded = [];
+                for (const p of pieces) {
+                    if (isQtyTrackedFixedPricePiece(p)) {
+                        const copies = Math.max(1, Math.floor(Number(p.pcs) || 1));
+                        for (let i = 0; i < copies; i++) expanded.push(p);
+                    } else {
+                        expanded.push(p);
+                    }
+                }
+                pieces = expanded;
+            }
+
             const settingsRows = await query(
                 `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`,
                 [req.user.id],
@@ -2535,4 +2754,6 @@ module.exports = {
     parseExcelRowToPiece,
     findSoldBarcodeConflicts,
     syncStockAlertCounts,
+    assertStockAvailableForBillLines,
+    isQtyTrackedFixedPricePiece,
 };

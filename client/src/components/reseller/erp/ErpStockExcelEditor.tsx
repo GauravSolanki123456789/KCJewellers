@@ -142,6 +142,7 @@ export function ErpStockExcelEditor({
   scaleProfileId,
   printerProfileId,
   rfidEnabled = false,
+  printRepeatByPcs = false,
   onSelectedIdsChange,
 }: {
   batchId: string
@@ -150,6 +151,7 @@ export function ErpStockExcelEditor({
   scaleProfileId?: string | null
   printerProfileId?: string | null
   rfidEnabled?: boolean
+  printRepeatByPcs?: boolean
   onSelectedIdsChange?: (ids: number[]) => void
 }) {
   const { canDeleteRecords } = useErpOperator()
@@ -489,6 +491,7 @@ export function ErpStockExcelEditor({
           pieceIds: [rowId],
           pieceOverrides: { [rowId]: draftToPrintOverride({ ...row, values }, field, weight) },
           printerProfileId: printerProfileId ?? null,
+          repeatByPcs: printRepeatByPcs,
         })
         if (!result.ok) {
           setError(result.message)
@@ -514,6 +517,7 @@ export function ErpStockExcelEditor({
       nextScaleRow,
       persistRowWeight,
       printerProfileId,
+      printRepeatByPcs,
       printingLabel,
       scaleConnected,
       scaleFocus,
@@ -723,6 +727,7 @@ export function ErpStockExcelEditor({
       const result = await printStockLabels({
         pieceIds: [rfidTargetRowId],
         printerProfileId: printerProfileId ?? null,
+        repeatByPcs: printRepeatByPcs,
       })
       if (!result.ok) {
         setError(result.message)
@@ -741,7 +746,7 @@ export function ErpStockExcelEditor({
     } finally {
       setRfidLinkBusy(false)
     }
-  }, [printerProfileId, rfidInput, rfidLinkBusy, rfidTargetRowId, drafts])
+  }, [printerProfileId, printRepeatByPcs, rfidInput, rfidLinkBusy, rfidTargetRowId, drafts])
 
   const linkRfidOnly = useCallback(async () => {
     if (!rfidTargetRowId || rfidLinkBusy) return
