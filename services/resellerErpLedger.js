@@ -201,6 +201,8 @@ async function ensureLedgerSchema(pool) {
             ADD COLUMN IF NOT EXISTS ledger_scope VARCHAR(16) NOT NULL DEFAULT 'official';
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS shadow_bill_id INTEGER;
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS weight_kg NUMERIC(12, 3);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer

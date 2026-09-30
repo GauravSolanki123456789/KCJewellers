@@ -8,6 +8,7 @@ const {
     markPiecesShadowSold,
     restorePiecesFromShadowSold,
 } = require('./resellerErpStockPieces');
+const { applyJainavSettlementLedgerEntries } = require('./erpJainavSettlement');
 const {
     createShadowCollectedCashLedgerEntry,
     deleteLedgerEntriesForShadowBills,
@@ -218,6 +219,11 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
             } catch (le) {
                 console.warn('erp shadow cash received:', le.message);
             }
+        }
+        try {
+            await applyJainavSettlementLedgerEntries(query, resellerUserId, bill);
+        } catch (le) {
+            console.warn('erp jainav settlement ledger:', le.message);
         }
         const sourceEstimateId =
             body.source_estimate_id != null ? parseInt(String(body.source_estimate_id), 10) : null;

@@ -58,6 +58,14 @@ import { compactErpDocNumber, erpDocNumbersMatch } from '@/lib/app-notice'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillSavedModal, ErpLedgerBillSavedDialog, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
+import {
+  buildJainavSettlementSessionPayload,
+  ErpJainavMetalSettlementPanel,
+} from '@/components/reseller/erp/ErpJainavMetalSettlementPanel'
+import {
+  defaultJainavSettlementDraft,
+  type JainavSettlementDraft,
+} from '@/lib/erp-jainav-settlement'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
@@ -462,6 +470,9 @@ export function ErpBillingWorkspace() {
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
   const [gstEnabled, setGstEnabled] = useState(true)
+  const [jainavSettlement, setJainavSettlement] = useState<JainavSettlementDraft>(() =>
+    defaultJainavSettlementDraft(),
+  )
   const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
   const [quoteOutputOverride, setQuoteOutputOverride] = useState<ErpQuoteOutputMode | null>(null)
   const [quoteMenuOpen, setQuoteMenuOpen] = useState(false)
@@ -1805,6 +1816,7 @@ export function ErpBillingWorkspace() {
     setCombinedSourceEstimateIds([])
     setCombinedEstimateNumbers('')
     setGstEnabled(true)
+    setJainavSettlement(defaultJainavSettlementDraft())
     setAdvancePaidInr('')
     setCollectedAmountInr('')
     setCashDiscountInr('')
@@ -1843,6 +1855,8 @@ export function ErpBillingWorkspace() {
     jainavModeUnlocked: shadowUnlocked,
   })
   const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr, shadowUnlocked)
+  const showJainavMetalSettlement =
+    shadowUnlocked && !isOfficialGstBill && lines.length > 0
   const resolveBillTotal = (billType: 'sale' | 'estimate') =>
     resolveErpBillTotalInr({
       linesNetTotal: totals.net,
@@ -1900,6 +1914,23 @@ export function ErpBillingWorkspace() {
         goldSlabRShowMc,
         gstEnabled,
         operatorDisplayName: operator?.displayName || operator?.username || '',
+        jainavSettlement: showJainavMetalSettlement
+          ? buildJainavSettlementSessionPayload(
+              lines,
+              rateSlab,
+              slabSettings,
+              displayRates,
+              jainavSettlement,
+              {
+                wholesaleGold,
+                wholesaleSilver,
+                goldPerG,
+                silverPerG,
+                goldSlabRShowMc,
+                gstEnabled,
+              },
+            )
+          : undefined,
       }),
       ...(combinedSourceEstimateIds.length > 0
         ? {
@@ -2003,7 +2034,11 @@ export function ErpBillingWorkspace() {
     if (!bill) return
     const shadowBill = bill as ErpBill & { shadow?: boolean; lane?: 'hitesh' | 'jainav' }
     if (shadowBill.shadow || String(bill.bill_number || '').startsWith('OFF-')) {
-      resetBill()
+      setLedgerSavedMeta({
+        billNumber: bill.bill_number || '',
+        lane: shadowBill.lane === 'hitesh' ? 'hitesh' : 'jainav',
+      })
+      setLedgerSavedOpen(true)
       return
     }
     try {
@@ -2712,6 +2747,25 @@ export function ErpBillingWorkspace() {
             </select>
           </div>
         </div>
+
+        {showJainavMetalSettlement ? (
+          <div className="mt-3">
+            <ErpJainavMetalSettlementPanel
+              lines={lines}
+              rateSlab={rateSlab}
+              slabSettings={slabSettings}
+              displayRates={displayRates}
+              wholesaleGold={wholesaleGold}
+              wholesaleSilver={wholesaleSilver}
+              goldPerG={goldPerG}
+              silverPerG={silverPerG}
+              goldSlabRShowMc={goldSlabRShowMc}
+              gstEnabled={gstEnabled}
+              draft={jainavSettlement}
+              onChange={setJainavSettlement}
+            />
+          </div>
+        ) : null}
 
         {paymentMethod === 'mixed' ? (
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -3682,6 +3736,56 @@ export function ErpBillingWorkspace() {
                                   {mcHint}
                                 </p>
                               ) : null}
+                            </td>
+                          )
+                        }
+
+                        if (
+                          !line.manualEntry &&
+                          col.key === 'metal_slab_pct' &&
+                          !isPiecePricedBillLine(line) &&
+                          !isOldExchangeManualLine(line)
+                        ) {
+                          const k = 'metal_slab_pct' as const
+                          const refKey = `${lineKey}-${col.key}`
+                          return (
+                            <td key={col.key} className="px-1 py-1">
+                              <input
+                                ref={(el) => {
+                                  manualCellRefs.current[refKey] = el
+                                }}
+                                type="text"
+                                inputMode="decimal"
+                                className="w-full min-w-0 rounded border border-[var(--color-slate-700,#e8e4df)] bg-white px-1 py-1 tabular-nums text-[11px] text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50"
+                                value={cellInputDisplayValue(lineKey, col.key, line)}
+                                onFocus={() => {
+                                  setManualEditingCell(refKey)
+                                  const current = cellVal(line, col.key)
+                                  setCellDrafts((prev) => ({
+                                    ...prev,
+                                    [refKey]:
+                                      prev[refKey] ??
+                                      (current === 0 || current === '0' ? '' : String(current ?? '')),
+                                  }))
+                                }}
+                                onBlur={() => {
+                                  if (manualEditingCell === refKey) setManualEditingCell(null)
+                                  const draft = cellDraftsRef.current[refKey]
+                                  if (draft !== undefined) {
+                                    commitNumericCell(idx, line, k, draft)
+                                    setCellDrafts((prev) => {
+                                      const next = { ...prev }
+                                      delete next[refKey]
+                                      return next
+                                    })
+                                  }
+                                }}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  if (!isPartialDecimalInput(v)) return
+                                  setCellDrafts((prev) => ({ ...prev, [refKey]: v }))
+                                }}
+                              />
                             </td>
                           )
                         }

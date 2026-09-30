@@ -3,6 +3,7 @@
  */
 
 const { parseDateOrNull, normDateIso } = require('./erpDateNormalize');
+const { jainavMetalOwedGmFromLines } = require('./erpJainavSettlement');
 
 function normDate(d) {
     return normDateIso(d);
@@ -211,8 +212,15 @@ function formatLedgerPaymentDescription(p, customerName, shadowBillById) {
     return 'CASH - CASH RECEIVED';
 }
 
-function pushShadowSaleRows(rows, s) {
-    const billAmt = Number(s.total_inr) || 0;
+function shadowSaleWeightGm(s) {
+    let lines = s.lines_json;
+    if (typeof lines === 'string') {
+        try {
+            lines = JSON.parse(lines);
+        } catch {
+            lines = [];
+        }
+    }
     let session = s.session_json;
     if (typeof session === 'string') {
         try {
@@ -221,10 +229,23 @@ function pushShadowSaleRows(rows, s) {
             session = null;
         }
     }
-    const weightGm =
-        totalWeightGmFromLines(s.lines_json) ||
+    const slab = (session && session.rateSlab) || 'R';
+    const settled = session && session.jainavSettlement && session.jainavSettlement.totalMetalOwedGm;
+    if (settled != null && Number(settled) > 0) {
+        return Math.round(Number(settled) * 1000) / 1000;
+    }
+    const jainavWt = jainavMetalOwedGmFromLines(lines, slab);
+    if (jainavWt > 0) return jainavWt;
+    return (
+        totalWeightGmFromLines(lines) ||
         Number(session && (session.returnWeightGm || session.totalWeightGm)) ||
-        0;
+        0
+    );
+}
+
+function pushShadowSaleRows(rows, s) {
+    const billAmt = Number(s.total_inr) || 0;
+    const weightGm = shadowSaleWeightGm(s);
     rows.push({
         date: normDate(s.bill_date),
         sort_id: s.id,
@@ -309,7 +330,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const entryParams = book ? [resellerUserId] : [resellerUserId, customerId];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
-                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope
+                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg
                     FROM reseller_erp_ledger_entries
                     WHERE reseller_user_id = $1 AND is_suspense = false`;
     if (book === 'cash') {
@@ -422,6 +443,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         } else {
             linkedBillRef = extractLinkedBillRefFromNarration(p.narration);
         }
+        const wtKg = p.weight_kg != null ? Number(p.weight_kg) : 0;
         rows.push({
             date: normDate(p.entry_date),
             sort_id: p.id,
@@ -434,6 +456,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             credit,
             payment_mode: p.payment_mode,
             linked_bill_ref: linkedBillRef,
+            weight_gm: wtKg > 0 ? Math.round(wtKg * 1000 * 1000) / 1000 : 0,
         });
     }
 

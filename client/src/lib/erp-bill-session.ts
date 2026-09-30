@@ -55,6 +55,8 @@ export type ErpBillSession = {
   operatorDisplayName?: string
   /** When false, bill/estimate totals exclude 3% GST. */
   gstEnabled?: boolean
+  /** Jainav lane metal + MC settlement snapshot (optional). */
+  jainavSettlement?: Record<string, unknown>
 }
 
 export function erpBillGstEnabled(
@@ -100,6 +102,7 @@ export function buildErpBillSession(input: {
   onlineAmountInr?: number | null
   operatorDisplayName?: string | null
   gstEnabled?: boolean
+  jainavSettlement?: Record<string, unknown> | null
 }): ErpBillSession {
   const ratesUnfixed = billLinesRatesUnfixed(input.lines)
   const advance = Math.max(0, Number(input.advancePaidInr) || 0)
@@ -152,6 +155,10 @@ export function buildErpBillSession(input: {
         ? Number(input.onlineAmountInr)
         : undefined,
     operatorDisplayName: input.operatorDisplayName?.trim() || undefined,
+    jainavSettlement:
+      input.jainavSettlement && typeof input.jainavSettlement === 'object'
+        ? input.jainavSettlement
+        : undefined,
   }
 }
 
