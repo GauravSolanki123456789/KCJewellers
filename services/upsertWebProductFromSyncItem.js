@@ -16,7 +16,12 @@ const {
 const { classifyCatalogMetalFamily, sqlCatalogMetalFamilyExpr } = require('./catalogMetalFamily');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 const { normalizeExcelBrand, isEmeraldMakeToOrderBrand } = require('./productBrandUtils');
-const { parseExcelWeight, parseExcelWeightDisplay } = require('./excelWeightParse');
+const {
+    parseExcelWeight,
+    parseExcelWeightDisplay,
+    pickExcelWeightFromRow,
+    pickExcelWeightRawFromRow,
+} = require('./excelWeightParse');
 
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
@@ -90,12 +95,13 @@ function normalizeSyncItem(item) {
         itemCode || (sizeRaw && productName ? productName : null) || null;
     const displayName = productName || itemCode || barcodeExplicit || skuSubcategory || 'Item';
     const rawNetWeight =
+        pickExcelWeightRawFromRow(item) ??
         item.netWeight ??
         item.net_weight ??
         item.AvgWeight ??
         item['Avg Weight'] ??
         item['Avg. Weight'];
-    const netWeight = parseExcelWeight(rawNetWeight);
+    const netWeight = pickExcelWeightFromRow(item) ?? parseExcelWeight(rawNetWeight);
     const weightDisplay =
         trimField(item.weightDisplay ?? item.weight_display ?? item.weightDisplayLabel) ||
         parseExcelWeightDisplay(rawNetWeight) ||

@@ -29,7 +29,12 @@ import {
   type BulkPhotoKind,
 } from '@/lib/reseller-bulk-photos'
 import { prepareResellerProductImageForUpload } from '@/lib/reseller-product-image-upload'
-import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
+import {
+  calculateBreakdown,
+  getCustomerDisplaySize,
+  getCustomerDisplayWeightLabel,
+  isFixedPriceCatalogItem,
+} from '@/lib/pricing'
 import { ResellerBatchExcelEditor } from '@/components/reseller/ResellerBatchExcelEditor'
 import { ResellerProductEditModal } from '@/components/reseller/ResellerProductEditModal'
 import {
@@ -358,6 +363,7 @@ export function ResellerProductsPanel({
         quantity_updated_count?: number
         quantity_unchanged_count?: number
         skipped_existing_count?: number
+        catalog_fields_updated_count?: number
         expected_count?: number
         batch_id?: string | null
         style_summary?: Record<string, number>
@@ -367,6 +373,7 @@ export function ResellerProductsPanel({
       const qtyUpdated = res.data.quantity_updated_count ?? 0
       const qtyUnchanged = res.data.quantity_unchanged_count ?? 0
       const skippedExisting = res.data.skipped_existing_count ?? 0
+      const catalogFieldsUpdated = res.data.catalog_fields_updated_count ?? 0
       const expected = res.data.expected_count ?? products.length
       const errs = res.data.errors ?? []
       const errN = errs.length
@@ -377,9 +384,16 @@ export function ResellerProductsPanel({
       }
       if (n === 0 && qtyUpdated === 0) {
         const first = errs[0] ? formatRowErr(errs[0]) : null
+        if (catalogFieldsUpdated > 0 && !first) {
+          setBulkResult(
+            `Updated weight and catalogue data for ${catalogFieldsUpdated} make-on-order product${catalogFieldsUpdated === 1 ? '' : 's'}. Refresh the shop page to see weights on cards.`,
+          )
+          void loadBatches()
+          return
+        }
         if (skippedExisting > 0 && !first) {
           setBulkResult(
-            `${skippedExisting} make-on-order product${skippedExisting === 1 ? '' : 's'} already in your uploads or live catalogue — nothing new added.`,
+            `${skippedExisting} make-on-order product${skippedExisting === 1 ? '' : 's'} already in your catalogue — no new rows.${catalogFieldsUpdated > 0 ? ` ${catalogFieldsUpdated} had weight/catalogue fields updated.` : ' If your Excel has AvgWeight, check the column header matches (AvgWeight / Avg Wt) and re-upload after deploying the latest server.'}`,
           )
           void loadBatches()
           return
@@ -417,8 +431,12 @@ export function ResellerProductsPanel({
         skippedExisting > 0
           ? ` ${skippedExisting} make-on-order product${skippedExisting === 1 ? '' : 's'} already existed and ${skippedExisting === 1 ? 'was' : 'were'} skipped.`
           : ''
+      const weightSyncHint =
+        catalogFieldsUpdated > 0
+          ? ` ${catalogFieldsUpdated} product${catalogFieldsUpdated === 1 ? '' : 's'} had weight/catalogue data updated on the live shop.`
+          : ''
       setBulkResult(
-        `${n} new product${n === 1 ? '' : 's'} added to batch${styleHint ? ` — ${styleHint}` : ''}.${skippedHint}${qtyHint} Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
+        `${n} new product${n === 1 ? '' : 's'} added to batch${styleHint ? ` — ${styleHint}` : ''}.${weightSyncHint}${skippedHint}${qtyHint} Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,
       )
       if (res.data.batch_id) {
         setExpandedBatchId(res.data.batch_id)
@@ -1374,6 +1392,7 @@ function BatchProductPhotoRow({
   const boxOnly = submissionWithBoxOnly(row)
   const photoNames = submissionPhotoFilenames(row)
   const livePriceHint = submissionLivePriceHint(row, rates)
+  const weightLabel = getCustomerDisplayWeightLabel(submissionToCatalogItem(row))
 
   const save = async () => {
     if (!primary && !secondary && !boxImage && !video) return
@@ -1421,6 +1440,7 @@ function BatchProductPhotoRow({
           <p className="kc-upload-hint text-xs">
             {row.style_code} › {row.sku}
             {row.size?.trim() ? ` · ${getCustomerDisplaySize(submissionToCatalogItem(row)) ?? row.size}` : ''}
+            {weightLabel ? ` · ${weightLabel}` : ' · No weight — add AvgWeight in Excel or edit row'}
             {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
             {hasBoxCharge ? ` · box +₹${Number(row.box_charges).toLocaleString('en-IN')}` : ''}
             {boxOnly ? ' · with-box only' : ''}
