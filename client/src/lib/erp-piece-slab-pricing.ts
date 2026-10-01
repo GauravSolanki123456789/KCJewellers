@@ -117,6 +117,17 @@ export function applyPieceSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpB
   }
 }
 
+/** Weight + displayed MC when billing slab changes (R / W / F / Q). */
+export function applyBillingSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpBillLine {
+  if (!lineHasPieceSlabFields(line)) return line
+  let next = applyPieceSlabToLine(line, slab)
+  const slabMc = pieceSlabMcRate(line, slab)
+  if (slabMc != null && Number.isFinite(slabMc)) {
+    next = { ...next, mc_rate: slabMc }
+  }
+  return next
+}
+
 export function computeErpPieceSlabBreakdown(
   line: ErpBillLine,
   slab: ErpRateSlab,

@@ -7,6 +7,7 @@ import {
   type SharedCatalogSlabContext,
 } from '@/lib/catalog-slab-pricing'
 import {
+  applyBillingSlabToLine,
   applyPieceSlabToLine,
   computeErpPieceSlabBreakdown,
   lineHasPieceSlabFields,
@@ -684,6 +685,7 @@ export function perGramToDisplayRates(goldPerG: number, silverPerG: number): unk
 }
 
 export {
+  applyBillingSlabToLine,
   applyPieceSlabToLine,
   lineHasPieceSlabFields,
   pieceSlabBillableWeight,

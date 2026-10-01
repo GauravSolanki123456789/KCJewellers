@@ -11,6 +11,7 @@ import {
   applyInvoiceItemMrpMode,
   shouldUseWeightSilverNotMrp,
   applyPiecePricedLineCalc,
+  applyBillingSlabToLine,
   applyPieceSlabToLine,
   computeLineBreakdown,
   displayRatesToPerGram,
@@ -198,6 +199,10 @@ import {
 } from '@/components/ui/dialog'
 
 const BILLING_DRAFT_KEY = 'kc-erp-billing-draft-v1'
+
+/** Scanned-products table body — readable like estimate PDFs; keep text-[11px] on table/inputs. */
+const scannedProductsTextCls = 'font-medium text-[var(--color-jewelry-black,#111827)]'
+const scannedProductsInputTextCls = 'font-medium text-[var(--color-jewelry-black,#111827)]'
 
 type BillingDraft = {
   customerId: number | null
@@ -742,10 +747,11 @@ export function ErpBillingWorkspace() {
     ): ErpBillLine[] =>
       list.map((line) => {
         const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
+        const slabAligned = applyBillingSlabToLine(withGift, nextSlab)
         const cleared: ErpBillLine = line.rateLocked
-          ? withGift
+          ? slabAligned
           : {
-              ...withGift,
+              ...slabAligned,
               rateLocked: false,
               ratePerGram: null,
               displayMcInr: null,
@@ -1156,8 +1162,7 @@ export function ErpBillingWorkspace() {
     setCustomerQ('')
     setCustomerPickIdx(-1)
     const assigned = normalizeErpCustomerSlab(c.rate_slab)
-    setRateSlab(assigned)
-    setLines((prev) => (prev.length ? transitionLinesForSlab(prev, assigned) : prev))
+    requestSlabTransition(assigned)
     requestAnimationFrame(() => scanRef.current?.focus())
   }
 
@@ -1664,27 +1669,40 @@ export function ErpBillingWorkspace() {
   const unlockLineRates = (list: ErpBillLine[]) =>
     list.map((l) => ({ ...l, rateLocked: false }))
 
-  const onSlabChange = (next: ErpRateSlab) => {
-    if (next === 'W' || next === 'F') {
-      const hasWh =
-        (wholesaleGold != null && wholesaleGold > 0) ||
-        (wholesaleSilver != null && wholesaleSilver > 0)
-      if (hasWh) {
-        setRateSlab(next)
-        setLines((prev) => transitionLinesForSlab(prev, next))
+  const requestSlabTransition = useCallback(
+    (next: ErpRateSlab) => {
+      if (next === rateSlab && (next === 'R' || next === 'Q')) {
+        setLines((prev) => (prev.length ? transitionLinesForSlab(prev, next) : prev))
         return
       }
-      setPendingSlab(next)
-      setModalWhGold(wholesaleGold != null ? String(wholesaleGold) : '')
-      setModalWhSilver(wholesaleSilver != null ? String(wholesaleSilver) : '')
-      setShowWholesaleModal(true)
-      return
-    }
-    void loadDisplayRates().then((rates) => {
-      const pg = displayRatesToPerGram(rates)
-      setRateSlab(next)
-      setLines((prev) => transitionLinesForSlab(prev, next, rates, pg.gold, pg.silver))
-    })
+      if (next === 'W' || next === 'F') {
+        const hasWh =
+          (wholesaleGold != null && wholesaleGold > 0) ||
+          (wholesaleSilver != null && wholesaleSilver > 0)
+        if (hasWh) {
+          setRateSlab(next)
+          setLines((prev) => (prev.length ? transitionLinesForSlab(prev, next) : prev))
+          return
+        }
+        setPendingSlab(next)
+        setModalWhGold(wholesaleGold != null ? String(wholesaleGold) : '')
+        setModalWhSilver(wholesaleSilver != null ? String(wholesaleSilver) : '')
+        setShowWholesaleModal(true)
+        return
+      }
+      void loadDisplayRates().then((rates) => {
+        const pg = displayRatesToPerGram(rates)
+        setRateSlab(next)
+        setLines((prev) =>
+          prev.length ? transitionLinesForSlab(prev, next, rates, pg.gold, pg.silver) : prev,
+        )
+      })
+    },
+    [rateSlab, wholesaleGold, wholesaleSilver, transitionLinesForSlab, loadDisplayRates],
+  )
+
+  const onSlabChange = (next: ErpRateSlab) => {
+    requestSlabTransition(next)
   }
 
   const openEditWholesale = () => {
@@ -1722,10 +1740,11 @@ export function ErpBillingWorkspace() {
     setLines((prev) =>
       prev.map((line) => {
         const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
+        const slabAligned = applyBillingSlabToLine(withGift, nextSlab)
         const base: ErpBillLine = line.rateLocked
-          ? withGift
+          ? slabAligned
           : {
-              ...withGift,
+              ...slabAligned,
               rateLocked: false,
               ratePerGram: null,
               displayMcInr: null,
@@ -3322,7 +3341,7 @@ export function ErpBillingWorkspace() {
                         if (line.manualEntry) updateLine(idx, { manualEntryOpen: true })
                       }}
                     >
-                      <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
+                      <td className={`px-2 py-2 tabular-nums ${scannedProductsTextCls}`}>{idx + 1}</td>
                       {collapsedTableCols.map((col) => {
                         if (col.key === 'amount') {
                           return (
@@ -3611,7 +3630,7 @@ export function ErpBillingWorkspace() {
                           const refKey = `${lineKey}-mc_type`
                           const mcVal = normalizeMcTypeInput(line.mc_type) ?? ''
                           const selectCls =
-                            'w-full min-w-0 rounded border border-emerald-300 bg-white px-1 py-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50'
+                            `w-full min-w-0 rounded border border-emerald-300 bg-white px-1 py-1 text-[11px] ${scannedProductsInputTextCls} outline-none focus:border-[var(--kc-accent,#c41e3a)]/50`
                           return (
                             <td key={col.key} className="px-1 py-1">
                               <select
@@ -3664,9 +3683,9 @@ export function ErpBillingWorkspace() {
                                 inputMode={isNumericField ? 'decimal' : 'text'}
                                 className={`w-full min-w-0 rounded border px-1 py-1 tabular-nums text-[11px] ${
                                   line.manualEntry
-                                    ? 'border-emerald-300 bg-white text-[var(--color-jewelry-black,#1a1814)]'
-                                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
-                                } ${goldSlabRMcReadOnly ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/70' : ''}`}
+                                    ? `border-emerald-300 bg-white ${scannedProductsInputTextCls}`
+                                    : `border-[var(--color-slate-700,#e8e4df)] bg-white ${scannedProductsInputTextCls}`
+                                } ${goldSlabRMcReadOnly ? 'bg-[var(--color-slate-900,#faf8f4)] text-[var(--color-jewelry-black,#1a1814)]/80' : ''}`}
                                 readOnly={goldSlabRMcReadOnly}
                                 title={
                                   goldSlabRMcReadOnly
@@ -3756,7 +3775,7 @@ export function ErpBillingWorkspace() {
                                 }}
                                 type="text"
                                 inputMode="decimal"
-                                className="w-full min-w-0 rounded border border-[var(--color-slate-700,#e8e4df)] bg-white px-1 py-1 tabular-nums text-[11px] text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50"
+                                className={`w-full min-w-0 rounded border border-[var(--color-slate-700,#e8e4df)] bg-white px-1 py-1 tabular-nums text-[11px] ${scannedProductsInputTextCls} outline-none focus:border-[var(--kc-accent,#c41e3a)]/50`}
                                 value={cellInputDisplayValue(lineKey, col.key, line)}
                                 onFocus={() => {
                                   setManualEditingCell(refKey)
@@ -3808,7 +3827,7 @@ export function ErpBillingWorkspace() {
                                 }}
                                 type="text"
                                 inputMode="decimal"
-                                className="w-full min-w-0 rounded border border-[var(--color-slate-700,#e8e4df)] bg-white px-1 py-1 tabular-nums text-[11px] text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50"
+                                className={`w-full min-w-0 rounded border border-[var(--color-slate-700,#e8e4df)] bg-white px-1 py-1 tabular-nums text-[11px] ${scannedProductsInputTextCls} outline-none focus:border-[var(--kc-accent,#c41e3a)]/50`}
                                 value={cellInputDisplayValue(lineKey, col.key, line)}
                                 onFocus={() => {
                                   setManualEditingCell(refKey)
@@ -3847,7 +3866,7 @@ export function ErpBillingWorkspace() {
                           <td
                             key={col.key}
                             title={display}
-                            className="min-w-0 whitespace-normal break-words px-2 py-1.5 text-left align-top tabular-nums text-[var(--color-jewelry-black,#1a1814)]"
+                            className={`min-w-0 whitespace-normal break-words px-2 py-1.5 text-left align-top tabular-nums ${scannedProductsTextCls}`}
                           >
                             {display}
                           </td>

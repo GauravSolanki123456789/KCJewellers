@@ -8,6 +8,7 @@ import {
   rowDraftToApiPayload,
   SCALE_CAPTURE_FIELDS,
   STOCK_EDITOR_COLUMNS,
+  visibleStockEditorColumns,
   computeNetWeightFromValues,
   computeBagWtFromValues,
   shouldRecalcNetWeight,
@@ -156,6 +157,7 @@ export function ErpStockExcelEditor({
 }) {
   const { canDeleteRecords } = useErpOperator()
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
+  const tableColumns = useMemo(() => visibleStockEditorColumns(drafts), [drafts])
   const [baseline, setBaseline] = useState<StockRowDraft[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [removeProduct, setRemoveProduct] = useState('')
@@ -862,7 +864,7 @@ export function ErpStockExcelEditor({
               value={bulkField}
               onChange={(e) => setBulkField(e.target.value as StockEditableField)}
             >
-              {STOCK_EDITOR_COLUMNS.filter((c) => c.key !== 'barcode' && c.key !== 'image_url').map((c) => (
+              {tableColumns.filter((c) => c.key !== 'barcode' && c.key !== 'image_url').map((c) => (
                 <option key={c.key} value={c.key}>
                   {c.shortLabel || c.label}
                 </option>
@@ -996,7 +998,7 @@ export function ErpStockExcelEditor({
                 #
               </th>
               <th className="px-2 py-2 font-semibold text-[var(--color-jewelry-black,#1a1814)]/55">Status</th>
-              {STOCK_EDITOR_COLUMNS.map((col) => (
+              {tableColumns.map((col) => (
                 <th key={col.key} className="whitespace-nowrap px-2 py-2 font-semibold text-[var(--color-jewelry-black,#1a1814)]/55">
                   {col.shortLabel || col.label}
                 </th>
@@ -1029,7 +1031,7 @@ export function ErpStockExcelEditor({
                     {idx + 1}
                   </td>
                   <td className="px-2 py-1 capitalize text-[var(--color-jewelry-black,#1a1814)]/55">{row.status.replace('_', ' ')}</td>
-                  {STOCK_EDITOR_COLUMNS.map((col) => {
+                  {tableColumns.map((col) => {
                     const isScaleField = !!col.scaleCapture
                     const isFocused =
                       scaleFocus?.rowId === row.id && scaleFocus.field === col.key && scaleConnected

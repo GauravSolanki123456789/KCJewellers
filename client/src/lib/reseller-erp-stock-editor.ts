@@ -96,6 +96,39 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'bags', label: 'Bags', type: 'text' },
 ]
 
+/** Numeric 0 is still meaningful for these columns (slab MC / metal %). */
+const STOCK_ZERO_IS_DATA: ReadonlySet<StockEditableField> = new Set([
+  'mc_rate_slab_r',
+  'mc_rate_slab_w',
+  'mc_rate_slab_f',
+  'metal_slab_r_pct',
+  'metal_slab_w_pct',
+  'metal_slab_f_pct',
+  'pcs',
+])
+
+function stockEditorCellHasValue(row: StockRowDraft, key: StockEditableField): boolean {
+  const raw = (row.values[key] ?? '').trim()
+  if (raw === '') return false
+  const col = STOCK_EDITOR_COLUMNS.find((c) => c.key === key)
+  if (col?.type === 'number') {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return false
+    if (n === 0 && !STOCK_ZERO_IS_DATA.has(key)) return false
+  }
+  return true
+}
+
+/** Hide stock grid columns with no data in the current rows (recalculates when drafts change). */
+export function visibleStockEditorColumns(
+  drafts: StockRowDraft[],
+): (typeof STOCK_EDITOR_COLUMNS)[number][] {
+  if (!drafts.length) return [...STOCK_EDITOR_COLUMNS]
+  return STOCK_EDITOR_COLUMNS.filter((col) =>
+    drafts.some((row) => stockEditorCellHasValue(row, col.key)),
+  )
+}
+
 function fieldToString(val: unknown): string {
   if (val == null || val === '') return ''
   return String(val)
