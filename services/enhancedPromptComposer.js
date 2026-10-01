@@ -59,13 +59,13 @@ const BG_SCENE_BLOCKS = {
     white: `Scene: seamless pure white (#FFFFFF) infinity-cove. Bright even diffused lighting. Amazon/Flipkart jewellery listing standard. Soft contact shadow under base only.`,
     blue: `Scene: deep navy / midnight blue studio gradient with subtle cool atmospheric separation. Dark stone or velvet surface. Regal luxury jewellery campaign — no visible room corners.`,
     red: `Scene: rich burgundy velvet studio with warm accent lighting. Romantic luxury jewellery campaign mood.`,
-    emerald: `Scene: dark emerald-to-charcoal gradient studio. Regal heritage mood — deep greens in backdrop only; product colours stay accurate.`,
+    emerald: `Scene: rich dark emerald-green velvet studio — draped curtain folds with soft depth-of-field blur. Regal Indian jewellery campaign mood; greens only in backdrop and bust fabric; gold and gemstones stay accurate.`,
     cream: `Scene: warm ivory/champagne studio with soft gradient. Elegant bridal and heritage catalogue warmth.`,
 };
 
 const VIZ_SCENE_BLOCKS = {
     studio: `Presentation: classic luxury pedestal/tabletop on dark premium stone. Centered hero, soft contact shadow, eye-level or slightly elevated catalogue angle. Adaptive to product — do NOT force glass dome if source has none.`,
-    prop: `Presentation: product on minimal luxury display prop — velvet block, acrylic riser, or sculptural stand. Visible prop edge. NOT plain empty table.`,
+    prop: `Presentation: product on minimal luxury display prop — for necklaces: headless velvet jewellery bust mannequin with natural drape; otherwise velvet block, acrylic riser, or sculptural stand. Visible prop edge. NOT plain empty table.`,
     hand_female: `Presentation: worn on elegant female hand — manicured, soft skin, cropped at wrist. Editorial wear shot. Product ON hand, never floating.`,
     hand_male: `Presentation: worn on male hand — cropped at wrist. Strong editorial catalogue. Product ON hand, never on pedestal.`,
     standing: `Presentation: standing upright on edge/balance point — idols on existing base. Slight angle for depth. Identity unchanged.`,
@@ -95,7 +95,7 @@ const COMBO_TUNING = {
     'blue+standing':
         'Navy velvet + standing pose: vertical hero with soft blue fill — premium idol/bangle campaign reference quality.',
     'emerald+prop':
-        'Emerald velvet + prop: heritage regal mood — antique gold against deep green velvet folds.',
+        'Emerald velvet + prop (HMEF reference): dark emerald velvet curtain backdrop with soft vertical folds and gentle bokeh; necklace on matching emerald velvet bust mannequin — natural gravity drape, antique matte gold tack-sharp, optional soft vintage florals far left only. No head/face on bust.',
     'cream+sleeping':
         'Cream studio + flat lay: soft warm bridal catalogue — gentle shadows, no harsh contrast.',
 };
@@ -116,6 +116,25 @@ function combinationTuningBlock(bg, viz) {
 }
 
 /** Condensed runtime reinforcement for idol dark layouts — works with admin master prompts. */
+function necklaceEmeraldPropRuntimeBlock({ backgroundPreset, visualization, profile } = {}) {
+    if (profile !== 'necklace') return '';
+    const bg = normKey(backgroundPreset, 'charcoal');
+    const viz = normKey(visualization, 'studio');
+    if (bg !== 'emerald') return '';
+    if (viz !== 'prop' && viz !== 'studio') return '';
+
+    return `
+
+[RUNTIME — NECKLACE · EMERALD VELVET BUST (GREEN LAYOUT REFERENCE — HIGHEST PRIORITY)]
+PRESERVE THE NECKLACE. REPLACE THE PHOTOGRAPHY. Match HMEF_LPHS reference catalogue quality.
+• Identity lock: exact chain link pattern, pendant shape, deity/lotus motif, stone colours (ruby/emerald accents), length, and antique matte gold finish — never redesign, never simplify, never change pendant face.
+• Prop (mandatory for On prop): drape the same necklace on a headless jewellery bust mannequin torso upholstered in dark emerald-green velvet; natural gravity along the neckline; pendant centered on chest — NOT floating, NOT flat lay on table, NOT plastic hanger only.
+• Background: deep emerald velvet curtains with soft vertical folds, shallow depth-of-field blur, subtle atmospheric vignette; optional very soft out-of-focus vintage florals far left — never dominant.
+• Lighting: large soft key upper-left, gentle fill, warm controlled speculars on gold — no harsh phone flash, no blown highlights, no yellow cast.
+• Camera: 85–105mm luxury product portrait, eye-level, bust fills frame; necklace clearly readable without zooming.
+• Remove all source clutter: hands, plastic, tags, shop walls, tables — full scene replacement only.`;
+}
+
 function idolMuseumDarkLuxuryRuntimeBlock({ backgroundPreset, visualization, renderQuality, profile } = {}) {
     if (profile !== 'idol') return '';
     const bg = normKey(backgroundPreset, 'charcoal');
@@ -220,6 +239,17 @@ function adaptNegativePrompt(negativePrompt, bg, viz, profile) {
         }
     }
 
+    if (profile === 'necklace') {
+        add('flat lay necklace on white table when bust prop selected');
+        add('mannequin head or human face');
+        add('redesigned pendant or changed deity motif');
+        add('simplified chain links or missing charms');
+        add('plastic CGI gold or chrome metal');
+        add('floating disconnected pendant');
+        add('plain grey or white backdrop when emerald velvet selected');
+        add('harsh phone flash or blown gold highlights');
+    }
+
     if (normKey(bg, '') === 'white') {
         add('grey background, cream backdrop, dark vignette, muddy shadows on white');
     } else {
@@ -276,6 +306,10 @@ The system has automatically tuned this generation for the selected style and po
 Background preset: ${bg}. Visualization: ${viz}. Quality tier: ${renderQuality || '2k'}.
 Follow combination tuning below for the selected style and pose.`);
         parts.push(combinationTuningBlock(bg, viz));
+    }
+
+    if (profile === 'necklace' && bg === 'emerald') {
+        parts.push(necklaceEmeraldPropRuntimeBlock({ backgroundPreset: bg, visualization: viz, profile }));
     }
 
     if (profile === 'idol' && bg !== 'white') {

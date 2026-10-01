@@ -38,6 +38,7 @@ const {
     idolReferenceCatalogueAestheticBlock,
     idolGlassDomeSourcePurgeBlock,
     jewelryStructuralIdentityBlock,
+    necklaceEmeraldPropSupremacyBlock,
     postprocessStudioOutput,
     assessOutputResolution,
     geminiNativeUpscale,
@@ -1186,8 +1187,15 @@ Replace any shop/warehouse background entirely. Purge all source glass glare and
         main += metalColorPreservationBlock();
         main += idolWhiteSupremacyOverrideBlock();
     }
-    if (profile === 'kada') {
+    if (profile === 'kada' || profile === 'necklace') {
         main += jewelryStructuralIdentityBlock();
+    }
+    if (profile === 'necklace') {
+        const bgNeck = String(generationOptions.backgroundPreset || '').toLowerCase();
+        const vizNeck = String(generationOptions.visualization || 'studio').toLowerCase();
+        if (bgNeck === 'emerald' && vizNeck === 'prop') {
+            main += necklaceEmeraldPropSupremacyBlock();
+        }
     }
     main += studioOptionsSupremacyBlock(generationOptions, profile);
     if (isDarkIdol) {

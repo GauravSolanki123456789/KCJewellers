@@ -318,7 +318,8 @@ const BACKGROUND_PRESETS = {
     white: 'Pure seamless white infinity-cove studio background (#FFFFFF) — premium e-commerce catalogue identical to Amazon/Flipkart jewellery product shots',
     red: 'Deep rich burgundy-red luxury studio backdrop',
     blue: 'Deep navy / midnight blue gradient studio with cool atmospheric separation',
-    emerald: 'Dark emerald-to-charcoal gradient studio backdrop — regal heritage mood',
+    emerald:
+        'Rich dark emerald-green velvet studio — draped curtain folds with soft depth-of-field blur; regal Indian jewellery campaign mood',
     cream: 'Warm ivory cream luxury studio backdrop',
 };
 
@@ -356,10 +357,12 @@ Centered hero framing, soft contact shadow, premium commercial catalogue quality
               : vizKey === 'hand_female' || vizKey === 'hand_male'
                 ? '\nCRITICAL: The final image MUST show the product worn on a human hand — NOT on a pedestal, NOT floating, NOT flat lay on table.'
                 : vizKey === 'prop'
-                  ? '\nCRITICAL: The final image MUST show the product on a visible luxury display prop — NOT a plain empty tabletop.'
+                  ? profile === 'necklace'
+                    ? '\nCRITICAL: The final image MUST show the necklace draped on a headless emerald-green velvet jewellery bust mannequin (torso only) — NOT flat lay, NOT a plain table, NOT floating.'
+                    : '\nCRITICAL: The final image MUST show the product on a visible luxury display prop — NOT a plain empty tabletop.'
                   : '';
     const profileNote =
-        profile === 'kada' || profile === 'generic'
+        profile === 'kada' || profile === 'generic' || profile === 'necklace'
             ? '\nJewellery identity lock: same gold tone, stone placement, engravings, and proportions as the uploaded reference.'
             : '';
     return `
@@ -431,6 +434,16 @@ Product centered with generous white margin — catalogue-ready for website list
 }
 
 function compositionPromptBlock(profile, options = {}) {
+    if (profile === 'necklace') {
+        const bg = String(options?.backgroundPreset || 'charcoal').toLowerCase();
+        if (bg === 'emerald') {
+            return `
+
+[COMPOSITION — NECKLACE ON VELVET BUST]
+Velvet bust and necklace fill 75–88% of frame height — hero portrait like HMEF reference shots.
+Pendant and central motif clearly readable without zooming. Soft blurred curtain behind; NOT tiny product with excessive empty space.`;
+        }
+    }
     if (profile === 'kada') {
         return `
 
@@ -467,6 +480,9 @@ function defaultBackgroundForTemplate(templateKey, templateLabel, varietyKey, va
     if (/\bblue\b/.test(combined) || /\bnavy\b/.test(combined)) return 'blue';
     if (/\bblack\b/.test(combined) || combined.includes('black-layout') || combined.includes('black_layout')) {
         return 'blue';
+    }
+    if (/\bgreen\b/.test(combined) || combined.includes('green-layout') || combined.includes('green_layout')) {
+        return 'emerald';
     }
     if (/\bemerald\b/.test(combined)) return 'emerald';
     if (/\bcream\b/.test(combined) || /\bivory\b/.test(combined)) return 'cream';

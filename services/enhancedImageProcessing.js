@@ -1025,6 +1025,15 @@ function detectEnhancementProfile({ templateKey, varietyKey, promptText } = {}) 
     const vk = String(varietyKey || '').toLowerCase();
     const pt = String(promptText || '').toLowerCase();
     if (
+        vk.includes('necklace') ||
+        vk.includes('haar') ||
+        vk.includes('mala') ||
+        (tk.includes('green') && /\bnecklace\b/.test(`${vk} ${pt}`)) ||
+        (/\bnecklace\b/.test(pt) && (tk.includes('green') || tk.includes('layout')))
+    ) {
+        return 'necklace';
+    }
+    if (
         vk.includes('kada') ||
         vk.includes('bracelet') ||
         vk.includes('bangle') ||
@@ -1043,7 +1052,7 @@ function detectEnhancementProfile({ templateKey, varietyKey, promptText } = {}) 
     if (
         tk.includes('idol') ||
         vk.includes('idol') ||
-        vk.includes('emerald') ||
+        (vk.includes('emerald') && !tk.includes('green') && !vk.includes('necklace')) ||
         vk.includes('frame') ||
         pt.includes('uploaded idol') ||
         pt.includes('glass cloche') ||
@@ -1165,12 +1174,35 @@ Lighting: large soft key above-forward + soft fill + subtle rim + restrained rea
 Surface: dark navy-black stone with subtle mineral texture — matte-to-satin, controlled soft reflection, NEVER wet, NEVER mirror-black glass floor.${idolGlassDomeSourcePurgeBlock()}${idolReferenceCatalogueAestheticBlock()}${idolCloseHeroCatalogBlock()}${studioShadowAndSurfaceBlock()}${woodBaseConditionalBlock()}`;
 }
 
+function necklaceEmeraldPropStudioBlock() {
+    return `
+
+[PIPELINE — NECKLACE EMERALD VELVET BUST (GREEN LAYOUT)]
+Transform flat or shop photos into premium Indian jewellery campaign imagery (HMEF reference grade).
+Matte antique gold micro-texture with crisp embossing; preserve every link, pendant, and stone from source.
+Headless emerald-green velvet bust mannequin; matching velvet curtain backdrop with soft bokeh depth.
+Soft diffused studio lighting — editorial luxury, not phone snapshot. No watermark, no logo, no generated text.`;
+}
+
+function necklaceEmeraldPropSupremacyBlock() {
+    return `
+
+[FINAL OVERRIDE — EMERALD NECKLACE ON BUST (SUPERSEDES CONFLICTING TEXT)]
+When Style background is Emerald and Visualization is On prop: output MUST show the necklace on a dark emerald velvet jewellery bust with matching velvet curtain backdrop — never white catalogue, never flat lay on table, never visible mannequin head/face.
+Necklace design must match the uploaded photo exactly — same pendant deity/lotus, same link repetition, same stone accents and length.
+Background blur and optional soft florals only as subtle accent; product and bust remain tack-sharp.`;
+}
+
 function profileStudioQualityBlock(profile, backgroundPreset, options = {}) {
     const isWhite = isWhiteCatalogMode({
         backgroundPreset,
         templateKey: options.templateKey,
         promptText: options.promptText,
     });
+    if (profile === 'necklace') {
+        const bg = String(backgroundPreset || 'charcoal').toLowerCase();
+        if (bg === 'emerald') return necklaceEmeraldPropStudioBlock();
+    }
     if (profile === 'kada') {
         return `
 
@@ -1284,6 +1316,15 @@ Classify the uploaded product precisely:
 If standing/upright pose is requested on a flat chain bracelet: rearrange the SAME chain into an upright circle or oval balanced on edge — identical links, charms, colors, and clasp — NOT a different rigid bangle silhouette.
 Change ONLY pose, background, lighting, and environment — never product design.`;
 }
+
+const NECKLACE_NEGATIVE_LINES = [
+    'No flat lay on table when emerald bust prop selected',
+    'No mannequin head or human face',
+    'No redesigned pendant or deity face',
+    'No shortened necklace or missing links',
+    'No white or grey ecommerce backdrop when emerald velvet selected',
+    'No floating pendant off bust',
+];
 
 const JEWELRY_NEGATIVE_LINES = [
     'No converting chain bracelet to solid bangle',
@@ -1535,7 +1576,12 @@ function mergeSystemNegativePrompt(userNegative, options = {}) {
     const seen = new Set(lines.map((l) => l.toLowerCase()));
     const extra = isWhiteCatalogMode(options) ? WHITE_CATALOG_NEGATIVE_LINES : [];
     const profile = options.profile || 'generic';
-    const jewelryExtra = profile === 'kada' ? JEWELRY_NEGATIVE_LINES : [];
+    const jewelryExtra =
+        profile === 'kada'
+            ? JEWELRY_NEGATIVE_LINES
+            : profile === 'necklace'
+              ? [...JEWELRY_NEGATIVE_LINES, ...NECKLACE_NEGATIVE_LINES]
+              : [];
     for (const line of [...SYSTEM_STUDIO_NEGATIVE_LINES, ...extra, ...jewelryExtra]) {
         const key = line.toLowerCase();
         if (!seen.has(key)) {
@@ -1580,7 +1626,10 @@ module.exports = {
     geminiNativeUpscale,
     resolveOutputLongEdge,
     jewelryStructuralIdentityBlock,
+    necklaceEmeraldPropSupremacyBlock,
+    necklaceEmeraldPropStudioBlock,
     JEWELRY_NEGATIVE_LINES,
+    NECKLACE_NEGATIVE_LINES,
     createLuxuryStudioBackground,
     compositeProductCutoutOntoStudio,
     measureSubjectFillRatio,

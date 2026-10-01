@@ -19,6 +19,9 @@ export function defaultBackgroundForTemplate(
   if (/\bblack\b/.test(combined) || combined.includes('black-layout') || combined.includes('black_layout')) {
     return 'blue'
   }
+  if (/\bgreen\b/.test(combined) || combined.includes('green-layout') || combined.includes('green_layout')) {
+    return 'emerald'
+  }
   if (/\bemerald\b/.test(combined)) return 'emerald'
   if (/\bcream\b/.test(combined) || /\bivory\b/.test(combined)) return 'cream'
   if (/\bred\b/.test(combined) || /\bburgundy\b/.test(combined)) return 'red'
