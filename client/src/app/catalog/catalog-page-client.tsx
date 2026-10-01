@@ -2041,8 +2041,8 @@ export default function CatalogPageClient() {
                           } as Product
                         }
                         rates={rates}
-                        priority={i < 8}
-                        imageFetchPriority={i < 4 ? "high" : "auto"}
+                        priority={i < 4}
+                        imageFetchPriority={i < 2 ? "high" : "auto"}
                         subcategorySlug={activeSku?.slug}
                         onBeforeNavigate={(barcode) => saveCatalogState(barcode)}
                         catalogBuilderActive={catalogBuilderMode && canUseCatalogBuilder}

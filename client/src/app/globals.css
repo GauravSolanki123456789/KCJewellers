@@ -747,13 +747,13 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 22rem;
     border-radius: 0.625rem;
     border: 1px solid color-mix(in oklab, var(--color-slate-700) 28%, transparent);
     background: white;
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.03);
     transition: box-shadow 350ms ease, border-color 350ms ease, transform 350ms ease;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 420px;
   }
 
   @media (hover: hover) {
@@ -781,7 +781,7 @@ body {
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.015em;
     line-height: 1.35;
-    color: var(--color-slate-100);
+    color: var(--color-jewelry-black, #1a1814);
   }
 
   @media (min-width: 640px) {

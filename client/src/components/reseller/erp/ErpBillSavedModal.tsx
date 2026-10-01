@@ -13,6 +13,7 @@ import {
   Printer,
   Receipt,
   Share2,
+  Wallet,
 } from 'lucide-react'
 import {
   Dialog,
@@ -604,12 +605,20 @@ export function ErpLedgerBillSavedDialog({
           </DialogDescription>
         </DialogHeader>
         <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs leading-relaxed text-emerald-950">
-          Items marked sold.
+          {lane === 'jainav'
+            ? 'Cash / Jainav sale saved — no GST invoice. Record metal received or applied in Lane Ledger.'
+            : 'Items marked sold.'}
         </p>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <button type="button" className={`${erpBtnPrimary} w-full`} onClick={closeAndDone}>
             Done
           </button>
+          {lane === 'jainav' ? (
+            <Link href={resellerErpModulePath('jainav-ledger')} className={`${erpBtnGhost} w-full justify-center`}>
+              <Wallet className="size-4" />
+              Open Lane Ledger
+            </Link>
+          ) : null}
           <Link href={resellerErpModulePath('billing')} className={`${erpBtnGhost} w-full justify-center`}>
             <Receipt className="size-4" />
             Back to billing

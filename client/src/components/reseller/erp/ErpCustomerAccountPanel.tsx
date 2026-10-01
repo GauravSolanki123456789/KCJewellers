@@ -8,6 +8,12 @@ import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
+import {
+  formatLedgerMoneyOrMetal,
+  formatLedgerRunningBalance,
+  formatMetalGm,
+  metalBalanceHint,
+} from '@/lib/erp-ledger-metal'
 
 export type CustomerAccountTx = {
   date: string
@@ -17,8 +23,11 @@ export type CustomerAccountTx = {
   debit: number
   credit: number
   balance_inr: number
+  balance_metal_gm?: number
   lane?: string
   weight_gm?: number
+  debit_metal_gm?: number
+  credit_metal_gm?: number
 }
 
 export type CustomerAccountData = {
@@ -27,6 +36,7 @@ export type CustomerAccountData = {
     total_billed_inr: number
     total_paid_inr: number
     balance_due_inr: number
+    metal_balance_gm?: number
     transaction_count: number
   }
   transactions: CustomerAccountTx[]
@@ -288,7 +298,7 @@ export function ErpCustomerAccountPanel({
 
       {account ? (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               { l: 'Total billed', v: formatErpInr(account.summary.total_billed_inr) },
               { l: 'Total paid', v: formatErpInr(account.summary.total_paid_inr) },
@@ -297,7 +307,13 @@ export function ErpCustomerAccountPanel({
                 v: formatErpInr(account.summary.balance_due_inr),
                 accent: account.summary.balance_due_inr > 0,
               },
-            ].map((c) => (
+              {
+                l: 'Metal balance',
+                v: formatMetalGm(account.summary.metal_balance_gm) || '0.000 g',
+                sub: metalBalanceHint(account.summary.metal_balance_gm || 0),
+                accent: Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005,
+              },
+            ].map((c: { l: string; v: string; accent?: boolean; sub?: string }) => (
               <div key={c.l} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">{c.l}</p>
                 <p
@@ -307,6 +323,9 @@ export function ErpCustomerAccountPanel({
                 >
                   {c.v}
                 </p>
+                {c.sub ? (
+                  <p className="mt-0.5 text-[10px] leading-snug text-[var(--color-jewelry-black,#1a1814)]/55">{c.sub}</p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -344,9 +363,15 @@ export function ErpCustomerAccountPanel({
                     <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                       {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{t.debit ? formatErpInr(t.debit) : '—'}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{t.credit ? formatErpInr(t.credit) : '—'}</td>
-                    <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatErpInr(t.balance_inr)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                      {formatLedgerMoneyOrMetal(t.debit, t.debit_metal_gm ?? (t.debit ? t.weight_gm : 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                      {formatLedgerMoneyOrMetal(t.credit, t.credit_metal_gm ?? (t.credit ? t.weight_gm : 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                      {formatLedgerRunningBalance(t.balance_inr, t.balance_metal_gm)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

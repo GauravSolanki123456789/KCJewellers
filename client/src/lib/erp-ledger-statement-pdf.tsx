@@ -2,6 +2,7 @@ import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer
 import { presentPdfBlob } from '@/lib/pdf-share'
 import type { CustomerAccountData } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { formatLedgerTransactionKind, formatPdfInr } from '@/lib/erp-ledger-labels'
+import { formatMetalGm, metalBalanceHint } from '@/lib/erp-ledger-metal'
 
 const styles = StyleSheet.create({
   page: { padding: 32, fontSize: 9, fontFamily: 'Helvetica' },
@@ -48,6 +49,14 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
           <Text style={styles.label}>Balance due</Text>
           <Text>{formatPdfInr(account.summary.balance_due_inr)}</Text>
         </View>
+        {account.summary.metal_balance_gm != null && Math.abs(account.summary.metal_balance_gm) >= 0.0005 ? (
+          <View style={styles.row}>
+            <Text style={styles.label}>Metal</Text>
+            <Text>
+              {formatMetalGm(account.summary.metal_balance_gm)} ({metalBalanceHint(account.summary.metal_balance_gm)})
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.tableHeader}>
           <Text style={styles.c1}>Date</Text>
           <Text style={styles.c2}>Type</Text>
@@ -69,7 +78,12 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
             </Text>
             <Text style={styles.c5}>{t.debit ? formatPdfInr(t.debit) : '—'}</Text>
             <Text style={styles.c6}>{t.credit ? formatPdfInr(t.credit) : '—'}</Text>
-            <Text style={styles.c7}>{formatPdfInr(t.balance_inr)}</Text>
+            <Text style={styles.c7}>
+              {formatPdfInr(t.balance_inr)}
+              {t.balance_metal_gm && Math.abs(t.balance_metal_gm) >= 0.0005
+                ? ` · ${Number(t.balance_metal_gm).toFixed(3)} g`
+                : ''}
+            </Text>
           </View>
         ))}
       </Page>
@@ -97,6 +111,9 @@ export type DaybookExportData = {
     total_debit_inr?: number
     total_credit_inr?: number
     closing_balance_inr?: number
+    total_debit_metal_gm?: number
+    total_credit_metal_gm?: number
+    closing_balance_metal_gm?: number
     transaction_count: number
   }
   transactions: {
@@ -109,6 +126,10 @@ export type DaybookExportData = {
     debit_inr?: number
     credit_inr?: number
     balance_inr?: number
+    debit_metal_gm?: number
+    credit_metal_gm?: number
+    balance_metal_gm?: number
+    weight_gm?: number
     description?: string
   }[]
 }
@@ -146,9 +167,18 @@ function DaybookDocument({ data }: { data: DaybookExportData }) {
             <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
             <Text style={styles.c3}>{t.customer_name}</Text>
             <Text style={styles.c4}>{t.reference || '—'}</Text>
-            <Text style={styles.c5}>{t.debit_inr ? formatPdfInr(t.debit_inr) : '—'}</Text>
-            <Text style={styles.c6}>{t.credit_inr ? formatPdfInr(t.credit_inr) : '—'}</Text>
-            <Text style={styles.c7}>{t.balance_inr != null ? formatPdfInr(t.balance_inr) : '—'}</Text>
+            <Text style={styles.c5}>
+              {t.debit_inr ? formatPdfInr(t.debit_inr) : t.debit_metal_gm ? `${Number(t.debit_metal_gm).toFixed(3)} g` : '—'}
+            </Text>
+            <Text style={styles.c6}>
+              {t.credit_inr ? formatPdfInr(t.credit_inr) : t.credit_metal_gm ? `${Number(t.credit_metal_gm).toFixed(3)} g` : '—'}
+            </Text>
+            <Text style={styles.c7}>
+              {t.balance_inr != null ? formatPdfInr(t.balance_inr) : '—'}
+              {t.balance_metal_gm && Math.abs(t.balance_metal_gm) >= 0.0005
+                ? ` · ${Number(t.balance_metal_gm).toFixed(3)} g`
+                : ''}
+            </Text>
           </View>
         ))}
       </Page>

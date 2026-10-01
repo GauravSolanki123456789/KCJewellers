@@ -57,6 +57,8 @@ export type ErpBillSession = {
   gstEnabled?: boolean
   /** Jainav lane metal + MC settlement snapshot (optional). */
   jainavSettlement?: Record<string, unknown>
+  jainavMetalOwedGm?: number
+  jainavMcOwedInr?: number
 }
 
 export function erpBillGstEnabled(
@@ -103,6 +105,8 @@ export function buildErpBillSession(input: {
   operatorDisplayName?: string | null
   gstEnabled?: boolean
   jainavSettlement?: Record<string, unknown> | null
+  jainavMetalOwedGm?: number | null
+  jainavMcOwedInr?: number | null
 }): ErpBillSession {
   const ratesUnfixed = billLinesRatesUnfixed(input.lines)
   const advance = Math.max(0, Number(input.advancePaidInr) || 0)
@@ -158,6 +162,14 @@ export function buildErpBillSession(input: {
     jainavSettlement:
       input.jainavSettlement && typeof input.jainavSettlement === 'object'
         ? input.jainavSettlement
+        : undefined,
+    jainavMetalOwedGm:
+      input.jainavMetalOwedGm != null && Number(input.jainavMetalOwedGm) > 0
+        ? Math.round(Number(input.jainavMetalOwedGm) * 1000) / 1000
+        : undefined,
+    jainavMcOwedInr:
+      input.jainavMcOwedInr != null && Number(input.jainavMcOwedInr) > 0
+        ? Math.round(Number(input.jainavMcOwedInr))
         : undefined,
   }
 }

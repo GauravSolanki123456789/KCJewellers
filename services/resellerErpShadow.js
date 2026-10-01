@@ -46,6 +46,10 @@ async function ensureShadowSchema(pool) {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_shadow_bills_number
             ON reseller_erp_shadow_bills (reseller_user_id, bill_number);
     `);
+    await pool.query(`
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS metal_gm NUMERIC(14, 3);
+    `).catch(() => {});
 }
 
 function trimStr(v, max = 255) {
@@ -87,6 +91,7 @@ function mapShadowBill(row) {
         bill_date: row.bill_date,
         created_at: row.created_at,
         customer_gstin: row.customer_gstin,
+        gst_enabled: false,
         shadow: true,
     };
 }
@@ -184,6 +189,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
             ? await nextShadowBillNumber(query, resellerUserId)
             : await nextShadowReturnNumber(query, resellerUserId);
     sessionObj.ledgerScope = 'lane';
+    sessionObj.gstEnabled = false;
     const sessionJson = JSON.stringify(sessionObj);
     const rows = await query(
         `INSERT INTO reseller_erp_shadow_bills (

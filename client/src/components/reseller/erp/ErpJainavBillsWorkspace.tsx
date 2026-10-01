@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import { useErpOperator } from '@/context/ErpOperatorContext'
-import { type WholesaleUserFields } from '@/lib/customer-tier'
 import {
   erpBtnGhost,
   erpCardCls,
@@ -14,24 +13,17 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
-import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
-import { openPdfBlobInViewer } from '@/lib/pdf-share'
-import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
 import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { summarizeBillsMetalTotals } from '@/lib/erp-bill-metal-totals'
-import { Download, Eye, FileSpreadsheet, FileText, Loader2, Receipt, Trash2 } from 'lucide-react'
+import { Download, Eye, FileSpreadsheet, Loader2, Receipt, Trash2 } from 'lucide-react'
 
 export function ErpJainavBillsWorkspace() {
   const { canDeleteRecords } = useErpOperator()
   const auth = useAuth()
-  const brandLabel = useMemo(() => {
-    const name = auth.user && (auth.user as WholesaleUserFields).business_name
-    return typeof name === 'string' && name.trim() ? name.trim() : 'Our store'
-  }, [auth.user])
 
   const [bills, setBills] = useState<ErpBill[]>([])
   const [busy, setBusy] = useState(false)
@@ -162,46 +154,13 @@ export function ErpJainavBillsWorkspace() {
     }
   }
 
-  const viewBillPdf = async (id: number) => {
-    setBusy(true)
-    try {
-      const res = await axios.get<{ bill: ErpBill }>(`/api/reseller/erp/shadow/documents/${id}`)
-      const bill = res.data.bill
-      const session = (bill.session || {}) as ErpBillSession
-      const payload = await buildErpSalesPdfPayload({
-        bill,
-        brandLabel,
-        customerName: bill.customer_name,
-        mobile: session.mobile,
-        customerAddress: session.address,
-        customerPan: session.pan,
-        customerGst: session.customerGst,
-        slabSettingsRaw: auth.user,
-        taxInvoiceMode: false,
-      })
-      await openPdfBlobInViewer(payload.blob, {
-        filename: payload.filename,
-        title: payload.title,
-        text: payload.text,
-        fallbackWhatsAppText: payload.fallbackWhatsAppText,
-        fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
-        customerWhatsAppHref: payload.customerWhatsAppHref,
-        customerMobile: payload.customerMobile,
-        brandLabel: payload.brandLabel,
-      })
-    } catch (e) {
-      alert(erpErr(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <Receipt className="size-4 text-emerald-700" />
           Jainav bills
+          <span className="text-[11px] font-medium text-[#1a1814]/55">Cash / metal — no GST invoice</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -352,10 +311,6 @@ export function ErpJainavBillsWorkspace() {
                       <button type="button" className={erpBtnGhost} onClick={() => void openView(b.id)}>
                         <Eye className="size-3.5" />
                         Preview
-                      </button>
-                      <button type="button" className={erpBtnGhost} onClick={() => void viewBillPdf(b.id)}>
-                        <FileText className="size-3.5" />
-                        PDF
                       </button>
                       <button type="button" className={erpBtnGhost} onClick={() => void downloadBillExcel(b.id)}>
                         <FileSpreadsheet className="size-3.5" />

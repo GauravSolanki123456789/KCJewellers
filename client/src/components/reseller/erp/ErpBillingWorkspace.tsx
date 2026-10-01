@@ -59,14 +59,6 @@ import { compactErpDocNumber, erpDocNumbersMatch } from '@/lib/app-notice'
 import { ratesApiQueryForStorefront } from '@/lib/storefront-domain'
 import { shareErpQuotePdf } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillSavedModal, ErpLedgerBillSavedDialog, ErpSaveBillConfirmDialog } from '@/components/reseller/erp/ErpBillSavedModal'
-import {
-  buildJainavSettlementSessionPayload,
-  ErpJainavMetalSettlementPanel,
-} from '@/components/reseller/erp/ErpJainavMetalSettlementPanel'
-import {
-  defaultJainavSettlementDraft,
-  type JainavSettlementDraft,
-} from '@/lib/erp-jainav-settlement'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
@@ -125,6 +117,7 @@ import {
   equalCollapsedColWidthPct,
   visibleCollapsedBillTableCols,
 } from '@/lib/erp-billing-table-cols'
+import { sumJainavMcOwedInr, sumJainavMetalOwedGm } from '@/lib/erp-jainav-settlement'
 import {
   billingShowsMcSlabRColumn,
   erpLineNetWeightGm,
@@ -475,9 +468,6 @@ export function ErpBillingWorkspace() {
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
   const [gstEnabled, setGstEnabled] = useState(true)
-  const [jainavSettlement, setJainavSettlement] = useState<JainavSettlementDraft>(() =>
-    defaultJainavSettlementDraft(),
-  )
   const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
   const [quoteOutputOverride, setQuoteOutputOverride] = useState<ErpQuoteOutputMode | null>(null)
   const [quoteMenuOpen, setQuoteMenuOpen] = useState(false)
@@ -1835,7 +1825,6 @@ export function ErpBillingWorkspace() {
     setCombinedSourceEstimateIds([])
     setCombinedEstimateNumbers('')
     setGstEnabled(true)
-    setJainavSettlement(defaultJainavSettlementDraft())
     setAdvancePaidInr('')
     setCollectedAmountInr('')
     setCashDiscountInr('')
@@ -1874,8 +1863,46 @@ export function ErpBillingWorkspace() {
     jainavModeUnlocked: shadowUnlocked,
   })
   const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr, shadowUnlocked)
-  const showJainavMetalSettlement =
-    shadowUnlocked && !isOfficialGstBill && lines.length > 0
+  const effectiveGstEnabled = isOfficialGstBill ? gstEnabled : false
+
+  const jainavMetalOwedGm = useMemo(
+    () => (isOfficialGstBill ? 0 : sumJainavMetalOwedGm(lines, rateSlab)),
+    [isOfficialGstBill, lines, rateSlab],
+  )
+  const jainavMcOwedInr = useMemo(
+    () =>
+      isOfficialGstBill
+        ? 0
+        : sumJainavMcOwedInr(
+            lines,
+            displayRates,
+            rateSlab,
+            slabSettings,
+            wholesaleGold,
+            wholesaleSilver,
+            goldPerG,
+            silverPerG,
+            goldSlabRShowMc,
+            false,
+          ),
+    [
+      isOfficialGstBill,
+      lines,
+      displayRates,
+      rateSlab,
+      slabSettings,
+      wholesaleGold,
+      wholesaleSilver,
+      goldPerG,
+      silverPerG,
+      goldSlabRShowMc,
+    ],
+  )
+
+  useEffect(() => {
+    if (!isOfficialGstBill && gstEnabled) setGstEnabled(false)
+  }, [isOfficialGstBill, gstEnabled])
+
   const resolveBillTotal = (billType: 'sale' | 'estimate') =>
     resolveErpBillTotalInr({
       linesNetTotal: totals.net,
@@ -1900,7 +1927,7 @@ export function ErpBillingWorkspace() {
     customer_id: customerId,
     customer_name: customerName,
     total_inr: billTotalInr,
-    gst_enabled: gstEnabled,
+    gst_enabled: effectiveGstEnabled,
     status,
     ...(extra?.bill_number ? { bill_number: extra.bill_number } : {}),
     notes: address ? `Rate slab ${rateSlab} · ${address}` : `Rate slab ${rateSlab}`,
@@ -1931,25 +1958,14 @@ export function ErpBillingWorkspace() {
         totalDiscountInr: discountSummary.totalDiscountInr,
         netTotalInr: totals.net,
         goldSlabRShowMc,
-        gstEnabled,
+        gstEnabled: effectiveGstEnabled,
         operatorDisplayName: operator?.displayName || operator?.username || '',
-        jainavSettlement: showJainavMetalSettlement
-          ? buildJainavSettlementSessionPayload(
-              lines,
-              rateSlab,
-              slabSettings,
-              displayRates,
-              jainavSettlement,
-              {
-                wholesaleGold,
-                wholesaleSilver,
-                goldPerG,
-                silverPerG,
-                goldSlabRShowMc,
-                gstEnabled,
-              },
-            )
-          : undefined,
+        ...(billType === 'sale' && !isOfficialGstBill
+          ? {
+              jainavMetalOwedGm: jainavMetalOwedGm > 0 ? jainavMetalOwedGm : undefined,
+              jainavMcOwedInr: jainavMcOwedInr > 0 ? jainavMcOwedInr : undefined,
+            }
+          : {}),
       }),
       ...(combinedSourceEstimateIds.length > 0
         ? {
@@ -2052,7 +2068,19 @@ export function ErpBillingWorkspace() {
     })
     if (!bill) return
     const shadowBill = bill as ErpBill & { shadow?: boolean; lane?: 'hitesh' | 'jainav' }
-    if (shadowBill.shadow || String(bill.bill_number || '').startsWith('OFF-')) {
+    const billNo = String(bill.bill_number || '')
+    const skipGstInvoice =
+      Boolean(shadowBill.shadow) ||
+      !isOfficialGstBill ||
+      shadowUnlocked ||
+      previewLane === 'jainav' ||
+      effectiveGstEnabled === false ||
+      bill.gst_enabled === false ||
+      billNo.startsWith('OFF-') ||
+      /^SCB/i.test(billNo) ||
+      shadowBill.lane === 'jainav' ||
+      shadowBill.lane === 'hitesh'
+    if (skipGstInvoice) {
       setLedgerSavedMeta({
         billNumber: bill.bill_number || '',
         lane: shadowBill.lane === 'hitesh' ? 'hitesh' : 'jainav',
@@ -2676,6 +2704,7 @@ export function ErpBillingWorkspace() {
             <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               GST (3%)
             </span>
+            {isOfficialGstBill ? (
             <label
               className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 ${
                 gstEnabled
@@ -2693,6 +2722,12 @@ export function ErpBillingWorkspace() {
                 {gstEnabled ? 'On' : 'Off'}
               </span>
             </label>
+            ) : (
+              <div className="flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[#faf8f4] px-3 py-2">
+                <span className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Off</span>
+                <span className="ml-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">Cash bill</span>
+              </div>
+            )}
           </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
@@ -2767,22 +2802,33 @@ export function ErpBillingWorkspace() {
           </div>
         </div>
 
-        {showJainavMetalSettlement ? (
-          <div className="mt-3">
-            <ErpJainavMetalSettlementPanel
-              lines={lines}
-              rateSlab={rateSlab}
-              slabSettings={slabSettings}
-              displayRates={displayRates}
-              wholesaleGold={wholesaleGold}
-              wholesaleSilver={wholesaleSilver}
-              goldPerG={goldPerG}
-              silverPerG={silverPerG}
-              goldSlabRShowMc={goldSlabRShowMc}
-              gstEnabled={gstEnabled}
-              draft={jainavSettlement}
-              onChange={setJainavSettlement}
-            />
+        {!isOfficialGstBill ? (
+          <div className="mt-3 space-y-2 rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3 py-2.5 text-xs leading-relaxed text-[#1a1814]">
+            <p>
+              Jainav / cash sale — no GST invoice. After saving, record metal received, issued, applied, MC-against-metal, or leftover metal-to-cash in{' '}
+              <Link href={resellerErpModulePath('jainav-ledger')} className="font-semibold text-emerald-800 underline">
+                Lane Ledger
+              </Link>
+              .
+            </p>
+            {jainavMetalOwedGm > 0 || jainavMcOwedInr > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-emerald-200 bg-white px-2.5 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]/50">Metal owed</p>
+                  <p className="mt-0.5 text-sm font-bold tabular-nums text-[#1a1814]">
+                    {jainavMetalOwedGm.toFixed(3)} g
+                  </p>
+                  <p className="text-[10px] text-[#1a1814]/55">Pure wt if Metal%; else net wt</p>
+                </div>
+                <div className="rounded-lg border border-emerald-200 bg-white px-2.5 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]/50">MC owed</p>
+                  <p className="mt-0.5 text-sm font-bold tabular-nums text-[#1a1814]">
+                    {formatErpInr(jainavMcOwedInr)}
+                  </p>
+                  <p className="text-[10px] text-[#1a1814]/55">Making charges only</p>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -3804,6 +3850,12 @@ export function ErpBillingWorkspace() {
                                   if (!isPartialDecimalInput(v)) return
                                   setCellDrafts((prev) => ({ ...prev, [refKey]: v }))
                                 }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                                    e.preventDefault()
+                                    advanceBillField(lineKey, k, line, idx)
+                                  }
+                                }}
                               />
                             </td>
                           )
@@ -3899,7 +3951,7 @@ export function ErpBillingWorkspace() {
                 <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Subtotal</p>
                 <p className="font-semibold tabular-nums">{formatErpInr(totals.subtotal)}</p>
               </div>
-              {gstEnabled ? (
+              {effectiveGstEnabled ? (
                 <div>
                   <p className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">GST (3%)</p>
                   <p className="font-semibold tabular-nums text-blue-700">{formatErpInr(totals.gst)}</p>

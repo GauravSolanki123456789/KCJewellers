@@ -69,7 +69,7 @@ export function visibleCollapsedBillTableCols(
   if (!collapsedLines.length) return allCols
 
   return allCols.filter((col) => {
-    if (col.key === 'amount') return true
+    if (col.key === 'amount' || col.key === 'metal_slab_pct') return true
     return collapsedLines.some((line) =>
       collapsedBillColumnHasData(line, col.key, rateSlab, cellText),
     )

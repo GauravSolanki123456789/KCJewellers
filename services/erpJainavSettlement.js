@@ -55,6 +55,25 @@ function jainavMetalOwedGmFromLines(lines, slab) {
     return Math.round(sum * 1000) / 1000;
 }
 
+function jainavLineMcOwedInr(line) {
+    const display = Number(line.displayMcInr);
+    if (Number.isFinite(display) && display > 0) return Math.round(display);
+    const mc = Number(line.mc_rate);
+    if (!Number.isFinite(mc) || mc <= 0) return 0;
+    const qty = Math.max(1, Number(line.qty) || 1);
+    const wt = Number(line.weightGm ?? line.originalWeightGm ?? line.net_weight ?? 0) || 0;
+    const mcType = String(line.mc_type || '').toUpperCase();
+    if (mcType.includes('GM') || mcType.includes('/G') || mcType.includes('PER G')) {
+        return Math.round(mc * wt * qty);
+    }
+    return Math.round(mc * qty);
+}
+
+function jainavMcOwedInrFromLines(lines) {
+    if (!Array.isArray(lines)) return 0;
+    return lines.reduce((s, l) => s + jainavLineMcOwedInr(l), 0);
+}
+
 function parseSessionJson(raw) {
     if (!raw) return {};
     if (typeof raw === 'object') return raw;
@@ -69,6 +88,8 @@ function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
     return s.length > max ? s.slice(0, max) : s;
 }
+
+const { roundMetalGm } = require('./erpLedgerMetal');
 
 async function nextLaneRef(query, resellerUserId, prefix) {
     const rows = await query(
@@ -107,11 +128,12 @@ async function applyJainavSettlementLedgerEntries(query, resellerUserId, bill) {
             [resellerUserId, bill.id, row.reference_no, row.entry_type],
         );
         if (existing.length) return existing[0];
+        const metalGm = roundMetalGm(row.metal_gm);
         const rows = await query(
             `INSERT INTO reseller_erp_ledger_entries (
                 reseller_user_id, entry_date, entry_type, amount_inr, customer_id,
-                shadow_bill_id, payment_mode, reference_no, narration, is_suspense, ledger_scope, weight_kg
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,false,'lane',$10)
+                shadow_bill_id, payment_mode, reference_no, narration, is_suspense, ledger_scope, weight_kg, metal_gm
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,false,'lane',$10,$11)
              RETURNING *`,
             [
                 resellerUserId,
@@ -120,10 +142,11 @@ async function applyJainavSettlementLedgerEntries(query, resellerUserId, bill) {
                 Math.round((Number(row.amount_inr) || 0) * 100) / 100,
                 customerId,
                 bill.id,
-                row.payment_mode || 'other',
+                row.payment_mode || 'metal',
                 row.reference_no,
                 row.narration,
                 row.weight_kg != null ? row.weight_kg : null,
+                metalGm != null && Math.abs(metalGm) >= 0.0005 ? Math.abs(metalGm) : null,
             ],
         );
         created.push(rows[0]);
@@ -136,8 +159,9 @@ async function applyJainavSettlementLedgerEntries(query, resellerUserId, bill) {
         await insertEntry({
             entry_type: 'payment_in',
             amount_inr: 0,
-            payment_mode: 'other',
+            payment_mode: 'metal',
             reference_no: ref,
+            metal_gm: receivedGm,
             weight_kg: Math.round((receivedGm / 1000) * 1000000) / 1000000,
             narration: `(V NO: ${billNo}) Metal received ${receivedGm.toFixed(3)} g`,
         });
@@ -150,8 +174,9 @@ async function applyJainavSettlementLedgerEntries(query, resellerUserId, bill) {
         await insertEntry({
             entry_type: 'adjustment',
             amount_inr: 0,
-            payment_mode: 'other',
+            payment_mode: 'metal',
             reference_no: ref,
+            metal_gm: finalMetalGm > 0 ? Math.abs(finalMetalGm) : -Math.abs(finalMetalGm),
             weight_kg: Math.round((Math.abs(finalMetalGm) / 1000) * 1000000) / 1000000,
             narration: `(V NO: ${billNo}) Metal balance ${sign}: ${Math.abs(finalMetalGm).toFixed(3)} g`,
         });
@@ -188,5 +213,7 @@ async function applyJainavSettlementLedgerEntries(query, resellerUserId, bill) {
 module.exports = {
     jainavLineMetalOwedGm,
     jainavMetalOwedGmFromLines,
+    jainavLineMcOwedInr,
+    jainavMcOwedInrFromLines,
     applyJainavSettlementLedgerEntries,
 };

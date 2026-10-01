@@ -46,7 +46,14 @@ export function ErpBillPreviewModal({ bill, kind, onClose }: Props) {
   let weight = 0
   for (const l of displayLines) weight += rawPhysicalNetGm(l)
 
-  const title = kind === 'estimate' ? 'Estimation preview' : 'Sales bill preview'
+  const title =
+    kind === 'estimate'
+      ? 'Estimation preview'
+      : bill.lane === 'jainav'
+        ? 'Jainav sale preview — no GST invoice'
+        : bill.shadow || bill.session?.gstEnabled === false
+          ? 'Cash sale preview — no GST invoice'
+          : 'Sales bill preview'
 
   return (
     <div

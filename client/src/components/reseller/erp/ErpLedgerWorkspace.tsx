@@ -35,6 +35,13 @@ import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import { exportDaybookToTallyLocal } from '@/lib/erp-tally-export'
 import { downloadDaybookPdf, type DaybookExportData } from '@/lib/erp-ledger-statement-pdf'
+import {
+  formatLedgerMoneyOrMetal,
+  formatLedgerRunningBalance,
+  formatMetalGm,
+  ledgerEntryMetalGm,
+  metalBalanceHint,
+} from '@/lib/erp-ledger-metal'
 
 type ImportPreviewRow = ParsedBankRow & {
   customer_name?: string | null
@@ -61,6 +68,10 @@ type DaybookTransaction = {
   debit_inr?: number
   credit_inr?: number
   balance_inr?: number
+  debit_metal_gm?: number
+  credit_metal_gm?: number
+  balance_metal_gm?: number
+  weight_gm?: number
   description?: string
 }
 
@@ -74,6 +85,9 @@ type DaybookData = {
     total_debit_inr?: number
     total_credit_inr?: number
     closing_balance_inr?: number
+    total_debit_metal_gm?: number
+    total_credit_metal_gm?: number
+    closing_balance_metal_gm?: number
     transaction_count: number
   }
   transactions: DaybookTransaction[]
@@ -93,7 +107,7 @@ type LedgerSummary = {
   }[]
 }
 
-const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other'] as const
+const PAYMENT_MODES = ['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other', 'metal'] as const
 
 type LedgerTab =
   | 'entries'
@@ -369,6 +383,10 @@ function emptyPaymentForm() {
     counterparty_name: '',
     narration: '',
     is_suspense: false,
+    currency: 'inr' as 'inr' | 'metal',
+    metal_kind: 'received' as 'received' | 'issued' | 'apply' | 'mc_adjust' | 'to_cash',
+    metal_gm: '',
+    metal_rate: '',
   }
 }
 
@@ -385,6 +403,7 @@ function emptyInlineDraft() {
     narration: '',
     is_suspense: false,
     employee_id: '',
+    metal_gm: '',
   }
 }
 
@@ -469,6 +488,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [payCustomerResults, setPayCustomerResults] = useState<ErpCustomer[]>([])
   const [payCustomerPickIdx, setPayCustomerPickIdx] = useState(-1)
   const [payCustomerLabel, setPayCustomerLabel] = useState('')
+  const [payBalances, setPayBalances] = useState<{
+    balance_due_inr: number
+    metal_balance_gm: number
+  } | null>(null)
   const [pvCustomerQ, setPvCustomerQ] = useState('')
   const [pvCustomerResults, setPvCustomerResults] = useState<ErpCustomer[]>([])
   const [pvCustomerPickIdx, setPvCustomerPickIdx] = useState(-1)
@@ -518,12 +541,38 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         return
       }
       void axios
-        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', { params: { q: payCustomerQ.trim() } })
+        .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+          params: { q: payCustomerQ.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
+        })
         .then((r) => setPayCustomerResults(r.data.customers || []))
         .catch(() => setPayCustomerResults([]))
     }, 200)
     return () => clearTimeout(t)
-  }, [payCustomerQ])
+  }, [payCustomerQ, laneMode])
+
+  useEffect(() => {
+    if (!form.customer_id) {
+      setPayBalances(null)
+      return
+    }
+    const path = laneMode
+      ? '/api/reseller/erp/shadow/customer-account'
+      : '/api/reseller/erp/ledger/customer-account'
+    const ac = new AbortController()
+    void axios
+      .get<{ summary: { balance_due_inr: number; metal_balance_gm?: number } }>(path, {
+        params: { customer_id: form.customer_id },
+        signal: ac.signal,
+      })
+      .then((r) => {
+        setPayBalances({
+          balance_due_inr: r.data.summary.balance_due_inr || 0,
+          metal_balance_gm: r.data.summary.metal_balance_gm || 0,
+        })
+      })
+      .catch(() => setPayBalances(null))
+    return () => ac.abort()
+  }, [form.customer_id, laneMode])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -656,19 +705,64 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const saveEntry = async () => {
     const amount = Number(String(form.amount_inr).replace(/[,₹\s]/g, ''))
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const metalGm = Number(String(form.metal_gm).replace(/[,gG\s]/g, ''))
+    const isMetal = form.currency === 'metal' || form.payment_mode === 'metal'
+    if (isMetal) {
+      const rate = Number(String(form.metal_rate).replace(/[,₹\s]/g, ''))
+      if (form.metal_kind === 'mc_adjust') {
+        if (
+          !(Number.isFinite(metalGm) && Math.abs(metalGm) >= 0.0005) &&
+          !(Number.isFinite(amount) && amount > 0 && rate > 0)
+        ) {
+          alert('Enter MC amount (₹) and metal rate, or metal grams')
+          return
+        }
+      } else if (form.metal_kind === 'to_cash') {
+        if (!Number.isFinite(metalGm) || Math.abs(metalGm) < 0.0005 || !(rate > 0)) {
+          alert('Enter leftover metal grams and the metal rate (₹/g)')
+          return
+        }
+      } else if (!Number.isFinite(metalGm) || Math.abs(metalGm) < 0.0005) {
+        alert('Enter metal weight in grams')
+        return
+      }
+    } else if (!Number.isFinite(amount) || amount <= 0) {
       alert('Enter a valid amount')
       return
     }
     setBusy(true)
     setMsg(null)
     try {
+      const metalKind = isMetal ? form.metal_kind : undefined
+      const convertSide =
+        isMetal && form.metal_kind === 'to_cash'
+          ? payBalances && payBalances.metal_balance_gm < 0
+            ? 'shop_owes'
+            : 'customer_owes'
+          : undefined
       await axios.post('/api/reseller/erp/ledger/entries', {
         entry_date: form.entry_date,
-        entry_type: form.is_suspense ? 'suspense_in' : form.entry_type,
-        amount_inr: amount,
+        entry_type: form.is_suspense
+          ? 'suspense_in'
+          : isMetal
+            ? form.metal_kind === 'issued'
+              ? 'payment_out'
+              : form.metal_kind === 'apply' ||
+                  form.metal_kind === 'mc_adjust' ||
+                  form.metal_kind === 'to_cash'
+                ? 'adjustment'
+                : 'payment_in'
+            : form.entry_type,
+        amount_inr: Number.isFinite(amount) && amount > 0 ? amount : 0,
+        metal_gm: isMetal ? metalGm : undefined,
+        metal_kind: metalKind,
+        convert_side: convertSide,
+        metal_rate_per_g:
+          isMetal && form.metal_rate.trim()
+            ? Number(String(form.metal_rate).replace(/[,₹\s]/g, ''))
+            : undefined,
         customer_id: form.customer_id ? Number(form.customer_id) : null,
-        payment_mode: form.payment_mode,
+        payment_mode: isMetal ? 'metal' : form.payment_mode,
         reference_no: form.reference_no,
         bank_name: form.bank_name,
         counterparty_name: form.counterparty_name,
@@ -676,22 +770,12 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         is_suspense: form.is_suspense,
         ledger_scope: laneMode ? 'lane' : 'official',
       })
-      setForm({
-        entry_date: todayIso(),
-        entry_type: 'payment_in',
-        amount_inr: '',
-        customer_id: '',
-        payment_mode: 'neft',
-        reference_no: '',
-        bank_name: '',
-        counterparty_name: '',
-        narration: '',
-        is_suspense: false,
-      })
+      setForm(emptyPaymentForm())
       setPayCustomerQ('')
       setPayCustomerLabel('')
       setPayCustomerResults([])
-      setMsg('Payment recorded.')
+      setPayBalances(null)
+      setMsg(isMetal ? 'Metal entry recorded.' : 'Payment recorded.')
       setTab('entries')
       await reload()
     } catch (e) {
@@ -1014,8 +1098,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const saveEdit = async () => {
     if (!editingId) return
     const amount = Number(String(editDraft.amount_inr ?? '').replace(/[,₹\s]/g, ''))
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert('Enter a valid amount')
+    const metalGm = ledgerEntryMetalGm(editDraft as ErpLedgerEntry)
+    const draftMetal = Number(editDraft.metal_gm)
+    const gm = Number.isFinite(draftMetal) && Math.abs(draftMetal) >= 0.0005 ? draftMetal : metalGm
+    if ((!Number.isFinite(amount) || amount <= 0) && !(Math.abs(gm) >= 0.0005)) {
+      alert('Enter a valid amount or metal weight')
       return
     }
     setBusy(true)
@@ -1023,7 +1110,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       await axios.put(`/api/reseller/erp/ledger/entries/${editingId}`, {
         entry_date: editDraft.entry_date,
         entry_type: editDraft.entry_type,
-        amount_inr: amount,
+        amount_inr: Number.isFinite(amount) ? amount : 0,
+        metal_gm: Math.abs(gm) >= 0.0005 ? gm : undefined,
         customer_id: editDraft.customer_id ?? null,
         payment_mode: editDraft.payment_mode,
         reference_no: editDraft.reference_no,
@@ -1045,7 +1133,14 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const saveInlineAdd = async () => {
     const amount = Number(String(inlineDraft.amount_inr).replace(/[,₹\s]/g, ''))
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const metalGm = Number(String(inlineDraft.metal_gm).replace(/[,gG\s]/g, ''))
+    const isMetal = inlineDraft.payment_mode === 'metal' || (Number.isFinite(metalGm) && metalGm > 0)
+    if (isMetal) {
+      if (!Number.isFinite(metalGm) || metalGm < 0.0005) {
+        alert('Enter metal weight in grams')
+        return
+      }
+    } else if (!Number.isFinite(amount) || amount <= 0) {
       alert('Enter a valid amount')
       return
     }
@@ -1054,9 +1149,18 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       await axios.post('/api/reseller/erp/ledger/entries', {
         entry_date: inlineDraft.entry_date,
         entry_type: inlineDraft.is_suspense ? 'suspense_in' : inlineDraft.entry_type,
-        amount_inr: amount,
+        amount_inr: Number.isFinite(amount) && amount > 0 ? amount : 0,
+        metal_gm: isMetal ? metalGm : undefined,
+        metal_kind:
+          isMetal && inlineDraft.entry_type === 'payment_out'
+            ? 'issued'
+            : isMetal && inlineDraft.entry_type === 'adjustment'
+              ? 'apply'
+              : isMetal
+                ? 'received'
+                : undefined,
         customer_id: inlineDraft.customer_id ? Number(inlineDraft.customer_id) : null,
-        payment_mode: inlineDraft.payment_mode,
+        payment_mode: isMetal ? 'metal' : inlineDraft.payment_mode,
         reference_no: inlineDraft.reference_no,
         bank_name: inlineDraft.bank_name,
         counterparty_name: inlineDraft.counterparty_name,
@@ -1066,19 +1170,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         ledger_scope: laneMode ? 'lane' : 'official',
       })
       setAddingInline(false)
-      setInlineDraft({
-        entry_date: todayIso(),
-        entry_type: 'payment_in',
-        amount_inr: '',
-        customer_id: '',
-        payment_mode: 'neft',
-        reference_no: '',
-        bank_name: '',
-        counterparty_name: '',
-        narration: '',
-        is_suspense: false,
-        employee_id: '',
-      })
+      setInlineDraft(emptyInlineDraft())
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -1295,6 +1387,12 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               value={String(d.amount_inr ?? '')}
               onChange={(ev) => setEditDraft({ ...editDraft, amount_inr: Number(ev.target.value) || 0 })}
             />
+            <input
+              className={`${erpInputCls} mt-1 w-24 py-1.5 text-right text-xs tabular-nums`}
+              placeholder="g"
+              value={String(d.metal_gm ?? '')}
+              onChange={(ev) => setEditDraft({ ...editDraft, metal_gm: Number(ev.target.value) || 0 })}
+            />
           </td>
           <td className="px-2 py-2">
             <div className="flex gap-1">
@@ -1338,8 +1436,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         </td>
         <td className="px-3 py-2.5 uppercase">{e.payment_mode}</td>
         <td className="max-w-[120px] truncate px-3 py-2.5">{e.reference_no || '—'}</td>
-        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">
-          {formatErpInr(e.amount_inr)}
+        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+          {formatLedgerMoneyOrMetal(e.amount_inr, ledgerEntryMetalGm(e))}
         </td>
         <td className="px-2 py-2">
           {tab === 'suspense' && e.is_suspense ? (
@@ -1418,6 +1516,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       debit: s?.total_debit_inr ?? 0,
       credit: s?.total_credit_inr ?? 0,
       balance: s?.closing_balance_inr ?? 0,
+      debitMetal: s?.total_debit_metal_gm ?? 0,
+      creditMetal: s?.total_credit_metal_gm ?? 0,
+      balanceMetal: s?.closing_balance_metal_gm ?? 0,
     }
   }, [dayBook])
 
@@ -1456,6 +1557,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           <p className="text-[11px] text-amber-800/70">{summary?.suspense_count ?? 0} unmatched</p>
         </div>
       </div>
+      {laneMode ? (
+        <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3 py-2 text-xs leading-relaxed text-[#1a1814]">
+          Dual-currency lane: rupees and metal grams both post here. After a Jainav sale, open Add payment → Metal (g) to receive metal, apply an existing metal balance, settle MC against metal, or convert leftover grams to cash.
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {tabs.map((t) => (
@@ -1565,7 +1671,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                   <th className="px-3 py-2.5">Customer / party</th>
                   <th className="px-3 py-2.5">Mode</th>
                   <th className="px-3 py-2.5">Reference</th>
-                  <th className="px-3 py-2.5 text-right">Amount</th>
+                  <th className="px-3 py-2.5 text-right">Amount / metal</th>
                   <th className="px-3 py-2.5" />
                 </tr>
               </thead>
@@ -1639,6 +1745,12 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                         value={inlineDraft.amount_inr}
                         onChange={(ev) => setInlineDraft({ ...inlineDraft, amount_inr: ev.target.value })}
                       />
+                      <input
+                        className={`${erpInputCls} mt-1 w-24 py-1.5 text-right text-xs tabular-nums`}
+                        placeholder="g"
+                        value={inlineDraft.metal_gm}
+                        onChange={(ev) => setInlineDraft({ ...inlineDraft, metal_gm: ev.target.value })}
+                      />
                     </td>
                     <td className="px-2 py-2">
                       <div className="flex gap-1">
@@ -1671,7 +1783,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         <div className={`${erpCardCls} space-y-3`}>
           <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             <Wallet className="size-4 text-emerald-700" />
-            Record payment manually
+            Record payment or metal
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -1683,6 +1795,90 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Currency
+              <select
+                className={`${erpInputCls} mt-1`}
+                value={form.currency}
+                onChange={(e) => {
+                  const currency = e.target.value as 'inr' | 'metal'
+                  setForm({
+                    ...form,
+                    currency,
+                    payment_mode: currency === 'metal' ? 'metal' : form.payment_mode === 'metal' ? 'neft' : form.payment_mode,
+                  })
+                }}
+              >
+                <option value="inr">Rupees (₹)</option>
+                <option value="metal">Metal (g)</option>
+              </select>
+            </label>
+            {form.currency === 'metal' ? (
+              <>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal movement
+                  <select
+                    className={`${erpInputCls} mt-1`}
+                    value={form.metal_kind}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        metal_kind: e.target.value as
+                          | 'received'
+                          | 'issued'
+                          | 'apply'
+                          | 'mc_adjust'
+                          | 'to_cash',
+                      })
+                    }
+                  >
+                    <option value="received">Metal received from customer</option>
+                    <option value="issued">Metal issued to customer</option>
+                    <option value="apply">Apply existing metal to bill</option>
+                    <option value="mc_adjust">Adjust MC against metal</option>
+                    <option value="to_cash">Convert leftover metal to cash</option>
+                  </select>
+                </label>
+                {form.metal_kind === 'mc_adjust' ? (
+                  <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                    MC amount (₹)
+                    <input
+                      className={`${erpInputCls} mt-1`}
+                      inputMode="decimal"
+                      value={form.amount_inr}
+                      onChange={(e) => setForm({ ...form, amount_inr: e.target.value.replace(/[^\d.]/g, '') })}
+                      placeholder="e.g. 7998"
+                    />
+                  </label>
+                ) : null}
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Weight (g)
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    inputMode="decimal"
+                    value={form.metal_gm}
+                    onChange={(e) => setForm({ ...form, metal_gm: e.target.value.replace(/[^\d.]/g, '') })}
+                    placeholder={form.metal_kind === 'mc_adjust' ? 'Optional if MC + rate filled' : 'e.g. 200'}
+                  />
+                </label>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal rate (₹/g){form.metal_kind === 'to_cash' || form.metal_kind === 'mc_adjust' ? '' : ' — optional'}
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    inputMode="decimal"
+                    value={form.metal_rate}
+                    onChange={(e) => setForm({ ...form, metal_rate: e.target.value.replace(/[^\d.]/g, '') })}
+                    placeholder={
+                      form.metal_kind === 'to_cash' || form.metal_kind === 'mc_adjust'
+                        ? 'Required, e.g. 230'
+                        : form.metal_kind === 'apply'
+                          ? 'Converts grams to ₹ payment'
+                          : 'Optional'
+                    }
+                  />
+                </label>
+              </>
+            ) : (
+            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Amount (₹)
               <input
                 className={`${erpInputCls} mt-1`}
@@ -1691,6 +1887,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 onChange={(e) => setForm({ ...form, amount_inr: e.target.value })}
               />
             </label>
+            )}
+            {form.currency !== 'metal' ? (
+              <>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Type
               <select
@@ -1711,13 +1910,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 value={form.payment_mode}
                 onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}
               >
-                {PAYMENT_MODES.map((m) => (
+                {PAYMENT_MODES.filter((m) => m !== 'metal').map((m) => (
                   <option key={m} value={m}>
                     {m.toUpperCase()}
                   </option>
                 ))}
               </select>
             </label>
+              </>
+            ) : null}
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
               Customer
               <div className="relative mt-1">
@@ -1785,6 +1986,49 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               </div>
               {payCustomerLabel ? (
                 <p className="mt-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{payCustomerLabel}</p>
+              ) : null}
+              {payBalances ? (
+                <div className="mt-2 rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3 py-2 text-[11px] leading-relaxed text-[#1a1814]">
+                  <p>
+                    Due {formatErpInr(payBalances.balance_due_inr)}
+                    {formatMetalGm(payBalances.metal_balance_gm)
+                      ? ` · ${formatMetalGm(payBalances.metal_balance_gm)}`
+                      : ''}
+                  </p>
+                  <p className="text-[#1a1814]/60">{metalBalanceHint(payBalances.metal_balance_gm)}</p>
+                  {form.currency === 'metal' ? (
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      {Math.abs(payBalances.metal_balance_gm) >= 0.0005 ? (
+                        <button
+                          type="button"
+                          className="font-semibold text-emerald-800 underline"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              metal_gm: Math.abs(payBalances.metal_balance_gm).toFixed(3),
+                            })
+                          }
+                        >
+                          Use {Math.abs(payBalances.metal_balance_gm).toFixed(3)} g
+                        </button>
+                      ) : null}
+                      {payBalances.balance_due_inr > 0 && form.metal_kind === 'mc_adjust' ? (
+                        <button
+                          type="button"
+                          className="font-semibold text-emerald-800 underline"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              amount_inr: String(Math.round(payBalances.balance_due_inr)),
+                            })
+                          }
+                        >
+                          Use MC due {formatErpInr(payBalances.balance_due_inr)}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </label>
             <input
@@ -2415,18 +2659,20 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Debit</p>
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                {formatErpInr(dayBookLedger.debit)}
+                {formatLedgerRunningBalance(dayBookLedger.debit, dayBookLedger.debitMetal)}
               </p>
             </div>
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Credit</p>
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                {formatErpInr(dayBookLedger.credit)}
+                {formatLedgerRunningBalance(dayBookLedger.credit, dayBookLedger.creditMetal)}
               </p>
             </div>
             <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-emerald-800/70">Balance</p>
-              <p className="font-bold tabular-nums text-emerald-900">{formatErpInr(dayBookLedger.balance)}</p>
+              <p className="font-bold tabular-nums text-emerald-900">
+                {formatLedgerRunningBalance(dayBookLedger.balance, dayBookLedger.balanceMetal)}
+              </p>
             </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
@@ -2465,14 +2711,14 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <td className="max-w-[160px] truncate px-3 py-2.5">{row.customer_name || '—'}</td>
                       <td className="px-3 py-2.5 uppercase">{row.payment_mode || '—'}</td>
                       <td className="max-w-[120px] truncate px-3 py-2.5">{row.reference || '—'}</td>
-                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums sm:table-cell">
-                        {row.debit_inr && row.debit_inr > 0 ? formatErpInr(row.debit_inr) : '—'}
+                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
+                        {formatLedgerMoneyOrMetal(row.debit_inr, row.debit_metal_gm)}
                       </td>
-                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums sm:table-cell">
-                        {row.credit_inr && row.credit_inr > 0 ? formatErpInr(row.credit_inr) : '—'}
+                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
+                        {formatLedgerMoneyOrMetal(row.credit_inr, row.credit_metal_gm)}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                        {row.balance_inr != null ? formatErpInr(row.balance_inr) : '—'}
+                        {formatLedgerRunningBalance(row.balance_inr, row.balance_metal_gm)}
                       </td>
                       <td className="px-2 py-2">
                         {canDeleteRecords &&

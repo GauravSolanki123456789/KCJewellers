@@ -236,6 +236,8 @@ export type ErpBill = {
   } | null
   created_at?: string | null
   updated_at?: string | null
+  shadow?: boolean
+  lane?: 'hitesh' | 'jainav' | string
 }
 
 export type ErpCustomer = {
@@ -331,6 +333,7 @@ export type ErpLedgerEntry = {
   pv_number?: string | null
   employee_id?: number | null
   weight_kg?: number | null
+  metal_gm?: number | null
   created_at?: string | null
   updated_at?: string | null
 }

@@ -2300,7 +2300,14 @@ app.post('/api/auth/logout', (req, res) => {
 
 // Static files — serve public/ and explicitly expose uploads under /uploads
 app.use(express.static('public'));
-app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+app.use(
+    '/uploads',
+    express.static(path.join(__dirname, 'public', 'uploads'), {
+        maxAge: process.env.NODE_ENV === 'production' ? '30d' : 0,
+        etag: true,
+        lastModified: true,
+    }),
+);
 
 // ==========================================
 // SCHEMA CHECK FUNCTION - Ensures products table has required columns

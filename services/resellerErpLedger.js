@@ -13,7 +13,7 @@ const LEDGER_ENTRY_TYPES = new Set([
     'salary',
 ]);
 
-const PAYMENT_MODES = new Set(['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other', 'bank', 'gpay', 'mixed']);
+const PAYMENT_MODES = new Set(['cash', 'upi', 'neft', 'imps', 'cheque', 'card', 'other', 'bank', 'gpay', 'mixed', 'metal']);
 
 const LEDGER_SCOPES = new Set(['official', 'lane']);
 
@@ -26,6 +26,7 @@ const {
 const { normDateIso } = require('./erpDateNormalize');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
+const { parseMetalGm, metalGmFromLedgerRow, roundMetalGm } = require('./erpLedgerMetal');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -160,6 +161,7 @@ function mapLedgerEntry(row, extras = {}) {
         pv_number: row.pv_number || extras.pv_number || null,
         employee_id: row.employee_id,
         weight_kg: row.weight_kg != null ? Number(row.weight_kg) : null,
+        metal_gm: metalGmFromLedgerRow(row) || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -203,6 +205,8 @@ async function ensureLedgerSchema(pool) {
             ADD COLUMN IF NOT EXISTS shadow_bill_id INTEGER;
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS weight_kg NUMERIC(12, 3);
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS metal_gm NUMERIC(14, 3);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer
@@ -375,6 +379,21 @@ async function nextReceiptNumber(query, resellerUserId, scope) {
         }
     }
     return `REC${seq}`;
+}
+
+async function nextMetalRef(query, resellerUserId, prefix) {
+    const p = String(prefix || 'MT').toUpperCase();
+    const rows = await query(
+        `SELECT reference_no FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND ledger_scope = 'lane'
+           AND reference_no ILIKE $2
+         ORDER BY id DESC LIMIT 1`,
+        [resellerUserId, `${p}%`],
+    );
+    const last = rows[0]?.reference_no;
+    const m = last ? new RegExp(`^${p}(\\d+)$`, 'i').exec(String(last)) : null;
+    const n = m ? parseInt(m[1], 10) + 1 : 1;
+    return `${p}${String(n).padStart(4, '0')}`;
 }
 
 function buildCashReceivedNarration({ recNumber, customerName, billNumber, entryDate }) {
@@ -757,15 +776,36 @@ function registerResellerErpLedgerRoutes(app, deps) {
 
     app.post('/api/reseller/erp/ledger/entries', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
-            const entryType = trimStr(req.body.entry_type, 32) || 'payment_in';
+            const metalKind = trimStr(req.body.metal_kind || req.body.metalKind, 32).toLowerCase();
+            let entryType = trimStr(req.body.entry_type, 32) || 'payment_in';
+            if (metalKind === 'apply' || metalKind === 'redeem' || metalKind === 'mc_adjust') {
+                entryType = 'adjustment';
+            } else if (metalKind === 'to_cash' || metalKind === 'convert_cash') {
+                entryType = 'adjustment';
+            } else if (metalKind === 'issued' || metalKind === 'issue') {
+                entryType = 'payment_out';
+            } else if (metalKind === 'received' || metalKind === 'receipt') {
+                entryType = 'payment_in';
+            }
             if (!LEDGER_ENTRY_TYPES.has(entryType)) {
                 return res.status(400).json({ error: 'Invalid entry type' });
             }
-            const amount = parseAmount(req.body.amount_inr);
-            if (amount == null || amount <= 0) {
-                return res.status(400).json({ error: 'Valid amount is required' });
+            const metalGm = parseMetalGm(req.body.metal_gm ?? req.body.metalWeight ?? req.body.weight_gm);
+            const metalRate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+            let amount = parseAmount(req.body.amount_inr) ?? 0;
+            if (
+                (!amount || amount <= 0) &&
+                metalGm != null &&
+                Math.abs(metalGm) >= 0.0005 &&
+                metalRate != null &&
+                metalRate > 0
+            ) {
+                amount = Math.round(Math.abs(metalGm) * metalRate * 100) / 100;
             }
-            const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'other';
+            if ((amount == null || amount <= 0) && !(metalGm != null && Math.abs(metalGm) >= 0.0005)) {
+                return res.status(400).json({ error: 'Enter an amount (₹) or metal weight (g)' });
+            }
+            let paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'other';
             const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
             const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'official';
             const isSuspense = !!req.body.is_suspense;
@@ -774,6 +814,35 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const pvId = req.body.pv_id != null ? parseInt(String(req.body.pv_id), 10) || null : null;
             const weightKg =
                 req.body.weight_kg != null ? parseFloat(String(req.body.weight_kg).replace(/[,₹\s]/g, '')) : null;
+            let resolvedMetalGm =
+                metalGm != null
+                    ? metalGm
+                    : Number.isFinite(weightKg) && weightKg > 0 && paymentMode === 'metal'
+                      ? roundMetalGm(weightKg * 1000)
+                      : null;
+            if (
+                metalKind === 'mc_adjust' &&
+                (resolvedMetalGm == null || Math.abs(resolvedMetalGm) < 0.0005) &&
+                amount > 0 &&
+                metalRate != null &&
+                metalRate > 0
+            ) {
+                resolvedMetalGm = roundMetalGm(amount / metalRate);
+            }
+            const convertSide = trimStr(req.body.convert_side || req.body.convertSide, 24).toLowerCase();
+            const shopOwesMetal =
+                convertSide === 'shop_owes' ||
+                convertSide === 'payable' ||
+                (resolvedMetalGm != null && resolvedMetalGm < 0);
+            if (
+                (metalKind === 'to_cash' || metalKind === 'convert_cash') &&
+                amount > 0
+            ) {
+                if (!shopOwesMetal) amount = -Math.abs(amount);
+            }
+            if (resolvedMetalGm != null && Math.abs(resolvedMetalGm) >= 0.0005 && paymentMode === 'other') {
+                paymentMode = 'metal';
+            }
             const customerId =
                 req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null;
             const noCustomerOk = new Set(['payment_out', 'purchase', 'expense', 'salary']);
@@ -783,6 +852,37 @@ function registerResellerErpLedgerRoutes(app, deps) {
             let referenceNo = trimStr(req.body.reference_no, 120);
             let narration = trimStr(req.body.narration, 2000);
             const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
+            if (resolvedMetalGm != null && Math.abs(resolvedMetalGm) >= 0.0005 && !referenceNo) {
+                const metalPrefix =
+                    metalKind === 'apply' || metalKind === 'redeem' || entryType === 'adjustment'
+                        ? 'MB'
+                        : entryType === 'payment_out'
+                          ? 'MI'
+                          : 'MT';
+                referenceNo = await nextMetalRef(query, req.user.id, metalPrefix);
+            }
+            if (
+                resolvedMetalGm != null &&
+                Math.abs(resolvedMetalGm) >= 0.0005 &&
+                !narration
+            ) {
+                const absGm = Math.abs(resolvedMetalGm).toFixed(3);
+                const rateBit =
+                    metalRate != null && metalRate > 0 ? ` @ ₹${metalRate}/g` : '';
+                if (metalKind === 'to_cash' || metalKind === 'convert_cash') {
+                    narration = shopOwesMetal
+                        ? `Metal converted to cash (payable) ${absGm} g${rateBit}`
+                        : `Metal converted to cash (receivable) ${absGm} g${rateBit}`;
+                } else if (metalKind === 'mc_adjust') {
+                    narration = `MC against metal ${absGm} g${rateBit}`;
+                } else if (metalKind === 'apply' || metalKind === 'redeem' || entryType === 'adjustment') {
+                    narration = `Metal applied ${absGm} g against bill${rateBit}`;
+                } else if (entryType === 'payment_out') {
+                    narration = `Metal issued ${absGm} g${rateBit}`;
+                } else {
+                    narration = `Metal received ${absGm} g${rateBit}`;
+                }
+            }
             if (
                 entryType === 'payment_in' &&
                 paymentMode === 'cash' &&
@@ -808,12 +908,18 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     });
                 }
             }
+            const metalKgStore =
+                resolvedMetalGm != null && Math.abs(resolvedMetalGm) >= 0.0005
+                    ? roundMetalGm(Math.abs(resolvedMetalGm) / 1000)
+                    : Number.isFinite(weightKg)
+                      ? weightKg
+                      : null;
             const rows = await query(
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
                     payment_mode, reference_no, bank_name, counterparty_name, narration, is_suspense,
-                    ledger_scope, employee_id, pv_id, weight_kg
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                    ledger_scope, employee_id, pv_id, weight_kg, metal_gm
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -831,7 +937,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     entryType === 'purchase' ? 'official' : ledgerScope,
                     employeeId,
                     pvId,
-                    weightKg,
+                    metalKgStore,
+                    resolvedMetalGm,
                 ],
             );
             res.json({ success: true, entry: mapLedgerEntry(rows[0]) });
@@ -846,6 +953,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const id = parseInt(String(req.params.id), 10);
             if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
             const amount = parseAmount(req.body.amount_inr);
+            const metalGm = parseMetalGm(req.body.metal_gm ?? req.body.metalWeight ?? req.body.weight_gm);
             const rows = await query(
                 `UPDATE reseller_erp_ledger_entries SET
                     entry_date = COALESCE($1::date, entry_date),
@@ -861,8 +969,9 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     is_suspense = COALESCE($11, is_suspense),
                     employee_id = $12,
                     weight_kg = COALESCE($13, weight_kg),
+                    metal_gm = COALESCE($14, metal_gm),
                     updated_at = NOW()
-                 WHERE id = $14 AND reseller_user_id = $15
+                 WHERE id = $15 AND reseller_user_id = $16
                  RETURNING *`,
                 [
                     parseDateOrNull(req.body.entry_date),
@@ -880,6 +989,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     req.body.weight_kg != null
                         ? parseFloat(String(req.body.weight_kg).replace(/[,₹\s]/g, ''))
                         : null,
+                    metalGm,
                     id,
                     req.user.id,
                 ],

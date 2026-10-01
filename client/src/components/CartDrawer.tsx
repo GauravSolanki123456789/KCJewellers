@@ -7,15 +7,14 @@ import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { useCustomerTier } from '@/context/CustomerTierContext'
-import Image from 'next/image'
 import { X } from 'lucide-react'
-import { CATALOG_CARD_IMAGE_QUALITY, shouldOptimizeCatalogImage } from '@/lib/catalog-image-next'
 import {
   getCustomerDisplayWeightLabel,
   isFixedPriceCatalogItem,
 } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
+import { optimizedCatalogThumbSrc } from '@/lib/catalog-image-next'
 import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
 
 type Breakdown = {
@@ -31,6 +30,7 @@ type CartDrawerProps = {
 
 function CartItemImage({ src, alt }: { src: string; alt: string }) {
   const normalized = normalizeCatalogImageSrc(src)
+  const thumbSrc = normalized ? optimizedCatalogThumbSrc(normalized, 160) : ''
   const [hasImageError, setHasImageError] = useState(false)
   useEffect(() => {
     setHasImageError(false)
@@ -52,18 +52,14 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
   }
   return (
     <div
-      className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden isolate relative ${productImageWellClass}`}
+      className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden isolate ${productImageWellClass}`}
     >
-      <Image
-        src={normalized}
+      <img
+        src={thumbSrc || normalized}
         alt={alt}
-        fill
-        sizes="80px"
-        quality={CATALOG_CARD_IMAGE_QUALITY}
-        className={cn('object-contain')}
+        className={cn('w-full h-full object-contain')}
         loading="lazy"
         decoding="async"
-        unoptimized={!shouldOptimizeCatalogImage(normalized)}
         onError={() => setHasImageError(true)}
       />
     </div>

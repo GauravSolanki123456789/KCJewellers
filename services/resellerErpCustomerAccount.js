@@ -3,7 +3,13 @@
  */
 
 const { parseDateOrNull, normDateIso } = require('./erpDateNormalize');
-const { jainavMetalOwedGmFromLines } = require('./erpJainavSettlement');
+const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
+const {
+    metalGmFromLedgerRow,
+    metalDebitCreditFromLedgerEntry,
+    metalDebitFromSaleWeight,
+    roundMetalGm,
+} = require('./erpLedgerMetal');
 
 function normDate(d) {
     return normDateIso(d);
@@ -148,21 +154,44 @@ function ledgerEntryLedgerAmounts(entryType, amountInr) {
 
 function applyDaybookLedgerColumns(rows) {
     let running = 0;
+    let runningMetal = 0;
     let totalDebit = 0;
     let totalCredit = 0;
+    let totalDebitMetal = 0;
+    let totalCreditMetal = 0;
     const transactions = rows.map((r) => {
         const dc =
             r.source === 'bill' || r.source === 'shadow_bill'
                 ? billLedgerAmounts(r.kind, r.amount_inr)
                 : ledgerEntryLedgerAmounts(r.kind, r.amount_inr);
+        const metalDc =
+            r.debit_metal_gm != null || r.credit_metal_gm != null
+                ? {
+                      debit_metal_gm: roundMetalGm(r.debit_metal_gm),
+                      credit_metal_gm: roundMetalGm(r.credit_metal_gm),
+                  }
+                : r.source === 'bill' || r.source === 'shadow_bill'
+                  ? metalDebitFromSaleWeight(r.weight_gm)
+                  : metalDebitCreditFromLedgerEntry(
+                        r.kind,
+                        r.weight_gm || r.metal_gm,
+                        r.description || r.narration,
+                    );
         totalDebit += dc.debit_inr;
         totalCredit += dc.credit_inr;
+        totalDebitMetal += metalDc.debit_metal_gm;
+        totalCreditMetal += metalDc.credit_metal_gm;
         running += dc.debit_inr - dc.credit_inr;
+        runningMetal += metalDc.debit_metal_gm - metalDc.credit_metal_gm;
         return {
             ...r,
             debit_inr: Math.round(dc.debit_inr * 100) / 100,
             credit_inr: Math.round(dc.credit_inr * 100) / 100,
             balance_inr: Math.round(running * 100) / 100,
+            debit_metal_gm: metalDc.debit_metal_gm,
+            credit_metal_gm: metalDc.credit_metal_gm,
+            weight_gm: roundMetalGm(metalDc.debit_metal_gm || metalDc.credit_metal_gm || r.weight_gm),
+            balance_metal_gm: roundMetalGm(runningMetal),
         };
     });
     return {
@@ -170,6 +199,9 @@ function applyDaybookLedgerColumns(rows) {
         total_debit_inr: Math.round(totalDebit * 100) / 100,
         total_credit_inr: Math.round(totalCredit * 100) / 100,
         closing_balance_inr: Math.round(running * 100) / 100,
+        total_debit_metal_gm: roundMetalGm(totalDebitMetal),
+        total_credit_metal_gm: roundMetalGm(totalCreditMetal),
+        closing_balance_metal_gm: roundMetalGm(runningMetal),
     };
 }
 
@@ -212,50 +244,81 @@ function formatLedgerPaymentDescription(p, customerName, shadowBillById) {
     return 'CASH - CASH RECEIVED';
 }
 
+function parseJsonObject(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+function shadowSaleSession(s) {
+    return parseJsonObject(s.session_json || s.session) || {};
+}
+
+function shadowSaleLines(s) {
+    const lines = parseJsonObject(s.lines_json || s.lines);
+    return Array.isArray(lines) ? lines : [];
+}
+
+function shadowSaleHasPostedSettlement(session) {
+    const st = session && session.jainavSettlement;
+    if (!st || typeof st !== 'object') return false;
+    return (
+        Number(st.metalReceivedGm) > 0 ||
+        (Number.isFinite(Number(st.finalMetalBalanceGm)) && Math.abs(Number(st.finalMetalBalanceGm)) >= 0.001)
+    );
+}
+
+function shadowSaleMcOwedInr(s) {
+    const session = shadowSaleSession(s);
+    const fromSession = Number(session.jainavMcOwedInr);
+    if (Number.isFinite(fromSession) && fromSession > 0) return Math.round(fromSession);
+    const fromSettle = Number(session.jainavSettlement && session.jainavSettlement.totalMcOwedInr);
+    if (Number.isFinite(fromSettle) && fromSettle > 0) return Math.round(fromSettle);
+    return jainavMcOwedInrFromLines(shadowSaleLines(s));
+}
+
 function shadowSaleWeightGm(s) {
-    let lines = s.lines_json;
-    if (typeof lines === 'string') {
-        try {
-            lines = JSON.parse(lines);
-        } catch {
-            lines = [];
-        }
-    }
-    let session = s.session_json;
-    if (typeof session === 'string') {
-        try {
-            session = JSON.parse(session);
-        } catch {
-            session = null;
-        }
-    }
-    const slab = (session && session.rateSlab) || 'R';
-    const settled = session && session.jainavSettlement && session.jainavSettlement.totalMetalOwedGm;
+    const session = shadowSaleSession(s);
+    const settled = session.jainavMetalOwedGm ?? session.jainavSettlement?.totalMetalOwedGm;
     if (settled != null && Number(settled) > 0) {
         return Math.round(Number(settled) * 1000) / 1000;
     }
+    const lines = shadowSaleLines(s);
+    const slab = session.rateSlab || 'R';
     const jainavWt = jainavMetalOwedGmFromLines(lines, slab);
     if (jainavWt > 0) return jainavWt;
     return (
         totalWeightGmFromLines(lines) ||
-        Number(session && (session.returnWeightGm || session.totalWeightGm)) ||
+        Number(session.returnWeightGm || session.totalWeightGm) ||
         0
     );
 }
 
 function pushShadowSaleRows(rows, s) {
-    const billAmt = Number(s.total_inr) || 0;
-    const weightGm = shadowSaleWeightGm(s);
+    const session = shadowSaleSession(s);
+    const lane = s.lane || 'jainav';
+    const isJainav = lane === 'jainav';
+    const metalGm = shadowSaleWeightGm(s);
+    const saleMetalPostedElsewhere = isJainav && shadowSaleHasPostedSettlement(session);
+    const metalDebit = saleMetalPostedElsewhere ? 0 : metalGm;
+    const mcOwed = isJainav ? shadowSaleMcOwedInr(s) : 0;
+    const billAmt = isJainav && mcOwed > 0 ? mcOwed : Number(s.total_inr) || 0;
     rows.push({
         date: normDate(s.bill_date),
         sort_id: s.id,
         kind: 'sale',
         ref: s.bill_number,
-        description: `(V NO: ${s.bill_number}) SALES A/C -`,
+        description: `(V NO: ${s.bill_number}) ${isJainav ? 'JAINAV SALE — metal + MC' : 'SALES A/C -'}`,
         debit: billAmt,
         credit: 0,
-        lane: s.lane || 'jainav',
-        weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
+        lane,
+        weight_gm: metalGm > 0 ? Math.round(metalGm * 1000) / 1000 : 0,
+        debit_metal_gm: metalDebit > 0 ? roundMetalGm(metalDebit) : 0,
+        credit_metal_gm: 0,
     });
 }
 
@@ -330,7 +393,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const entryParams = book ? [resellerUserId] : [resellerUserId, customerId];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
-                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg
+                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg, metal_gm
                     FROM reseller_erp_ledger_entries
                     WHERE reseller_user_id = $1 AND is_suspense = false`;
     if (book === 'cash') {
@@ -414,13 +477,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         for (const s of shadowSales) pushShadowSaleRows(rows, s);
     }
 
-    const seenShadowPay = new Set();
     for (const p of payments) {
-        if (p.shadow_bill_id) {
-            const key = String(p.shadow_bill_id);
-            if (seenShadowPay.has(key)) continue;
-            seenShadowPay.add(key);
-        }
         const creditTypes = new Set(['payment_in', 'bill_advance', 'suspense_in']);
         let credit = 0;
         let debit = 0;
@@ -434,6 +491,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             if (amt >= 0) credit = amt;
             else debit = Math.abs(amt);
         }
+        const metalGm = metalGmFromLedgerRow(p);
+        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGm, p.narration);
         const isPay = creditTypes.has(p.entry_type) || p.entry_type === 'payment_out';
         let linkedBillRef = null;
         if (p.shadow_bill_id && shadowBillById[p.shadow_bill_id]) {
@@ -443,7 +502,6 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         } else {
             linkedBillRef = extractLinkedBillRefFromNarration(p.narration);
         }
-        const wtKg = p.weight_kg != null ? Number(p.weight_kg) : 0;
         rows.push({
             date: normDate(p.entry_date),
             sort_id: p.id,
@@ -456,17 +514,27 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             credit,
             payment_mode: p.payment_mode,
             linked_bill_ref: linkedBillRef,
-            weight_gm: wtKg > 0 ? Math.round(wtKg * 1000 * 1000) / 1000 : 0,
+            weight_gm: metalGm,
+            debit_metal_gm: metalDc.debit_metal_gm,
+            credit_metal_gm: metalDc.credit_metal_gm,
         });
     }
 
     const orderedRows = sortLedgerRowsChronologically(rows);
 
     let running = 0;
+    let runningMetal = 0;
     const transactions = orderedRows.map((r) => {
-        running += r.debit - r.credit;
+        running += (Number(r.debit) || 0) - (Number(r.credit) || 0);
+        const dMetal = Number(r.debit_metal_gm) || 0;
+        const cMetal = Number(r.credit_metal_gm) || 0;
+        runningMetal += dMetal - cMetal;
         const { linked_bill_ref: _lb, ...pub } = r;
-        return { ...pub, balance_inr: Math.round(running * 100) / 100 };
+        return {
+            ...pub,
+            balance_inr: Math.round(running * 100) / 100,
+            balance_metal_gm: roundMetalGm(runningMetal),
+        };
     });
 
     const totalBilled = orderedRows
@@ -477,6 +545,9 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         .reduce((s, r) => s + r.credit, 0);
     const balanceDue = transactions.length
         ? transactions[transactions.length - 1].balance_inr
+        : 0;
+    const metalBalance = transactions.length
+        ? transactions[transactions.length - 1].balance_metal_gm
         : 0;
 
     return {
@@ -492,6 +563,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             total_billed_inr: Math.round(totalBilled * 100) / 100,
             total_paid_inr: Math.round(totalPaid * 100) / 100,
             balance_due_inr: balanceDue,
+            metal_balance_gm: roundMetalGm(metalBalance),
             transaction_count: transactions.length,
         },
         transactions,
@@ -592,7 +664,16 @@ async function buildDaybook(query, resellerUserId, opts) {
                 [resellerUserId, day],
             );
             for (const s of shadowSales) {
-                const flows = billCashflows('sale', s.total_inr);
+                const session = shadowSaleSession(s);
+                const isJainav = String(s.lane || 'jainav') === 'jainav';
+                const weightGm = shadowSaleWeightGm(s);
+                const mcOwed = isJainav ? shadowSaleMcOwedInr(s) : 0;
+                const amountInr = isJainav && mcOwed > 0 ? mcOwed : Number(s.total_inr) || 0;
+                const metalDc =
+                    isJainav && !shadowSaleHasPostedSettlement(session)
+                        ? metalDebitFromSaleWeight(weightGm)
+                        : { debit_metal_gm: 0, credit_metal_gm: 0 };
+                const flows = billCashflows('sale', amountInr);
                 rows.push({
                     row_key: `shadow:${s.id}`,
                     source: 'shadow_bill',
@@ -605,7 +686,9 @@ async function buildDaybook(query, resellerUserId, opts) {
                     customer_name: s.customer_name || 'Walk-in',
                     payment_mode: String(s.payment_method || 'cash').trim() || 'cash',
                     reference: s.bill_number || '',
-                    amount_inr: Number(s.total_inr) || 0,
+                    amount_inr: amountInr,
+                    weight_gm: weightGm,
+                    ...metalDc,
                     ...flows,
                 });
             }
@@ -615,7 +698,7 @@ async function buildDaybook(query, resellerUserId, opts) {
     const entryParams = [resellerUserId, day];
     let entrySql = `SELECT e.id, e.entry_date, e.entry_type, e.amount_inr, e.payment_mode, e.reference_no,
                            e.narration, e.bill_id, e.shadow_bill_id, e.customer_id, e.created_at,
-                           e.ledger_scope, e.counterparty_name,
+                           e.ledger_scope, e.counterparty_name, e.weight_kg, e.metal_gm,
                            c.name AS customer_name, b.bill_number, pv.pv_number
                     FROM reseller_erp_ledger_entries e
                     LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
@@ -651,13 +734,7 @@ async function buildDaybook(query, resellerUserId, opts) {
         shadowBillById = Object.fromEntries((sbRows || []).map((r) => [r.id, r]));
     }
 
-    const seenShadowPay = new Set();
     for (const p of payments) {
-        if (p.shadow_bill_id) {
-            const key = String(p.shadow_bill_id);
-            if (seenShadowPay.has(key)) continue;
-            seenShadowPay.add(key);
-        }
         const flows = ledgerEntryCashflows(p.entry_type, p.amount_inr);
         const party =
             p.customer_name ||
@@ -665,6 +742,8 @@ async function buildDaybook(query, resellerUserId, opts) {
             (p.pv_number ? `PV ${p.pv_number}` : null) ||
             '—';
         const isPay = ['payment_in', 'bill_advance', 'suspense_in', 'payment_out'].includes(p.entry_type);
+        const metalGm = metalGmFromLedgerRow(p);
+        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGm, p.narration);
         rows.push({
             row_key: `ledger:${p.id}`,
             source: 'ledger',
@@ -678,6 +757,9 @@ async function buildDaybook(query, resellerUserId, opts) {
             payment_mode: String(p.payment_mode || '—').trim() || '—',
             reference: p.reference_no || p.bill_number || p.pv_number || '',
             amount_inr: Number(p.amount_inr) || 0,
+            weight_gm: metalGm,
+            metal_gm: metalGm,
+            ...metalDc,
             ...flows,
             description: isPay
                 ? formatLedgerPaymentDescription(p, p.customer_name, shadowBillById)
@@ -711,6 +793,9 @@ async function buildDaybook(query, resellerUserId, opts) {
             total_debit_inr: ledgerCols.total_debit_inr,
             total_credit_inr: ledgerCols.total_credit_inr,
             closing_balance_inr: ledgerCols.closing_balance_inr,
+            total_debit_metal_gm: ledgerCols.total_debit_metal_gm,
+            total_credit_metal_gm: ledgerCols.total_credit_metal_gm,
+            closing_balance_metal_gm: ledgerCols.closing_balance_metal_gm,
             transaction_count: ledgerCols.transactions.length,
         },
         transactions: ledgerCols.transactions,
@@ -724,8 +809,11 @@ function daybookToCsv(daybook) {
     push(['Total debit', daybook.summary.total_debit_inr ?? '']);
     push(['Total credit', daybook.summary.total_credit_inr ?? '']);
     push(['Closing balance', daybook.summary.closing_balance_inr ?? '']);
+    push(['Metal debit (g)', daybook.summary.total_debit_metal_gm ?? '']);
+    push(['Metal credit (g)', daybook.summary.total_credit_metal_gm ?? '']);
+    push(['Metal balance (g)', daybook.summary.closing_balance_metal_gm ?? '']);
     lines.push('');
-    push(['DATE', 'TYPE', 'CUSTOMER / PARTY', 'MODE', 'REFERENCE', 'DEBIT', 'CREDIT', 'BALANCE']);
+    push(['DATE', 'TYPE', 'CUSTOMER / PARTY', 'MODE', 'REFERENCE', 'DEBIT ₹', 'CREDIT ₹', 'METAL (g)', 'BALANCE ₹', 'METAL BAL (g)']);
     for (const t of daybook.transactions) {
         push([
             fmtLedgerDate(t.entry_date),
@@ -735,7 +823,9 @@ function daybookToCsv(daybook) {
             t.reference,
             t.debit_inr ? Number(t.debit_inr).toFixed(2) : '',
             t.credit_inr ? Number(t.credit_inr).toFixed(2) : '',
+            t.weight_gm ? Number(t.weight_gm).toFixed(3) : '',
             t.balance_inr != null ? Number(t.balance_inr).toFixed(2) : '',
+            t.balance_metal_gm != null ? Number(t.balance_metal_gm).toFixed(3) : '',
         ]);
     }
     return lines.join('\r\n');
@@ -752,8 +842,9 @@ function customerAccountToCsv(account) {
     push(['Total billed', account.summary.total_billed_inr]);
     push(['Total paid', account.summary.total_paid_inr]);
     push(['Balance due', account.summary.balance_due_inr]);
+    push(['Metal balance (g)', account.summary.metal_balance_gm ?? 0]);
     lines.push('');
-    push(['DATE', 'PARTICULARS', 'REF. DATE', 'WEIGHT (g)', 'DEBIT', 'CREDIT', 'BALANCE']);
+    push(['DATE', 'PARTICULARS', 'REF. DATE', 'WEIGHT (g)', 'DEBIT ₹', 'CREDIT ₹', 'BALANCE ₹', 'METAL BAL (g)']);
     for (const t of account.transactions) {
         const particulars =
             t.kind === 'sale'
@@ -768,6 +859,7 @@ function customerAccountToCsv(account) {
             t.debit ? Number(t.debit).toFixed(2) : '',
             t.credit ? Number(t.credit).toFixed(2) : '',
             Number(t.balance_inr).toFixed(2),
+            t.balance_metal_gm != null ? Number(t.balance_metal_gm).toFixed(3) : '',
         ]);
     }
     return lines.join('\r\n');
