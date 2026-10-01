@@ -246,13 +246,26 @@ export function erpGoldMetalPartInr(
   return Math.round(net * factor * ratePerG * q * 100) / 100
 }
 
+/** Parse weight strings from Excel (e.g. European `5,52` → 5.52). */
+export function parseLocaleWeightNumber(raw: unknown): number | null {
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) return null
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  let s = String(raw).trim().replace(/\s+/g, '')
+  if (/^\d+,\d+$/.test(s)) s = s.replace(',', '.')
+  else if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) s = s.replace(/\./g, '').replace(',', '.')
+  const num = Number(s)
+  if (Number.isFinite(num)) return num
+  const m = s.match(/^(\d+(?:\.\d+)?)/)
+  return m ? Number(m[1]) : null
+}
+
 /** Consistent weight getter: net_wt ?? net_weight ?? weight ?? avg_wt. Returns null if none set. */
 export function getItemWeight(item: Item | null | undefined): number | null {
   if (!item) return null
   const n = item.net_wt ?? item.net_weight ?? item.weight ?? (item as { avg_wt?: number }).avg_wt
   if (n == null || (typeof n === 'string' && n === '')) return null
-  const num = Number(n)
-  return isNaN(num) ? null : num
+  const num = typeof n === 'string' ? parseLocaleWeightNumber(n) : Number(n)
+  return num == null || Number.isNaN(num) ? null : num
 }
 
 /**

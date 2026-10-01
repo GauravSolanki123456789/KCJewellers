@@ -16,6 +16,7 @@ const {
 const { classifyCatalogMetalFamily, sqlCatalogMetalFamilyExpr } = require('./catalogMetalFamily');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 const { normalizeExcelBrand, isEmeraldMakeToOrderBrand } = require('./productBrandUtils');
+const { parseExcelWeight, parseExcelWeightDisplay } = require('./excelWeightParse');
 
 function styleSlugFromCode(styleCode) {
     const s = String(styleCode || 'Uncategorized').trim();
@@ -88,28 +89,26 @@ function normalizeSyncItem(item) {
     const designGroup =
         itemCode || (sizeRaw && productName ? productName : null) || null;
     const displayName = productName || itemCode || barcodeExplicit || skuSubcategory || 'Item';
+    const rawNetWeight =
+        item.netWeight ??
+        item.net_weight ??
+        item.AvgWeight ??
+        item['Avg Weight'] ??
+        item['Avg. Weight'];
+    const netWeight = parseExcelWeight(rawNetWeight);
+    const weightDisplay =
+        trimField(item.weightDisplay ?? item.weight_display ?? item.weightDisplayLabel) ||
+        parseExcelWeightDisplay(rawNetWeight) ||
+        null;
     return {
         styleCode: trimField(item.styleCode || item.style_code || item.StyleCode) || 'Uncategorized',
         skuCode: skuSubcategory,
         prodSku: barcodeExplicit,
         name: displayName,
-        netWeight:
-            item.netWeight != null
-                ? Number(item.netWeight)
-                : item.net_weight != null
-                  ? Number(item.net_weight)
-                  : item.AvgWeight != null
-                    ? Number(item.AvgWeight)
-                    : null,
+        netWeight,
         wastagePct: parseWastagePercent(item),
         grossWeight: resolveGrossWeight(
-            item.netWeight != null
-                ? Number(item.netWeight)
-                : item.net_weight != null
-                  ? Number(item.net_weight)
-                  : item.AvgWeight != null
-                    ? Number(item.AvgWeight)
-                    : null,
+            netWeight,
             item.grossWeight != null
                 ? Number(item.grossWeight)
                 : item.gross_weight != null
@@ -185,8 +184,7 @@ function normalizeSyncItem(item) {
         designGroup,
         barcode: barcodeExplicit || null,
         size: sizeRaw || null,
-        weightDisplay:
-            trimField(item.weightDisplay ?? item.weight_display ?? item.weightDisplayLabel) || null,
+        weightDisplay,
         chainWeight:
             item.chainWeight != null
                 ? Number(item.chainWeight)

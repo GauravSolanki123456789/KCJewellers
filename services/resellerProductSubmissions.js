@@ -16,6 +16,7 @@ const {
 } = require('./upsertWebProductFromSyncItem');
 const { defaultMcTypeWhenRatePresent, parseMcRateAndType } = require('./mcTypeUtils');
 const { detectGpPairedBases, applyGpVariantPairing } = require('./gpVariantPairing');
+const { parseExcelWeight, parseExcelWeightDisplay } = require('./excelWeightParse');
 const {
     normalizeExcelBrand,
     isEmeraldMakeToOrderBrand,
@@ -266,7 +267,20 @@ function excelRowToSyncItem(row) {
         barcode: get('Barcode', 'barcode'),
         name: get('ProductName', 'product_name', 'name'),
         size: get('Size', 'size', 'Size (inches)', 'Size (inc)', 'Size (in)', 'size_inches', 'SizeInches', 'SIZE'),
-        netWeight: get('AvgWeight', 'netWeight', 'net_weight'),
+        netWeight: get(
+            'AvgWeight',
+            'Avg Weight',
+            'Avg. Weight',
+            'Net Weight',
+            'netWeight',
+            'net_weight',
+            'Weight',
+            'weight',
+            'Wt',
+            'WT',
+            'Weight (g)',
+            'Weight(g)',
+        ),
         grossWeight: get('grossWeight', 'gross_weight'),
         wastage: get('Wastage(%)', 'Wastage', 'wastage', 'wastage_pct'),
         purity: get('Purity', 'purity'),
@@ -334,22 +348,6 @@ async function reconcileSubmissionIdentity(query, row) {
         params,
     );
     return enrichSubmissionRow(updated[0] || enriched);
-}
-
-function parseExcelWeight(val) {
-    if (val == null || String(val).trim() === '') return null;
-    const n = Number(val);
-    if (Number.isFinite(n)) return n;
-    const m = String(val).trim().match(/^(\d+(?:\.\d+)?)/);
-    return m ? Number(m[1]) : null;
-}
-
-/** Keep Excel range text (e.g. "145-155") for storefront display. */
-function parseExcelWeightDisplay(val) {
-    if (val == null || String(val).trim() === '') return null;
-    const s = String(val).trim();
-    if (/\d\s*-\s*\d/.test(s)) return s.replace(/\s+/g, '');
-    return null;
 }
 
 function buildSubmissionFieldsFromItem(item, submittedByUserId, batchId) {
@@ -636,6 +634,87 @@ async function updateExistingSubmissionQuantity(query, row, newQty) {
         await syncWebProductQuantity(query, sku, qty, row.submitted_by_user_id);
     }
     return { changed: submissionChanged, quantity: qty };
+}
+
+function excelCatalogFieldsChanged(row, fields) {
+    if (!row || !fields) return false;
+    const nw = fields.net_weight;
+    const hasNet =
+        nw != null && Number.isFinite(Number(nw)) && Number(nw) > 0;
+    const prevNet = row.net_weight != null ? Number(row.net_weight) : null;
+    if (hasNet && (prevNet == null || Math.abs(prevNet - Number(nw)) > 0.0005)) return true;
+    const wd = fields.weight_display != null ? String(fields.weight_display).trim() : '';
+    const prevWd = row.weight_display != null ? String(row.weight_display).trim() : '';
+    if (wd && wd !== prevWd) return true;
+    const gw = fields.gross_weight;
+    if (gw != null && Number.isFinite(Number(gw)) && Number(gw) > 0) {
+        const prevGw = row.gross_weight != null ? Number(row.gross_weight) : null;
+        if (prevGw == null || Math.abs(prevGw - Number(gw)) > 0.0005) return true;
+    }
+    return false;
+}
+
+/** Re-apply weight / MC fields from a new Excel row onto an existing submission (make-to-order re-import). */
+async function mergeExcelCatalogFieldsIntoSubmission(query, row, fields) {
+    if (!row?.id || !fields || !excelCatalogFieldsChanged(row, fields)) {
+        return { changed: false, row };
+    }
+    const payload =
+        row.payload_json && typeof row.payload_json === 'object' ? { ...row.payload_json } : {};
+    if (fields.net_weight != null) payload.netWeight = fields.net_weight;
+    if (fields.weight_display != null) payload.weightDisplay = fields.weight_display;
+    if (fields.gross_weight != null) payload.grossWeight = fields.gross_weight;
+    const updated = await query(
+        `UPDATE reseller_product_submissions
+         SET net_weight = COALESCE($2, net_weight),
+             weight_display = COALESCE(NULLIF(TRIM($3::text), ''), weight_display),
+             gross_weight = COALESCE($4, gross_weight),
+             wastage_pct = COALESCE($5, wastage_pct),
+             chain_weight = COALESCE($6, chain_weight),
+             pendant_weight = COALESCE($7, pendant_weight),
+             earring_weight = COALESCE($8, earring_weight),
+             mc_rate = COALESCE($9, mc_rate),
+             mc_type = COALESCE($10, mc_type),
+             payload_json = $11::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [
+            row.id,
+            fields.net_weight,
+            fields.weight_display,
+            fields.gross_weight,
+            fields.wastage_pct,
+            fields.chain_weight,
+            fields.pendant_weight,
+            fields.earring_weight,
+            fields.mc_rate,
+            fields.mc_type,
+            JSON.stringify(payload),
+        ],
+    );
+    const next = enrichSubmissionRow(updated[0] || row);
+    return { changed: true, row: next };
+}
+
+async function syncLiveWebProductWeightsFromFields(query, userId, productId, fields) {
+    const key = String(productId || '').trim();
+    const uid = parseInt(String(userId), 10);
+    if (!key || !Number.isFinite(uid) || uid <= 0 || !fields) return false;
+    const nw = fields.net_weight;
+    if (nw == null || !Number.isFinite(Number(nw)) || Number(nw) <= 0) return false;
+    const result = await query(
+        `UPDATE web_products
+         SET net_weight = $3,
+             weight_display = COALESCE(NULLIF(TRIM($4::text), ''), weight_display),
+             gross_weight = COALESCE($5, gross_weight),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE submitted_by_user_id = $1
+           AND (is_active IS NULL OR is_active = true)
+           AND (LOWER(TRIM(sku)) = LOWER($2) OR LOWER(TRIM(barcode)) = LOWER($2))`,
+        [uid, key, nw, fields.weight_display, fields.gross_weight],
+    );
+    return (result?.rowCount ?? 0) > 0;
 }
 
 /** When size/barcode changes, retire the previous live `web_products` row so only one variant shows. */
@@ -1208,6 +1287,7 @@ function registerResellerProductRoutes(app, deps) {
             let quantityUpdatedCount = 0;
             let quantityUnchangedCount = 0;
             let skippedExistingCount = 0;
+            let catalogFieldsUpdatedCount = 0;
             const existingSubmissions = await loadExistingSubmissionsForBulkMatch(query, req.user.id);
             const parsedItems = products.map((raw) => excelRowToSyncItem(raw) || raw);
             const gpPairedBases = detectGpPairedBases(parsedItems);
@@ -1238,13 +1318,71 @@ function registerResellerProductRoutes(app, deps) {
                             resolved.prodSku,
                         );
                         if (live) {
-                            skippedExistingCount += 1;
+                            let updated = false;
+                            const subMatch = findMatchingSubmissionByProductId(
+                                existingSubmissions,
+                                resolved.prodSku,
+                            );
+                            if (subMatch) {
+                                const mergeResult = await mergeExcelCatalogFieldsIntoSubmission(
+                                    query,
+                                    subMatch,
+                                    fields,
+                                );
+                                if (mergeResult.changed) {
+                                    updated = true;
+                                    if (mergeResult.row.submission_status === 'approved') {
+                                        await upsertWebProductFromSyncItem(
+                                            upsertDeps,
+                                            submissionRowToSyncItem(mergeResult.row),
+                                            {
+                                                submittedByUserId: mergeResult.row.submitted_by_user_id,
+                                                resellerSubmissionId: mergeResult.row.id,
+                                                publishCategory: true,
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                            if (!updated) {
+                                updated = await syncLiveWebProductWeightsFromFields(
+                                    query,
+                                    req.user.id,
+                                    resolved.prodSku,
+                                    fields,
+                                );
+                            }
+                            if (updated) catalogFieldsUpdatedCount += 1;
+                            else skippedExistingCount += 1;
                             continue;
                         }
                     }
                     if (existingMatch) {
                         if (isEmerald) {
-                            skippedExistingCount += 1;
+                            const mergeResult = await mergeExcelCatalogFieldsIntoSubmission(
+                                query,
+                                existingMatch,
+                                fields,
+                            );
+                            if (mergeResult.changed) {
+                                catalogFieldsUpdatedCount += 1;
+                                const mergedRow = mergeResult.row;
+                                const idx = existingSubmissions.findIndex((r) => r.id === mergedRow.id);
+                                if (idx >= 0) existingSubmissions[idx] = mergedRow;
+                                if (mergedRow.submission_status === 'approved') {
+                                    await upsertWebProductFromSyncItem(
+                                        upsertDeps,
+                                        submissionRowToSyncItem(mergedRow),
+                                        {
+                                            submittedByUserId: mergedRow.submitted_by_user_id,
+                                            resellerSubmissionId: mergedRow.id,
+                                            publishCategory: true,
+                                        },
+                                    );
+                                }
+                            } else {
+                                skippedExistingCount += 1;
+                            }
                             continue;
                         }
                         const qtyResult = await updateExistingSubmissionQuantity(
@@ -1285,12 +1423,16 @@ function registerResellerProductRoutes(app, deps) {
                 }
             }
             res.status(201).json({
-                success: created.length > 0 || quantityUpdatedCount > 0,
+                success:
+                    created.length > 0 ||
+                    quantityUpdatedCount > 0 ||
+                    catalogFieldsUpdatedCount > 0,
                 batch_id: created.length > 0 ? batchId : null,
                 created_count: created.length,
                 quantity_updated_count: quantityUpdatedCount,
                 quantity_unchanged_count: quantityUnchangedCount,
                 skipped_existing_count: skippedExistingCount,
+                catalog_fields_updated_count: catalogFieldsUpdatedCount,
                 expected_count: products.length,
                 style_summary: summarizeImportByStyle(created),
                 submissions: created,

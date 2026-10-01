@@ -7,23 +7,17 @@ import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { useCustomerTier } from '@/context/CustomerTierContext'
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { getItemWeight, isFixedPriceCatalogItem } from '@/lib/pricing'
-import { formatWastagePercentLabel } from '@/lib/product-metal-specs'
+import { X } from 'lucide-react'
+import {
+  getCustomerDisplayWeightLabel,
+  isFixedPriceCatalogItem,
+} from '@/lib/pricing'
 import { cn } from '@/lib/utils'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
 
 type Breakdown = {
   metal?: number
-  mc?: number
-  stone?: number
-  cgst?: number
-  sgst?: number
-  taxable?: number
-  total?: number
-  rate_per_gram?: number
-  net_weight?: number
   wholesale_retail_total?: number
   is_wholesale_price?: boolean
 }
@@ -76,7 +70,6 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const auth = useAuth()
   const { hasWholesaleAccess } = useCustomerTier()
   const { open: openLoginModal } = useLoginModal()
-  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const hasMetalItems = items.some((ci) => !isFixedPriceCatalogItem(ci.item))
   const canProceed = !hasMetalItems || ratesReady
@@ -103,7 +96,6 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 md:bg-transparent ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -112,7 +104,6 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         aria-hidden="true"
       />
 
-      {/* Drawer panel - full screen on mobile, sidebar on desktop */}
       <aside
         className={`fixed inset-y-0 right-0 z-50 w-full sm:max-w-md md:w-96 bg-slate-900 border-l border-slate-800 transform transition-transform duration-300 shadow-2xl flex flex-col ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
@@ -130,10 +121,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         </div>
 
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
-          <p className="text-slate-300 text-sm mb-4">
-            See breakdown of Metal, MC, GST for each item
-          </p>
-          <p className="text-slate-500 text-xs mb-2">
+          <p className="text-slate-500 text-xs mb-4">
             Have a promo code? Apply it at checkout.
           </p>
           {items.length === 0 ? (
@@ -142,7 +130,6 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
             <div className="space-y-3">
               {items.map((ci) => {
                 const b = (ci.breakdown || {}) as Breakdown
-                const isExpanded = expandedId === ci.id
                 const lineTotal = ci.price * ci.qty
                 const retailLine =
                   b.wholesale_retail_total != null
@@ -155,14 +142,14 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                   retailLine > lineTotal + 0.5
                 const displayName = ci.item.item_name || ci.item.short_name || 'Item'
                 const imageUrl = ci.item.image_url
+                const weightLabel = getCustomerDisplayWeightLabel(ci.item)
                 return (
                   <div
                     key={ci.id}
                     data-cart-item-id={ci.id}
-                    className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden"
+                    className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden p-4"
                   >
-                    <div className="p-4 flex gap-3 sm:gap-4">
-                      {/* Product thumbnail */}
+                    <div className="flex gap-3 sm:gap-4">
                       {imageUrl ? (
                         <CartItemImage src={imageUrl} alt={displayName} />
                       ) : (
@@ -175,11 +162,11 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                           <div className="font-semibold text-slate-100 truncate">
                             {displayName}
                           </div>
-                          {getItemWeight(ci.item) != null && (
+                          {weightLabel ? (
                             <div className="text-sm text-slate-400 mt-0.5">
-                              Weight: {Number(getItemWeight(ci.item)).toFixed(2)} gm
+                              Weight: {weightLabel}
                             </div>
-                          )}
+                          ) : null}
                           <div
                             className={`text-sm font-medium mt-0.5 ${
                               showCartWholesale ? 'text-emerald-400' : 'text-amber-400'
@@ -208,112 +195,30 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-slate-100"
-                          onClick={() => setQty(ci.id, ci.qty - 1)}
-                          aria-label={ci.qty <= 1 ? 'Remove from cart' : 'Decrease quantity'}
-                        >
-                          −
-                        </button>
-                        <span className="w-8 text-center font-medium tabular-nums text-slate-100">{ci.qty}</span>
-                        <button
-                          className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-slate-100"
-                          onClick={() => setQty(ci.id, ci.qty + 1)}
-                        >
-                          +
-                        </button>
-                        <button
-                          className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-sm ml-auto"
-                          onClick={() => remove(ci.id)}
-                        >
-                          Remove
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-slate-100"
+                            onClick={() => setQty(ci.id, ci.qty - 1)}
+                            aria-label={ci.qty <= 1 ? 'Remove from cart' : 'Decrease quantity'}
+                          >
+                            −
+                          </button>
+                          <span className="w-8 text-center font-medium tabular-nums text-slate-100">{ci.qty}</span>
+                          <button
+                            className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center shrink-0 text-slate-100"
+                            onClick={() => setQty(ci.id, ci.qty + 1)}
+                          >
+                            +
+                          </button>
+                          <button
+                            className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-sm ml-auto"
+                            onClick={() => remove(ci.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setExpandedId(isExpanded ? null : ci.id)}
-                      className="w-full px-4 py-2 flex items-center justify-between text-sm text-slate-400 hover:text-slate-100 hover:bg-white/5 border-t border-white/5 min-h-[44px]"
-                    >
-                      <span>View breakdown (Metal, MC, GST)</span>
-                      {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                    </button>
-                    {isExpanded && (
-                      <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2 text-sm">
-                        {!isFixedPriceCatalogItem(ci.item) && (
-                          <>
-                            <div className="flex justify-between text-slate-200">
-                              <span>
-                                Metal Cost
-                                {(() => {
-                                  const br = b as {
-                                    rate_per_gram?: number
-                                    net_weight?: number
-                                    billable_weight_gm?: number
-                                  }
-                                  const rpg = br?.rate_per_gram
-                                  const bw = br?.billable_weight_gm ?? br?.net_weight
-                                  return rpg != null && bw != null && rpg > 0
-                                    ? ` (₹${Math.round(rpg).toLocaleString('en-IN')}/g × ${Number(bw).toFixed(2)}g)`
-                                    : ''
-                                })()}
-                              </span>
-                              <span className="tabular-nums">
-                                {ratesReady ? `₹${Math.round((b.metal || 0) * ci.qty).toLocaleString('en-IN')}` : (
-                                  <span className="inline-block w-12 h-4 bg-slate-600/50 rounded animate-pulse" aria-hidden="true" />
-                                )}
-                              </span>
-                            </div>
-                            {(b as { wastage_amount?: number }).wastage_amount != null &&
-                            (b as { wastage_amount?: number }).wastage_amount! > 0 ? (
-                              <div className="flex justify-between text-slate-200">
-                                <span>
-                                  Wastage
-                                  {(b as { wastage_pct?: number }).wastage_pct
-                                    ? ` (${formatWastagePercentLabel((b as { wastage_pct?: number }).wastage_pct!)})`
-                                    : ''}
-                                </span>
-                                <span className="tabular-nums">
-                                  ₹
-                                  {Math.round(
-                                    ((b as { wastage_amount?: number }).wastage_amount || 0) * ci.qty,
-                                  ).toLocaleString('en-IN')}
-                                </span>
-                              </div>
-                            ) : null}
-                            <div className="flex justify-between text-slate-200">
-                              <span>Making Charges</span>
-                              <span className="tabular-nums">₹{Math.round((b.mc || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                            </div>
-                            {(b.stone || 0) > 0 && (
-                              <div className="flex justify-between text-slate-200">
-                                <span>Stone Cost</span>
-                                <span className="tabular-nums">₹{Math.round((b.stone || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                              </div>
-                            )}
-                          </>
-                        )}
-                        {isFixedPriceCatalogItem(ci.item) && (
-                          <div className="flex justify-between text-slate-200">
-                            <span>Price</span>
-                            <span className="tabular-nums">₹{Math.round((b.taxable || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between text-slate-200">
-                          <span>CGST</span>
-                          <span className="tabular-nums">₹{Math.round((b.cgst || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-200">
-                          <span>SGST</span>
-                          <span className="tabular-nums">₹{Math.round((b.sgst || 0) * ci.qty).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div className="flex justify-between font-medium text-slate-100 pt-2 border-t border-white/5">
-                          <span>Line Total</span>
-                          <span className="tabular-nums text-amber-400">₹{Math.round(lineTotal).toLocaleString('en-IN')}</span>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )
               })}
