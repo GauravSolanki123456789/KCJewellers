@@ -376,7 +376,7 @@ export function ResellerProductsPanel({
         const first = errs[0] ? formatRowErr(errs[0]) : null
         if (skippedExisting > 0 && !first) {
           setBulkResult(
-            `${skippedExisting} emerald product${skippedExisting === 1 ? '' : 's'} already in your uploads or live catalogue — nothing new added.`,
+            `${skippedExisting} make-on-order product${skippedExisting === 1 ? '' : 's'} already in your uploads or live catalogue — nothing new added.`,
           )
           void loadBatches()
           return
@@ -385,7 +385,7 @@ export function ResellerProductsPanel({
           first
             ? `No rows imported — ${first}${errN > 1 ? ` — and ${errN - 1} more` : ''}`
             : skippedExisting > 0
-              ? `${skippedExisting} emerald product${skippedExisting === 1 ? '' : 's'} already exist — nothing new to import.${qtyUnchanged > 0 ? ` ${qtyUnchanged} other row${qtyUnchanged === 1 ? '' : 's'} already had the same stock.` : ''}`
+              ? `${skippedExisting} make-on-order product${skippedExisting === 1 ? '' : 's'} already exist — nothing new to import.${qtyUnchanged > 0 ? ` ${qtyUnchanged} other row${qtyUnchanged === 1 ? '' : 's'} already had the same stock.` : ''}`
               : qtyUnchanged > 0
                 ? `${qtyUnchanged} existing product${qtyUnchanged === 1 ? '' : 's'} already had the same stock — nothing new to import.`
                 : 'No rows imported. Check Barcode, StyleCode, and MetalType (use gifting for gift items).',
@@ -412,7 +412,7 @@ export function ResellerProductsPanel({
           : ''
       const skippedHint =
         skippedExisting > 0
-          ? ` ${skippedExisting} emerald product${skippedExisting === 1 ? '' : 's'} already existed and ${skippedExisting === 1 ? 'was' : 'were'} skipped.`
+          ? ` ${skippedExisting} make-on-order product${skippedExisting === 1 ? '' : 's'} already existed and ${skippedExisting === 1 ? 'was' : 'were'} skipped.`
           : ''
       setBulkResult(
         `${n} new product${n === 1 ? '' : 's'} added to batch${styleHint ? ` — ${styleHint}` : ''}.${skippedHint}${qtyHint} Rename photos to each product’s barcode (shown below), then bulk-upload or add one-by-one. Send the batch when ready.${partialHint}`,

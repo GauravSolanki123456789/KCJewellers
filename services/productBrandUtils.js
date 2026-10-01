@@ -1,25 +1,35 @@
 /**
- * Optional Excel "Brand" column — emerald = make-to-order catalogue products.
+ * Optional Excel "Brand" column — listed brands become make-to-order catalogue products.
  */
 
 const path = require('path');
+
+/** Normalized brand tokens that trigger make-on-order (qty 0, customer enters qty at checkout). */
+const MAKE_TO_ORDER_EXCEL_BRANDS = new Set(['emerald', 'utsarva']);
 
 function normalizeExcelBrand(raw) {
     const s = String(raw ?? '').trim().toLowerCase();
     return s || null;
 }
 
+function isMakeToOrderExcelBrand(brand) {
+    const b = normalizeExcelBrand(brand);
+    return b != null && MAKE_TO_ORDER_EXCEL_BRANDS.has(b);
+}
+
+/** @deprecated Name kept for callers — includes emerald and utsarva. */
 function isEmeraldMakeToOrderBrand(brand) {
-    return normalizeExcelBrand(brand) === 'emerald';
+    return isMakeToOrderExcelBrand(brand);
 }
 
 function applyEmeraldMakeToOrderFields(fields) {
     if (!fields || typeof fields !== 'object') return fields;
-    fields.brand = 'emerald';
+    const brand = normalizeExcelBrand(fields.brand) || 'emerald';
+    fields.brand = brand;
     fields.make_to_order_only = true;
     fields.quantity = 0;
     if (fields.payload_json && typeof fields.payload_json === 'object') {
-        fields.payload_json.brand = 'emerald';
+        fields.payload_json.brand = brand;
         fields.payload_json.makeToOrderOnly = true;
         fields.payload_json.make_to_order_only = true;
     }
@@ -60,8 +70,10 @@ function extractProductStemFromFilename(filename, photoType = 'front') {
 
 module.exports = {
     normalizeExcelBrand,
+    isMakeToOrderExcelBrand,
     isEmeraldMakeToOrderBrand,
     applyEmeraldMakeToOrderFields,
+    MAKE_TO_ORDER_EXCEL_BRANDS,
     normalizeBulkPhotoStem,
     extractProductStemFromFilename,
 };
