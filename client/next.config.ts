@@ -62,7 +62,9 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: uploadsRemotePatterns(),
     formats: ["image/avif", "image/webp"],
-    /** Longer edge cache for optimized `/ _next/image` URLs — faster repeat views of the same catalogue photos. */
+    /** Card thumbnails ~200–400px; avoids over-fetching width for grid `sizes`. */
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384, 512],
+    /** Longer edge cache for optimized `/_next/image` URLs — faster repeat views of the same catalogue photos. */
     minimumCacheTTL: 60 * 60 * 24 * 7,
   },
 };

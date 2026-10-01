@@ -1269,7 +1269,6 @@ export default function SharedCatalogClient({
                             alt={name}
                             sizes="(max-width: 640px) 50vw, 25vw"
                             imageClassName="object-cover"
-                            unoptimized
                             scrollToIndex={galleryScroll}
                             onActiveIndexChange={(idx) => {
                               if (boxSlideIdx != null && idx === boxSlideIdx) {

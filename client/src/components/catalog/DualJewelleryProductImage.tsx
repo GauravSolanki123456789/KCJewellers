@@ -15,6 +15,10 @@ import { normalizeCatalogImageSrc, catalogImageUrlAlternates } from "@/lib/norma
 import { catalogProductImageClass } from "@/lib/product-image-classes";
 import { productImageViewportWrapperClass } from "@/lib/flat-product-image";
 import { productImageEmptyWellClass } from "@/lib/product-image-theme";
+import {
+  CATALOG_CARD_IMAGE_QUALITY,
+  shouldOptimizeCatalogImage,
+} from "@/lib/catalog-image-next";
 
 type SlideImageProps = {
   src: string;
@@ -28,6 +32,7 @@ type SlideImageProps = {
   hoverFx?: boolean;
   onError: () => void;
   imageKey: string;
+  quality: number;
 };
 
 function SlideImage({
@@ -42,6 +47,7 @@ function SlideImage({
   hoverFx = false,
   onError,
   imageKey,
+  quality,
 }: SlideImageProps) {
   return (
     <div className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
@@ -50,7 +56,7 @@ function SlideImage({
         src={src}
         alt={alt}
         fill
-        quality={72}
+        quality={quality}
         sizes={sizes}
         className={cn(
           catalogProductImageClass(subcategorySlug),
@@ -121,7 +127,9 @@ type DualJewelleryProductImageProps = {
   priority?: boolean;
   fetchPriority?: "high" | "low" | "auto";
   imageClassName?: string;
+  /** When true, skip `/_next/image` (e.g. lightbox full-res). Default: optimize catalogue uploads. */
   unoptimized?: boolean;
+  quality?: number;
   /** Fired when swipe/hover changes visible slide — use to sync box pricing. */
   onActiveIndexChange?: (index: number) => void;
   /** When set, parent can scroll gallery to this slide (e.g. "With box" chip). */
@@ -139,7 +147,8 @@ export default function DualJewelleryProductImage({
   priority = false,
   fetchPriority,
   imageClassName,
-  unoptimized = true,
+  unoptimized = false,
+  quality = CATALOG_CARD_IMAGE_QUALITY,
   onActiveIndexChange,
   scrollToIndex = null,
 }: DualJewelleryProductImageProps) {
@@ -267,6 +276,12 @@ export default function DualJewelleryProductImage({
   const slideCount = slides.length;
   const dualDesktopHover = slideCount === 2 && slides[0]?.kind === "image" && slides[1]?.kind === "image";
 
+  const slideUnoptimized = useCallback(
+    (src: string, forceUnopt: boolean) =>
+      unoptimized || forceUnopt || !shouldOptimizeCatalogImage(src),
+    [unoptimized],
+  );
+
   const syncIdxFromScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -337,14 +352,14 @@ export default function DualJewelleryProductImage({
           src={slides[0].src}
           alt={slides[0].alt}
           fill
-          quality={72}
-          sizes={sizes}
-          className={cn(
-            catalogProductImageClass(subcategorySlug),
-            "transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]",
-            imageClassName,
-          )}
-          unoptimized={unoptimized || fallbackPrimUnopt}
+        quality={quality}
+        sizes={sizes}
+        className={cn(
+          catalogProductImageClass(subcategorySlug),
+          "transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]",
+          imageClassName,
+        )}
+        unoptimized={slideUnoptimized(slides[0].src, fallbackPrimUnopt)}
           decoding="async"
           loading={priority ? "eager" : "lazy"}
           priority={priority}
@@ -367,16 +382,17 @@ export default function DualJewelleryProductImage({
         sizes={sizes}
         subcategorySlug={subcategorySlug}
         imageClassName={imageClassName}
-        unoptimized={
-          unoptimized ||
+        unoptimized={slideUnoptimized(
+          slide.src,
           (isPrimary && fallbackPrimUnopt) ||
-          (isSecondary && fallbackSecUnopt) ||
-          (isBox && fallbackBoxUnopt)
-        }
+            (isSecondary && fallbackSecUnopt) ||
+            (isBox && fallbackBoxUnopt),
+        )}
         priority={priority && idx === 0}
         fetchPriority={idx === 0 ? fetchP : "low"}
         hoverFx={dualDesktopHover}
         imageKey={slide.key}
+        quality={quality}
         onError={() => {
           if (isPrimary) {
             handlePrimaryError();
@@ -419,18 +435,23 @@ export default function DualJewelleryProductImage({
         onTouchCancel={onTouchEnd}
         onClickCapture={blockLinkAfterSwipe}
       >
-        {slides.map((slide, idx) => (
-          <div
-            key={slide.key}
-            className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
-          >
-            {slide.kind === "video" ? (
-              <SlideVideo src={slide.src} poster={slide.poster} />
-            ) : (
-              renderImageSlide(slide, idx)
-            )}
-          </div>
-        ))}
+        {slides.map((slide, idx) => {
+          const mountSlide = Math.abs(idx - mobileIdx) <= 1;
+          return (
+            <div
+              key={slide.key}
+              className="relative h-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
+            >
+              {!mountSlide ? (
+                <div className={cn("h-full w-full", productImageEmptyWellClass)} aria-hidden />
+              ) : slide.kind === "video" ? (
+                <SlideVideo src={slide.src} poster={slide.poster} />
+              ) : (
+                renderImageSlide(slide, idx)
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {dualDesktopHover && slides[0]?.kind === "image" && slides[1]?.kind === "image" ? (
@@ -459,7 +480,7 @@ export default function DualJewelleryProductImage({
               hoverBack ? "opacity-100" : "opacity-0 pointer-events-none",
             )}
           >
-            {renderImageSlide(slides[1], 1)}
+            {hoverBack ? renderImageSlide(slides[1], 1) : null}
           </div>
         </div>
       ) : null}

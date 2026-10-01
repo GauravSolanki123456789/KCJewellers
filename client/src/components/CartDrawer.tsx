@@ -7,7 +7,9 @@ import { useCart } from '@/context/CartContext'
 import { useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import { useCustomerTier } from '@/context/CustomerTierContext'
+import Image from 'next/image'
 import { X } from 'lucide-react'
+import { CATALOG_CARD_IMAGE_QUALITY, shouldOptimizeCatalogImage } from '@/lib/catalog-image-next'
 import {
   getCustomerDisplayWeightLabel,
   isFixedPriceCatalogItem,
@@ -50,14 +52,18 @@ function CartItemImage({ src, alt }: { src: string; alt: string }) {
   }
   return (
     <div
-      className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden isolate ${productImageWellClass}`}
+      className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden isolate relative ${productImageWellClass}`}
     >
-      <img
+      <Image
         src={normalized}
         alt={alt}
-        className={cn('w-full h-full object-contain')}
+        fill
+        sizes="80px"
+        quality={CATALOG_CARD_IMAGE_QUALITY}
+        className={cn('object-contain')}
         loading="lazy"
         decoding="async"
+        unoptimized={!shouldOptimizeCatalogImage(normalized)}
         onError={() => setHasImageError(true)}
       />
     </div>

@@ -747,6 +747,8 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 22rem;
     border-radius: 0.625rem;
     border: 1px solid color-mix(in oklab, var(--color-slate-700) 28%, transparent);
     background: white;

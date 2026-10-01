@@ -297,7 +297,7 @@ export default function ProductCard({
         </span>
       ) : null}
 
-      <span className="line-clamp-2 text-[11px] font-semibold leading-snug text-slate-100 sm:text-xs">
+      <span className="line-clamp-2 text-[11px] font-semibold leading-snug text-[var(--color-jewelry-black,#1a1814)] sm:text-xs">
         {displayName}
       </span>
 
@@ -383,7 +383,7 @@ export default function ProductCard({
           <span
             className={cn(
               'text-sm font-semibold tabular-nums tracking-tight sm:text-[0.9375rem]',
-              showWholesale ? 'text-emerald-600' : 'text-slate-100',
+              showWholesale ? 'text-emerald-600' : 'text-[var(--color-jewelry-black,#1a1814)]',
             )}
           >
             ₹{Math.round(hasBox ? displayTotal : total).toLocaleString('en-IN')}

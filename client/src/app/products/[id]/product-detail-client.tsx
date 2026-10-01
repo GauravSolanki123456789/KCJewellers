@@ -13,6 +13,11 @@ import {
 import { buildCatalogSegmentPath } from "@/lib/catalog-paths";
 import { inferCatalogMetalParam } from "@/lib/catalog-navigation";
 import BreakdownModal from "@/components/BreakdownModal";
+import {
+  CATALOG_CARD_IMAGE_QUALITY,
+  CATALOG_PDP_IMAGE_QUALITY,
+  shouldOptimizeCatalogImage,
+} from "@/lib/catalog-image-next";
 import HoverZoomImage from "@/components/HoverZoomImage";
 import WhatsAppShareButton from "@/components/WhatsAppShareButton";
 import { ratesApiQueryForStorefront } from "@/lib/storefront-domain";
@@ -127,14 +132,14 @@ export default function ProductDetailClient({
   const showInclGst = product ? productPriceShowsInclGst(product, pricingOptions) : true;
   const productRef = useRef<Item | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ProductImageAnalysis | null>(null);
-  const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(true);
+  const [pdpImageUnoptimized, setPdpImageUnoptimized] = useState(false);
   const [includeBox, setIncludeBox] = useState(initialIncludeBox);
   const boxOnly = product ? productWithBoxChargesOnly(product) : false;
   const resolvedIncludeBox = product ? effectiveIncludeBox(product, includeBox) : includeBox;
 
   useEffect(() => {
     setImageAnalysis(null);
-    setPdpImageUnoptimized(true);
+    setPdpImageUnoptimized(false);
   }, [id, product?.image_url, product?.secondary_image_url, product?.box_image_url, product?.video_url]);
 
   useEffect(() => {
@@ -668,8 +673,11 @@ export default function ProductDetailClient({
                                   alt={i === 0 ? displayName : `${displayName} — alternate view`}
                                   fill
                                   sizes="(max-width: 1024px) 100vw, 50vw"
+                                  quality={CATALOG_PDP_IMAGE_QUALITY}
                                   className={detailImgClass}
-                                  unoptimized={pdpImageUnoptimized}
+                                  unoptimized={
+                                    pdpImageUnoptimized || !shouldOptimizeCatalogImage(slide.src)
+                                  }
                                   priority={i === 0}
                                   fetchPriority={i === 0 ? "high" : "auto"}
                                   decoding="async"
@@ -694,8 +702,11 @@ export default function ProductDetailClient({
                           alt={displayName}
                           fill
                           sizes="(max-width: 768px) 100vw, 50vw"
+                          quality={CATALOG_PDP_IMAGE_QUALITY}
                           className={detailImgClass}
-                          unoptimized={pdpImageUnoptimized}
+                          unoptimized={
+                            pdpImageUnoptimized || !shouldOptimizeCatalogImage(activeGallerySrc)
+                          }
                           priority
                           fetchPriority="high"
                           decoding="async"
@@ -781,8 +792,12 @@ export default function ProductDetailClient({
                           alt=""
                           fill
                           sizes="80px"
+                          quality={CATALOG_CARD_IMAGE_QUALITY}
                           className={detailImgClass}
-                          unoptimized={pdpImageUnoptimized}
+                          unoptimized={
+                            pdpImageUnoptimized || !shouldOptimizeCatalogImage(slide.src)
+                          }
+                          loading="lazy"
                         />
                       </div>
                     )}
