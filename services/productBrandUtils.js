@@ -40,7 +40,56 @@ function normalizeBulkPhotoStem(stem) {
     let s = String(stem || '').trim().toLowerCase();
     if (!s) return '';
     s = s.replace(/\s+/g, '-').replace(/_+/g, '-');
+    while (s.includes('--')) s = s.replace(/--+/g, '-');
     return s;
+}
+
+/** Match keys for bulk photo filenames vs catalog sku (HMEF_LPHS-00001 ↔ hmeflphs-00001). */
+function bulkPhotoStemAliases(stem) {
+    const s = normalizeBulkPhotoStem(stem);
+    if (!s) return [];
+    const keys = new Set();
+    keys.add(s);
+    const noHyphen = s.replace(/-/g, '');
+    if (noHyphen) keys.add(noHyphen);
+    const alnum = s.replace(/[^a-z0-9]/g, '');
+    if (alnum) keys.add(alnum);
+    return [...keys];
+}
+
+function registerBulkPhotoStemKeys(map, stem, entry) {
+    if (!entry) return;
+    for (const k of bulkPhotoStemAliases(stem)) {
+        if (k) map[k] = entry;
+    }
+}
+
+function lookUpBulkPhotoStem(map, stem) {
+    for (const k of bulkPhotoStemAliases(stem)) {
+        if (map[k]) return map[k];
+    }
+    return null;
+}
+
+function parseBulkUploadStemFromFilename(filename, photoType = 'front') {
+    const base = path.basename(String(filename || ''), path.extname(String(filename || '')));
+    let stem = normalizeBulkPhotoStem(base);
+    if (photoType === 'back') {
+        stem = stem.replace(/(-secondary|-back)$/, '');
+    } else if (photoType === 'box') {
+        stem = stem.replace(/(-box)$/, '');
+    } else if (photoType === 'front') {
+        stem = stem.replace(/(-front)$/, '');
+    }
+    if (/sfidol/i.test(base)) {
+        const extracted = extractProductStemFromFilename(filename, photoType);
+        if (extracted) return extracted;
+    }
+    const hmef = stem.match(/^hmef-lphs-(\d+)$/);
+    if (hmef) {
+        return normalizeBulkPhotoStem(`hmeflphs-${hmef[1]}`);
+    }
+    return stem;
 }
 
 /** Extract product code from bulk photo filename (e.g. murugan-sfidol1459-002 → sfidol1459-002). */
@@ -75,5 +124,9 @@ module.exports = {
     applyEmeraldMakeToOrderFields,
     MAKE_TO_ORDER_EXCEL_BRANDS,
     normalizeBulkPhotoStem,
+    bulkPhotoStemAliases,
+    registerBulkPhotoStemKeys,
+    lookUpBulkPhotoStem,
+    parseBulkUploadStemFromFilename,
     extractProductStemFromFilename,
 };

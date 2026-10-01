@@ -20,6 +20,9 @@ const {
     normalizeExcelBrand,
     isEmeraldMakeToOrderBrand,
     applyEmeraldMakeToOrderFields,
+    registerBulkPhotoStemKeys,
+    lookUpBulkPhotoStem,
+    parseBulkUploadStemFromFilename,
 } = require('./productBrandUtils');
 const { normalizeProductImageFileToWebp } = require('./resellerProductImageOptimize');
 
@@ -1015,21 +1018,6 @@ async function approveSubmissionToCatalog(deps, submissionRow, reviewerUserId) {
     return result;
 }
 
-function normalizeBulkPhotoStem(stem) {
-    let s = String(stem || '').trim().toLowerCase();
-    if (!s) return '';
-    s = s.replace(/\s+/g, '-');
-    return s;
-}
-
-function registerBulkPhotoStemKey(map, stem, entry) {
-    const s = normalizeBulkPhotoStem(stem);
-    if (!s || !entry) return;
-    map[s] = entry;
-    const compact = s.replace(/-/g, '');
-    if (compact && compact !== s) map[compact] = entry;
-}
-
 function buildBatchPhotoLookup(rows) {
     const map = Object.create(null);
     for (const row of rows || []) {
@@ -1037,33 +1025,21 @@ function buildBatchPhotoLookup(rows) {
         const prodSku = String(enriched.web_product_sku || '').trim();
         if (!prodSku) continue;
         const entry = { id: row.id, prodSku, row };
-        registerBulkPhotoStemKey(map, prodSku, entry);
+        registerBulkPhotoStemKeys(map, prodSku, entry);
         const barcode = String(enriched.barcode || row.barcode || '').trim();
-        if (barcode && barcode.toLowerCase() !== prodSku.toLowerCase()) {
-            registerBulkPhotoStemKey(map, barcode, entry);
+        if (barcode) {
+            registerBulkPhotoStemKeys(map, barcode, entry);
+        }
+        const itemCode = String(enriched.item_code || row.item_code || '').trim();
+        if (itemCode) {
+            registerBulkPhotoStemKeys(map, itemCode, entry);
         }
     }
     return map;
 }
 
 function lookUpBatchPhotoEntry(map, stem) {
-    const s = normalizeBulkPhotoStem(stem);
-    if (!s) return null;
-    const compact = s.replace(/-/g, '');
-    return map[s] || map[compact] || null;
-}
-
-function parseBulkUploadStemFromFilename(filename, photoType) {
-    const base = path.basename(String(filename || ''), path.extname(String(filename || '')));
-    let stem = normalizeBulkPhotoStem(base);
-    if (photoType === 'back') {
-        stem = stem.replace(/(_secondary|-secondary|-back|_back)$/, '');
-    } else if (photoType === 'box') {
-        stem = stem.replace(/(_box|-box)$/, '');
-    } else if (photoType === 'front') {
-        stem = stem.replace(/(-front|_front)$/, '');
-    }
-    return stem;
+    return lookUpBulkPhotoStem(map, stem);
 }
 
 function createResellerProductUploadMulter(uploadsDir) {

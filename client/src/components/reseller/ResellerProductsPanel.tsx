@@ -1192,10 +1192,11 @@ function BatchBulkPhotoUpload({
               </>
             ) : (
               <>
-                Rename each image file to the product barcode shown below — e.g.{' '}
-                <span className="font-mono text-[var(--kc-accent,#c41e3a)]">BAANI-01.webp</span> for front,{' '}
-                <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]/80">BAANI-01_secondary.webp</span>{' '}
-                for back
+                Name files like the product code below — e.g.{' '}
+                <span className="font-mono text-[var(--kc-accent,#c41e3a)]">HMEF_LPHS-00001</span> or{' '}
+                <span className="font-mono text-[var(--kc-accent,#c41e3a)]">hmeflphs-00001</span> (PNG/JPG/WebP all
+                work) for front,{' '}
+                <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]/80">…_secondary</span> for back
                 {hasBoxProducts ? (
                   <>
                     ,{' '}
