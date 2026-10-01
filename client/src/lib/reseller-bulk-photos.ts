@@ -1,7 +1,6 @@
 import axios from '@/lib/axios'
+import { prepareResellerProductImagesForUpload } from '@/lib/reseller-product-image-upload'
 import {
-  RESELLER_PRODUCT_IMAGE_MAX_BYTES,
-  RESELLER_PRODUCT_IMAGE_MAX_LABEL,
   submissionImageDiskKey,
   submissionWithBoxOnly,
   type ResellerProductSubmission,
@@ -36,11 +35,6 @@ export function submissionPhotoFilenames(row: ResellerProductSubmission): {
 
 export function validateBulkPhotoFiles(files: File[]): string | null {
   if (!files.length) return 'Choose at least one image'
-  for (const f of files) {
-    if (f.size > RESELLER_PRODUCT_IMAGE_MAX_BYTES) {
-      return `${f.name} is too large (max ${RESELLER_PRODUCT_IMAGE_MAX_LABEL})`
-    }
-  }
   return null
 }
 
@@ -51,9 +45,10 @@ export async function uploadBatchPhotosBulk(
 ): Promise<BulkPhotoUploadResult> {
   const err = validateBulkPhotoFiles(files)
   if (err) throw new Error(err)
+  const prepared = await prepareResellerProductImagesForUpload(files)
   const fd = new FormData()
   fd.append('photoType', photoType)
-  for (const f of files) {
+  for (const f of prepared) {
     fd.append('images', f, f.name || 'photo.webp')
   }
   const res = await axios.post<BulkPhotoUploadResult>(

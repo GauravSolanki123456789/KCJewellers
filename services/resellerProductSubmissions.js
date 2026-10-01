@@ -21,6 +21,7 @@ const {
     isEmeraldMakeToOrderBrand,
     applyEmeraldMakeToOrderFields,
 } = require('./productBrandUtils');
+const { normalizeProductImageFileToWebp } = require('./resellerProductImageOptimize');
 
 const SUBMISSION_STATUSES = new Set(['draft', 'pending', 'approved', 'rejected', 'withdrawn']);
 
@@ -1067,6 +1068,7 @@ function parseBulkUploadStemFromFilename(filename, photoType) {
 
 function createResellerProductUploadMulter(uploadsDir) {
     fs.mkdirSync(uploadsDir, { recursive: true });
+    const maxImageBytes = 35 * 1024 * 1024;
     return multer({
         storage: multer.diskStorage({
             destination: (req, file, cb) => cb(null, uploadsDir),
@@ -1075,6 +1077,10 @@ function createResellerProductUploadMulter(uploadsDir) {
                 cb(null, raw);
             },
         }),
+        limits: {
+            fileSize: maxImageBytes,
+            files: 320,
+        },
     }).fields([
         { name: 'primaryImage', maxCount: 1 },
         { name: 'secondaryImage', maxCount: 1 },
@@ -1665,31 +1671,22 @@ function registerResellerProductRoutes(app, deps) {
                             unmatched.push(originalName || file.filename);
                             continue;
                         }
-                        const ext = path.extname(file.filename) || '.webp';
-                        let target;
+                        let targetBase;
                         let urlField;
                         if (photoType === 'front') {
-                            target = `${entry.prodSku}${ext}`;
+                            targetBase = `${entry.prodSku}.webp`;
                             urlField = 'image_url';
                         } else if (photoType === 'back') {
-                            target = `${entry.prodSku}_secondary${ext}`;
+                            targetBase = `${entry.prodSku}_secondary.webp`;
                             urlField = 'secondary_image_url';
                         } else {
-                            target = `${entry.prodSku}_box${ext}`;
+                            targetBase = `${entry.prodSku}_box.webp`;
                             urlField = 'box_image_url';
                         }
                         const srcPath = path.join(uploadsWebProductsDir, file.filename);
-                        const destPath = path.join(uploadsWebProductsDir, target);
-                        if (file.filename !== target) {
-                            if (fs.existsSync(destPath)) {
-                                try {
-                                    fs.unlinkSync(destPath);
-                                } catch (_) {
-                                    /* ignore */
-                                }
-                            }
-                            fs.renameSync(srcPath, destPath);
-                        }
+                        const destPath = path.join(uploadsWebProductsDir, targetBase);
+                        await normalizeProductImageFileToWebp(srcPath, destPath);
+                        const target = path.basename(destPath);
                         const url = `${apiBase}/uploads/web_products/${target}`;
                         await query(
                             `UPDATE reseller_product_submissions SET ${urlField} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,

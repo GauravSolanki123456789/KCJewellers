@@ -28,6 +28,7 @@ import {
   uploadBatchPhotosBulk,
   type BulkPhotoKind,
 } from '@/lib/reseller-bulk-photos'
+import { prepareResellerProductImageForUpload } from '@/lib/reseller-product-image-upload'
 import { calculateBreakdown, getCustomerDisplaySize, isFixedPriceCatalogItem } from '@/lib/pricing'
 import { ResellerBatchExcelEditor } from '@/components/reseller/ResellerBatchExcelEditor'
 import { ResellerProductEditModal } from '@/components/reseller/ResellerProductEditModal'
@@ -234,7 +235,7 @@ export function ResellerProductsPanel({
   const validateImage = (file: File | null): string | null => {
     if (!file) return null
     if (file.size > RESELLER_PRODUCT_IMAGE_MAX_BYTES) {
-      return `Image too large (max ${RESELLER_PRODUCT_IMAGE_MAX_LABEL})`
+      return `Image too large (max ${RESELLER_PRODUCT_IMAGE_MAX_LABEL} before optimization)`
     }
     return null
   }
@@ -262,10 +263,12 @@ export function ResellerProductsPanel({
 
     setSubmitting(true)
     try {
+      const primaryPrepared = primaryFile ? await prepareResellerProductImageForUpload(primaryFile) : null
+      const secondaryPrepared = secondaryFile ? await prepareResellerProductImageForUpload(secondaryFile) : null
       const fd = new FormData()
       fd.append('payload', JSON.stringify({ ...form, barcode: form.barcode || bc }))
-      if (primaryFile) fd.append('primaryImage', primaryFile, `${bc}.webp`)
-      if (secondaryFile) fd.append('secondaryImage', secondaryFile, `${bc}_secondary.webp`)
+      if (primaryPrepared) fd.append('primaryImage', primaryPrepared, `${bc}.webp`)
+      if (secondaryPrepared) fd.append('secondaryImage', secondaryPrepared, `${bc}_secondary.webp`)
       await axios.post('/api/reseller/product-submissions', fd)
       setMessage('Submitted for KC admin review. It will appear on the public site after approval.')
       setForm(emptyProductPayload())
@@ -706,7 +709,7 @@ export function ResellerProductsPanel({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ImageUploadTile
               label="Front photo"
-              hint={`PNG/JPEG/WebP · max ${RESELLER_PRODUCT_IMAGE_MAX_LABEL}`}
+              hint={`PNG/JPEG/WebP · large files auto-save as sharp WebP (up to ${RESELLER_PRODUCT_IMAGE_MAX_LABEL} source)`}
               file={primaryFile}
               inputRef={primaryInputRef}
               onPick={setPrimaryFile}
@@ -1199,7 +1202,7 @@ function BatchBulkPhotoUpload({
                     <span className="font-mono text-emerald-800">BAANI-01_box.webp</span> for with-box
                   </>
                 ) : null}
-                . Then pick many files at once on phone or laptop. One-by-one upload still works below.
+                . Large AI/studio PNGs (even 20+ MB) are auto-compressed to high-quality WebP before upload — no need to shrink files manually. Then pick many files at once on phone or laptop.
               </>
             )}
           </p>

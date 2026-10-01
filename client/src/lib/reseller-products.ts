@@ -104,8 +104,16 @@ export const RESELLER_PRODUCT_VIDEO_ACCEPT =
 export const RESELLER_PRODUCT_VIDEO_MAX_BYTES = 25 * 1024 * 1024
 export const RESELLER_PRODUCT_VIDEO_MAX_LABEL = '25 MB'
 
-export const RESELLER_PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
-export const RESELLER_PRODUCT_IMAGE_MAX_LABEL = '5 MB'
+/** Largest source file we accept before client-side optimization (AI studio PNG exports). */
+export const RESELLER_PRODUCT_IMAGE_MAX_BYTES = 32 * 1024 * 1024
+export const RESELLER_PRODUCT_IMAGE_MAX_LABEL = '32 MB'
+
+/** Target size after WebP optimization — keeps catalogue sharp, saves disk/DB vs raw PNG. */
+export const RESELLER_PRODUCT_IMAGE_STORE_TARGET_BYTES = 3.5 * 1024 * 1024
+export const RESELLER_PRODUCT_IMAGE_STORE_TARGET_LABEL = '3.5 MB'
+
+/** PNG/JPEG larger than this are auto-converted to high-quality WebP before upload. */
+export const RESELLER_PRODUCT_IMAGE_OPTIMIZE_ABOVE_BYTES = 500 * 1024
 
 export const RESELLER_EXCEL_ACCEPT =
   '.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv'
