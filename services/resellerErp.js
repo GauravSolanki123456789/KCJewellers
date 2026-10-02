@@ -41,7 +41,7 @@ const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./reseller
 const { registerStockCheckRoutes } = require('./resellerErpStockCheck');
 const { registerRolRoutes, ensureRolSchema } = require('./resellerErpRol');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
-const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin } = require('./resellerErpOperators');
+const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin, operatorCanSaveSalesBill } = require('./resellerErpOperators');
 const {
     registerShadowRoutes,
     createShadowBillFromBillingPayload,
@@ -687,7 +687,8 @@ function billGstEnabledFromPayload(body) {
     return true;
 }
 
-function mapBill(row) {
+function mapBill(row, options = {}) {
+    const forClient = options.forClient !== false;
     if (!row) return row;
     let lines = row.lines_json;
     if (typeof lines === 'string') {
@@ -721,7 +722,7 @@ function mapBill(row) {
             compliance = null;
         }
     }
-    return {
+    let bill = {
         id: row.id,
         bill_number: row.bill_number,
         bill_type: row.bill_type,
@@ -739,6 +740,21 @@ function mapBill(row) {
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
+    if (forClient) bill = redactEstimateSessionForClient(bill);
+    return bill;
+}
+
+/** Hide GST vs lane billing linkage on estimate records (API + UI parity). */
+function redactEstimateSessionForClient(bill) {
+    if (!bill || String(bill.bill_type || '').toLowerCase() !== 'estimate') return bill;
+    if (!bill.session || typeof bill.session !== 'object') return bill;
+    const session = { ...bill.session };
+    delete session.billedSaleBillId;
+    delete session.billedSaleBillNumber;
+    delete session.billedShadowBillId;
+    delete session.billedShadowBillNumber;
+    delete session.billedViaLedger;
+    return { ...bill, session };
 }
 
 function billSessionObj(bill) {
@@ -1480,6 +1496,16 @@ function registerResellerErpRoutes(app, deps) {
                     error: 'Cannot save a completed sales bill while rates are unfixed. Fix rates first, or save as an estimate.',
                 });
             }
+            if (
+                billType === 'sale' &&
+                ['completed', 'paid', 'final'].includes(status) &&
+                !operatorCanSaveSalesBill(req)
+            ) {
+                return res.status(403).json({
+                    error: 'Your ERP login is not allowed to save sales bills. You can still create estimates.',
+                    code: 'ERP_SAVE_BILL_DENIED',
+                });
+            }
             if (['completed', 'paid', 'final'].includes(status) && billType === 'sale') {
                 const barcodes = lines.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
                 const conflicts = await findSoldBarcodeConflicts(query, req.user.id, barcodes);
@@ -1707,6 +1733,12 @@ function registerResellerErpRoutes(app, deps) {
                     [id, req.user.id],
                 );
                 const bt = String(billTypeRow[0]?.bill_type || req.body.bill_type || 'sale').toLowerCase();
+                if (bt === 'sale' && !operatorCanSaveSalesBill(req)) {
+                    return res.status(403).json({
+                        error: 'Your ERP login is not allowed to save sales bills. You can still create estimates.',
+                        code: 'ERP_SAVE_BILL_DENIED',
+                    });
+                }
                 if (bt === 'sale') {
                     const barcodes = lines.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
                     const conflicts = await findSoldBarcodeConflicts(query, req.user.id, barcodes, id);
@@ -1832,7 +1864,7 @@ function registerResellerErpRoutes(app, deps) {
                 [id, req.user.id],
             );
             if (!existing.length) return res.status(404).json({ error: 'Bill not found' });
-            await deleteErpBillCascade(query, req.user.id, mapBill(existing[0]));
+            await deleteErpBillCascade(query, req.user.id, mapBill(existing[0], { forClient: false }));
             res.json({ success: true });
         } catch (e) {
             console.error('erp bill delete:', e);

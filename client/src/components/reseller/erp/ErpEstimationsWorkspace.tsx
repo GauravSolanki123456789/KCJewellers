@@ -36,7 +36,6 @@ import {
   isEstimateBilled,
   resolveBillEstimateStatus,
 } from '@/lib/erp-estimate-status'
-import type { ErpBillSession } from '@/lib/erp-bill-session'
 import {
   Download,
   Eye,
@@ -460,8 +459,6 @@ export function ErpEstimationsWorkspace() {
               bills.map((b) => {
                 const effectiveStatus = resolveBillEstimateStatus(b)
                 const billed = isEstimateBilled(b) || effectiveStatus === 'billed'
-                const session = (b.session || {}) as ErpBillSession
-                const saleBillNo = session.billedSaleBillNumber
                 return (
                 <tr key={b.id} className="border-b border-[var(--color-slate-700,#e8e4df)]/50">
                   <td className="px-3 py-2.5">
@@ -490,16 +487,11 @@ export function ErpEstimationsWorkspace() {
                   </td>
                   <td className="px-3 py-2.5">
                     {billed ? (
-                      <div className="space-y-1">
-                        <span
-                          className={`inline-flex min-h-[36px] items-center rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass('billed')}`}
-                        >
-                          Billed
-                        </span>
-                        {saleBillNo ? (
-                          <p className="text-[10px] font-medium text-emerald-800/80">→ {saleBillNo}</p>
-                        ) : null}
-                      </div>
+                      <span
+                        className={`inline-flex min-h-[36px] items-center rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass('billed')}`}
+                      >
+                        Billed
+                      </span>
                     ) : (
                       <select
                         className={`min-h-[36px] rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${estimateStatusBadgeClass(effectiveStatus)}`}

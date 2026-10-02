@@ -42,6 +42,9 @@ async function ensureOperatorsSchema(pool) {
 
         ALTER TABLE reseller_erp_operators
             ADD COLUMN IF NOT EXISTS is_store_greeter BOOLEAN NOT NULL DEFAULT false;
+
+        ALTER TABLE reseller_erp_operators
+            ADD COLUMN IF NOT EXISTS can_save_bill BOOLEAN NOT NULL DEFAULT true;
     `);
 }
 
@@ -62,6 +65,7 @@ function mapOperator(row, { includeMeta = false } = {}) {
         shadowAccess: !!row.shadow_access,
         isActive: !!row.is_active,
         isStoreGreeter: !!row.is_store_greeter,
+        canSaveBill: row.can_save_bill !== false,
     };
     if (includeMeta) {
         base.lastLoginAt = row.last_login_at || null;
@@ -76,6 +80,14 @@ function getSessionOperator(req) {
     if (!op?.id || !op?.resellerUserId) return null;
     if (String(op.resellerUserId) !== String(req.user?.id)) return null;
     return op;
+}
+
+/** Completed GST sales bill save — blocked when staff operator has can_save_bill = false. */
+function operatorCanSaveSalesBill(req) {
+    const op = getSessionOperator(req);
+    if (!op) return true;
+    if (op.role === 'admin') return true;
+    return op.canSaveBill !== false;
 }
 
 function operatorCanAccessModule(op, moduleId) {
@@ -260,6 +272,7 @@ function registerOperatorRoutes(app, deps) {
                 allowedModules: operator.allowedModules,
                 fullAccess: operator.fullAccess,
                 shadowAccess: operator.shadowAccess,
+                canSaveBill: operator.canSaveBill !== false,
             };
             req.session.shadowUnlocked = false;
 
@@ -289,7 +302,7 @@ function registerOperatorRoutes(app, deps) {
         try {
             const rows = await query(
                 `SELECT id, username, display_name, role, allowed_modules, full_access,
-                        shadow_access, is_active
+                        shadow_access, is_active, can_save_bill
                  FROM reseller_erp_operators
                  WHERE id = $1 AND reseller_user_id = $2 AND is_active = true
                  LIMIT 1`,
@@ -309,6 +322,7 @@ function registerOperatorRoutes(app, deps) {
                 allowedModules: fresh.fullAccess || fresh.role === 'admin' ? ALL_MODULE_IDS : fresh.allowedModules,
                 fullAccess: fresh.fullAccess,
                 shadowAccess: fresh.shadowAccess,
+                canSaveBill: fresh.canSaveBill !== false,
             };
             res.json({
                 operator: mapOperator({
@@ -346,7 +360,7 @@ function registerOperatorRoutes(app, deps) {
         try {
             const rows = await query(
                 `SELECT id, username, display_name, role, allowed_modules, full_access,
-                        shadow_access, is_active, last_login_at, created_at, updated_at
+                        shadow_access, is_active, can_save_bill, last_login_at, created_at, updated_at
                  FROM reseller_erp_operators
                  WHERE reseller_user_id = $1
                  ORDER BY role DESC, username ASC`,
@@ -376,14 +390,20 @@ function registerOperatorRoutes(app, deps) {
             const fullAccess = !!req.body.full_access || !!req.body.fullAccess;
             const shadowAccess = role === 'admin';
             const allowedModules = fullAccess ? ALL_MODULE_IDS : normalizeModules(req.body.allowed_modules || req.body.allowedModules);
+            const canSaveBill =
+                req.body.can_save_bill != null
+                    ? !!req.body.can_save_bill
+                    : req.body.canSaveBill != null
+                      ? !!req.body.canSaveBill
+                      : true;
             const passwordHash = await hashPassword(password);
 
             const rows = await query(
                 `INSERT INTO reseller_erp_operators (
                     reseller_user_id, username, password_hash, display_name, role,
-                    allowed_modules, full_access, shadow_access, is_active, created_by
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9)
-                 RETURNING id, username, display_name, role, allowed_modules, full_access, shadow_access, is_active`,
+                    allowed_modules, full_access, shadow_access, can_save_bill, is_active, created_by
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10)
+                 RETURNING id, username, display_name, role, allowed_modules, full_access, shadow_access, can_save_bill, is_active`,
                 [
                     req.user.id,
                     username,
@@ -393,6 +413,7 @@ function registerOperatorRoutes(app, deps) {
                     allowedModules,
                     fullAccess,
                     shadowAccess,
+                    canSaveBill,
                     req.user.id,
                 ],
             );
@@ -428,6 +449,12 @@ function registerOperatorRoutes(app, deps) {
             const allowedModules = req.body.allowed_modules != null || req.body.allowedModules != null
                 ? normalizeModules(req.body.allowed_modules || req.body.allowedModules)
                 : null;
+            const canSaveBill =
+                req.body.can_save_bill != null
+                    ? !!req.body.can_save_bill
+                    : req.body.canSaveBill != null
+                      ? !!req.body.canSaveBill
+                      : null;
 
             const sets = [];
             const params = [];
@@ -459,6 +486,10 @@ function registerOperatorRoutes(app, deps) {
                 sets.push(`allowed_modules = $${idx++}`);
                 params.push(allowedModules);
             }
+            if (canSaveBill != null) {
+                sets.push(`can_save_bill = $${idx++}`);
+                params.push(canSaveBill);
+            }
             if (req.body.password) {
                 const pwdErr = validateOperatorPassword(String(req.body.password));
                 if (pwdErr) return res.status(400).json({ error: pwdErr });
@@ -474,7 +505,7 @@ function registerOperatorRoutes(app, deps) {
             const rows = await query(
                 `UPDATE reseller_erp_operators SET ${sets.join(', ')}
                  WHERE id = $${idx++} AND reseller_user_id = $${idx}
-                 RETURNING id, username, display_name, role, allowed_modules, full_access, shadow_access, is_active`,
+                 RETURNING id, username, display_name, role, allowed_modules, full_access, shadow_access, can_save_bill, is_active`,
                 params,
             );
             res.json({ success: true, operator: mapOperator(rows[0]) });
@@ -666,6 +697,7 @@ module.exports = {
     ensureOperatorsSchema,
     erpGateWithOperator,
     getSessionOperator,
+    operatorCanSaveSalesBill,
     mapOperator,
     operatorCanAccessModule,
     registerOperatorRoutes,

@@ -31,6 +31,7 @@ export function ErpUsersWorkspace() {
     role: 'staff' as 'admin' | 'staff',
     fullAccess: false,
     allowedModules: [] as string[],
+    canSaveBill: true,
   })
 
   const load = useCallback(async () => {
@@ -61,6 +62,7 @@ export function ErpUsersWorkspace() {
       role: 'staff',
       fullAccess: false,
       allowedModules: [],
+      canSaveBill: true,
     })
     setFormOpen(false)
   }
@@ -74,6 +76,7 @@ export function ErpUsersWorkspace() {
       role: op.role,
       fullAccess: op.fullAccess,
       allowedModules: op.allowedModules || [],
+      canSaveBill: op.canSaveBill !== false,
     })
     setFormOpen(true)
   }
@@ -118,6 +121,7 @@ export function ErpUsersWorkspace() {
         full_access: form.fullAccess,
         shadow_access: form.role === 'admin',
         allowed_modules: form.fullAccess ? moduleIds : form.allowedModules,
+        can_save_bill: form.canSaveBill,
         ...(form.password ? { password: form.password } : {}),
       }
       if (editId) {
@@ -279,6 +283,27 @@ export function ErpUsersWorkspace() {
                 </span>
                 <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                   Grant access to all ERP tabs
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            <label className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 px-3 py-3">
+              <input
+                type="checkbox"
+                checked={form.canSaveBill}
+                onChange={(e) => setForm((f) => ({ ...f, canSaveBill: e.target.checked }))}
+                className="mt-1"
+                disabled={form.role === 'admin'}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Allow Save bill (Scan &amp; Bill)
+                </span>
+                <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  When off, staff can still create estimates and quotes but cannot post a completed sales bill. Admins
+                  always retain Save bill.
                 </span>
               </span>
             </label>

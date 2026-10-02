@@ -49,6 +49,59 @@ export function formatLedgerRunningBalance(
   return metal ? `${money} · ${metal}` : money
 }
 
+/** GST / bank RTGS sales — grams stay in the Weight column only, not in Debit. */
+export function isRupeeOnlyGstSale(row: {
+  lane?: string | null
+  rupee_only_debit?: boolean | null
+  metal_ledger_mode?: boolean | null
+  source?: string | null
+  shadow_bill_id?: number | null
+  kind?: string | null
+}): boolean {
+  if (row.rupee_only_debit) return true
+  const kind = String(row.kind || '').toLowerCase()
+  if (kind && kind !== 'sale' && kind !== 'debit') return false
+  if (row.metal_ledger_mode) return false
+  if (row.shadow_bill_id) return false
+  if (String(row.lane || '').toLowerCase() === 'gst') return true
+  if (row.source === 'bill') return true
+  return false
+}
+
+export function formatLedgerDebitCell(row: {
+  debit?: number
+  debit_inr?: number
+  debit_metal_gm?: number
+  weight_gm?: number
+  lane?: string | null
+  rupee_only_debit?: boolean | null
+  metal_ledger_mode?: boolean | null
+  source?: string | null
+  shadow_bill_id?: number | null
+  kind?: string | null
+}): string {
+  const inr = row.debit_inr ?? row.debit
+  if (isRupeeOnlyGstSale(row)) {
+    return formatLedgerMoneyOrMetal(inr, 0)
+  }
+  const metal =
+    row.debit_metal_gm ??
+    (Math.abs(Number(inr) || 0) >= 0.005 ? row.weight_gm : 0)
+  return formatLedgerMoneyOrMetal(inr, metal)
+}
+
+/** Official payment ledger: running balance is ₹ only. Lane ledger: ₹ + metal when metal exists. */
+export function formatLedgerBalanceCell(
+  balanceInr: number | null | undefined,
+  balanceMetalGm: number | null | undefined,
+  opts: { laneLedger?: boolean },
+): string {
+  if (!opts.laneLedger) {
+    return formatErpInr(Number(balanceInr) || 0)
+  }
+  return formatLedgerRunningBalance(balanceInr, balanceMetalGm)
+}
+
 export function metalBalanceHint(balanceGm: number): string {
   const n = Number(balanceGm) || 0
   if (Math.abs(n) < 0.0005) return 'Metal even'

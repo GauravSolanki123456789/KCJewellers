@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import axios from '@/lib/axios'
 import { Download, FileText, Loader2, Search } from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
+import type { WholesaleUserFields } from '@/lib/customer-tier'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
@@ -11,9 +13,9 @@ import { appAlert, appConfirm, appPrompt } from '@/lib/app-notice'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import {
-  formatLedgerMoneyOrMetal,
   formatLedgerVirtualMetalCredit,
-  formatLedgerRunningBalance,
+  formatLedgerDebitCell,
+  formatLedgerBalanceCell,
   formatMetalGm,
   metalBalanceHint,
 } from '@/lib/erp-ledger-metal'
@@ -28,6 +30,7 @@ export type CustomerAccountTx = {
   balance_inr: number
   balance_metal_gm?: number
   lane?: string
+  rupee_only_debit?: boolean
   weight_gm?: number
   debit_metal_gm?: number
   credit_metal_gm?: number
@@ -78,6 +81,12 @@ export function ErpCustomerAccountPanel({
   resetToken = 0,
   onCustomerSelected,
 }: Props) {
+  const auth = useAuth()
+  const shopName = useMemo(() => {
+    const name = auth.user && (auth.user as WholesaleUserFields).business_name
+    return typeof name === 'string' && name.trim() ? name.trim() : 'Shop'
+  }, [auth.user])
+
   const [q, setQ] = useState('')
   const [pickIdx, setPickIdx] = useState(-1)
   const [results, setResults] = useState<ErpCustomer[]>([])
@@ -168,7 +177,13 @@ export function ErpCustomerAccountPanel({
     setBusy(true)
     try {
       if (format === 'pdf') {
-        await downloadCustomerAccountPdf(account)
+        await downloadCustomerAccountPdf(account, {
+          shopName,
+          fromDate: onDate ? null : filterFrom || null,
+          toDate: onDate ? null : filterTo || null,
+          onDate: onDate || null,
+          laneLedger: laneMode,
+        })
         appAlert('PDF downloaded.', 'success')
       } else {
         const path = laneMode
@@ -377,6 +392,19 @@ export function ErpCustomerAccountPanel({
 
       {account ? (
         <>
+          <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-3 text-center">
+            <p className="text-sm font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]">
+              {shopName}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Ledger of {selected?.name || account.customer.name}
+              {onDate
+                ? ` from ${formatErpDateDdMmYyyy(onDate)} to ${formatErpDateDdMmYyyy(onDate)}`
+                : filterFrom || filterTo
+                  ? ` from ${filterFrom ? formatErpDateDdMmYyyy(filterFrom) : '—'} to ${filterTo ? formatErpDateDdMmYyyy(filterTo) : '—'}`
+                  : ''}
+            </p>
+          </div>
           <div className={`grid grid-cols-2 gap-2 ${laneMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             {[
               { l: 'Total billed', v: formatErpInr(account.summary.total_billed_inr) },
@@ -462,13 +490,13 @@ export function ErpCustomerAccountPanel({
                       {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerMoneyOrMetal(t.debit, t.debit_metal_gm ?? (t.debit ? t.weight_gm : 0))}
+                      {formatLedgerDebitCell(t)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                       {formatLedgerVirtualMetalCredit(t)}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerRunningBalance(t.balance_inr, t.balance_metal_gm)}
+                      {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, { laneLedger: laneMode })}
                     </td>
                     {laneMode ? (
                       <td className="px-2 py-2">

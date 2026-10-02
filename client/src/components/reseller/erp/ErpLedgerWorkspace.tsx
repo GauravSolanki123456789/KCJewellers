@@ -39,6 +39,8 @@ import {
   formatLedgerMoneyOrMetal,
   formatLedgerVirtualMetalCredit,
   formatLedgerRunningBalance,
+  formatLedgerDebitCell,
+  formatLedgerBalanceCell,
   formatMetalGm,
   ledgerEntryMetalGm,
   metalBalanceHint,
@@ -2682,19 +2684,25 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Debit</p>
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                {formatLedgerRunningBalance(dayBookLedger.debit, dayBookLedger.debitMetal)}
+                {formatLedgerBalanceCell(dayBookLedger.debit, dayBookLedger.debitMetal, {
+                  laneLedger: laneMode,
+                })}
               </p>
             </div>
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Credit</p>
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                {formatLedgerRunningBalance(dayBookLedger.credit, dayBookLedger.creditMetal)}
+                {formatLedgerBalanceCell(dayBookLedger.credit, dayBookLedger.creditMetal, {
+                  laneLedger: laneMode,
+                })}
               </p>
             </div>
             <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-emerald-800/70">Balance</p>
               <p className="font-bold tabular-nums text-emerald-900">
-                {formatLedgerRunningBalance(dayBookLedger.balance, dayBookLedger.balanceMetal)}
+                {formatLedgerBalanceCell(dayBookLedger.balance, dayBookLedger.balanceMetal, {
+                  laneLedger: laneMode,
+                })}
               </p>
             </div>
           </div>
@@ -2735,7 +2743,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <td className="px-3 py-2.5 uppercase">{row.payment_mode || '—'}</td>
                       <td className="max-w-[120px] truncate px-3 py-2.5">{row.reference || '—'}</td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
-                        {formatLedgerMoneyOrMetal(row.debit_inr, row.debit_metal_gm)}
+                        {formatLedgerDebitCell({
+                          debit_inr: row.debit_inr,
+                          debit_metal_gm: row.debit_metal_gm,
+                          weight_gm: row.weight_gm,
+                          source: row.source,
+                          metal_ledger_mode: row.metal_ledger_mode,
+                          shadow_bill_id: row.shadow_bill_id,
+                          kind: row.kind,
+                        })}
                       </td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
                         {formatLedgerVirtualMetalCredit({
@@ -2747,7 +2763,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                         })}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                        {formatLedgerRunningBalance(row.balance_inr, row.balance_metal_gm)}
+                        {formatLedgerBalanceCell(row.balance_inr, row.balance_metal_gm, {
+                          laneLedger: laneMode,
+                        })}
                       </td>
                       <td className="px-2 py-2">
                         <div className="flex flex-col gap-1 sm:flex-row sm:items-center">

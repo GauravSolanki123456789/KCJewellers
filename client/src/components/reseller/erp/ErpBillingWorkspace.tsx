@@ -366,7 +366,7 @@ function clearDraftStorage() {
 
 export function ErpBillingWorkspace() {
   const auth = useAuth()
-  const { shadowUnlocked, operator } = useErpOperator()
+  const { shadowUnlocked, operator, canSaveBill } = useErpOperator()
   const router = useRouter()
   const searchParams = useSearchParams()
   const editIdParam = searchParams.get('edit')
@@ -2543,23 +2543,8 @@ export function ErpBillingWorkspace() {
           </p>
           <p className="mt-1 text-sm text-amber-950/80">
             This estimate is read-only. Products are shown for reference.
-            {billedSaleBillNumber ? (
-              <>
-                {' '}
-                Sales bill:{' '}
-                <span className="font-semibold text-amber-950">{billedSaleBillNumber}</span>
-              </>
-            ) : null}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {billedSaleBillId ? (
-              <Link
-                href={`${resellerErpModulePath('billing')}?edit=${billedSaleBillId}`}
-                className="inline-flex min-h-[40px] items-center rounded-xl bg-amber-900 px-4 py-2 text-xs font-semibold text-white"
-              >
-                Open sales bill
-              </Link>
-            ) : null}
             <Link
               href={resellerErpModulePath('estimations')}
               className="inline-flex min-h-[40px] items-center rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-semibold text-amber-950"
@@ -3009,16 +2994,23 @@ export function ErpBillingWorkspace() {
               saveBusy ||
               lines.length === 0 ||
               ratesUnfixed ||
+              !canSaveBill ||
               String(editingBillStatus || '').toLowerCase() === 'billed'
             }
             title={
-              String(editingBillStatus || '').toLowerCase() === 'billed'
+              !canSaveBill
+                ? 'Your ERP login cannot save sales bills — ask admin to enable Save bill'
+                : String(editingBillStatus || '').toLowerCase() === 'billed'
                 ? 'This estimation is already billed'
                 : ratesUnfixed
                   ? 'Fix rates before saving a sales bill'
                   : undefined
             }
             onClick={() => {
+              if (!canSaveBill) {
+                alert('Your ERP login is not allowed to save sales bills. You can still create estimates.')
+                return
+              }
               if (String(editingBillStatus || '').toLowerCase() === 'billed') {
                 alert('This estimation is already billed.')
                 return
@@ -3034,6 +3026,11 @@ export function ErpBillingWorkspace() {
             Save bill
           </button>
         </div>
+        {!canSaveBill ? (
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+            Save bill is disabled for your ERP login. You can still use <strong>Generate quote</strong> for estimates.
+          </p>
+        ) : null}
         {ratesUnfixed ? (
           <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
             Rates are unfixed — sales bill save is disabled. Use <strong>Generate quote</strong> to save as a rate-unfix estimate.

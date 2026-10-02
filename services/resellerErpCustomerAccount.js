@@ -174,9 +174,11 @@ function applyDaybookLedgerColumns(rows) {
                       debit_metal_gm: roundMetalGm(r.debit_metal_gm),
                       credit_metal_gm: roundMetalGm(r.credit_metal_gm),
                   }
-                : r.source === 'bill' || r.source === 'shadow_bill'
-                  ? metalDebitFromSaleWeight(r.weight_gm)
-                  : metalDebitCreditFromLedgerEntry(
+                : r.source === 'bill'
+                  ? { debit_metal_gm: 0, credit_metal_gm: 0 }
+                  : r.source === 'shadow_bill'
+                    ? metalDebitFromSaleWeight(r.weight_gm)
+                    : metalDebitCreditFromLedgerEntry(
                         r.kind,
                         r.weight_gm || r.metal_gm,
                         r.description || r.narration,
@@ -345,6 +347,7 @@ function pushShadowSaleRows(rows, s) {
         debit: billAmt,
         credit: 0,
         lane,
+        rupee_only_debit: !metalLedgerMode,
         shadow_bill_id: s.id,
         metal_ledger_mode: metalLedgerMode,
         weight_gm: metalGm > 0 ? Math.round(metalGm * 1000) / 1000 : 0,
@@ -501,7 +504,10 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             debit: isCredit ? 0 : amt,
             credit: isCredit ? amt : 0,
             lane,
+            rupee_only_debit: lane === 'gst',
             weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
+            debit_metal_gm: 0,
+            credit_metal_gm: 0,
         });
     }
 

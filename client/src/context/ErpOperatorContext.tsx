@@ -22,6 +22,8 @@ export type ErpOperator = {
   shadowAccess: boolean
   isActive?: boolean
   isStoreGreeter?: boolean
+  /** When false, Scan & Bill hides Save bill (estimates still allowed). */
+  canSaveBill?: boolean
 }
 
 type ErpOperatorContextValue = {
@@ -36,6 +38,8 @@ type ErpOperatorContextValue = {
   canAccessModule: (moduleId: ResellerErpModuleId | string) => boolean
   /** Document / stock deletes: admin operator after Jainav unlock (F9Rs* + Enter). */
   canDeleteRecords: boolean
+  /** Save completed sales bill in Scan & Bill (staff permission). */
+  canSaveBill: boolean
 }
 
 const ErpOperatorContext = createContext<ErpOperatorContextValue | null>(null)
@@ -127,6 +131,12 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
 
   const canDeleteRecords = operator?.role === 'admin' && shadowUnlocked
 
+  const canSaveBill = useMemo(() => {
+    if (!operator) return true
+    if (operator.role === 'admin') return true
+    return operator.canSaveBill !== false
+  }, [operator])
+
   const value = useMemo(
     () => ({
       operator,
@@ -139,6 +149,7 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
       lockShadow,
       canAccessModule,
       canDeleteRecords,
+      canSaveBill,
     }),
     [
       operator,
@@ -151,6 +162,7 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
       lockShadow,
       canAccessModule,
       canDeleteRecords,
+      canSaveBill,
     ],
   )
 
