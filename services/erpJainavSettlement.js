@@ -55,6 +55,26 @@ function jainavMetalOwedGmFromLines(lines, slab) {
     return Math.round(sum * 1000) / 1000;
 }
 
+function normalizeMcType(raw) {
+    const t = String(raw || '').trim().toUpperCase();
+    if (!t) return '';
+    if (
+        t === 'FIX' ||
+        t === 'PCS' ||
+        t === 'RS' ||
+        t === 'PC' ||
+        t === 'MC/PC' ||
+        t === 'FIXED' ||
+        t === 'PER_PIECE' ||
+        t === 'PERPIECE' ||
+        t === 'PIECE'
+    ) {
+        return 'MC/PC';
+    }
+    if (t === 'MC/GM' || t === 'MCGM' || t === 'PER_GRAM' || t === 'PERGRAM') return 'MC/GM';
+    return t;
+}
+
 function jainavLineMcOwedInr(line) {
     const displayCandidates = [
         line.displayMcInr,
@@ -63,6 +83,11 @@ function jainavLineMcOwedInr(line) {
         line.mc_inr,
         line.mc_amount,
         line.mcAmountInr,
+        line.mc,
+        line.MC,
+        line.line_mc_inr,
+        line.mcTotal,
+        line.mc_total,
     ];
     for (const raw of displayCandidates) {
         const n = Number(raw);
@@ -71,14 +96,32 @@ function jainavLineMcOwedInr(line) {
     const mc = Number(line.mc_rate);
     if (!Number.isFinite(mc) || mc <= 0) return 0;
     const qty = Math.max(1, Number(line.qty) || 1);
-    const wt = Number(line.weightGm ?? line.originalWeightGm ?? line.net_weight ?? 0) || 0;
+    const wt = Number(line.weightGm ?? line.weight_gm ?? line.originalWeightGm ?? line.net_weight ?? 0) || 0;
+    const mcTypeNorm = normalizeMcType(line.mc_type || line.mcType);
+    if (mcTypeNorm === 'MC/PC') {
+        if (mc >= 300) return Math.round(mc * qty);
+        if (wt > 0) return Math.round(mc * wt * qty);
+        return Math.round(mc * qty);
+    }
     const mcType = String(line.mc_type || line.mcType || '').toUpperCase();
+    if (
+        mcType === 'PCS' ||
+        mcType === 'FIX' ||
+        mcType === 'RS' ||
+        mcType === 'PC' ||
+        mcType === 'MC/PC' ||
+        mcType === 'FIXED' ||
+        mcType === 'PER_PIECE' ||
+        mcType === 'PERPIECE' ||
+        mcType === 'PIECE'
+    ) {
+        return Math.round(mc * qty);
+    }
+    if (mc >= 500 && qty === 1) return Math.round(mc);
     if (mcType.includes('GM') || mcType.includes('/G') || mcType.includes('PER G')) {
         return Math.round(mc * wt * qty);
     }
-    if (mcType === 'PCS' || mcType === 'FIX' || mcType === 'RS' || mcType === 'PC' || mcType === '') {
-        if (mc >= 50 || qty === 1) return Math.round(mc * qty);
-    }
+    if (mc >= 50 || qty === 1) return Math.round(mc * qty);
     return Math.round(mc * qty);
 }
 

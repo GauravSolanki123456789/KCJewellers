@@ -4,6 +4,14 @@ import type { CustomerAccountData } from '@/components/reseller/erp/ErpCustomerA
 import { formatLedgerTransactionKind, formatPdfInr } from '@/lib/erp-ledger-labels'
 import { formatMetalGm, metalBalanceHint } from '@/lib/erp-ledger-metal'
 
+function pdfLedgerDescription(raw: string): string {
+  return String(raw || '')
+    .replace(/\u00b9/g, '')
+    .replace(/\s*[—–-]\s*₹?\s*offset only.*$/gi, '')
+    .replace(/\s*offset only.*$/gi, '')
+    .trim()
+}
+
 const styles = StyleSheet.create({
   page: { padding: 32, fontSize: 9, fontFamily: 'Helvetica' },
   title: { fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
@@ -64,7 +72,7 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
             <Text style={styles.c1}>{t.date}</Text>
             <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
             <Text style={styles.c3}>{t.ref || '—'}</Text>
-            <Text style={styles.c4}>{t.description}</Text>
+            <Text style={styles.c4}>{pdfLedgerDescription(t.description)}</Text>
             <Text style={styles.cW}>
               {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
             </Text>

@@ -890,7 +890,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     includeShadow: ledgerScope === 'lane',
                 });
                 const settled = virtualMetalReceiptSettlement(
-                    account.summary.metal_balance_gm,
+                    Number(account.summary.metal_balance_gm) || 0,
                     resolvedMetalGm,
                     metalRate,
                 );
@@ -928,9 +928,6 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 } else {
                     narration = `Metal received ${absGm} g${rateBit}`;
                 }
-            }
-            if (virtualMetalValueInr && amount > 0 && narration) {
-                narration += ' — ₹ offset only (no cash received)';
             }
             if (
                 entryType === 'payment_in' &&
@@ -1027,12 +1024,18 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     row.customer_id,
                     id,
                 );
-                const settled = virtualMetalReceiptSettlement(bal.balance_metal_gm, gm, rate);
+                let settled;
+                if (bal.balance_metal_gm > 0.0005) {
+                    settled = virtualMetalReceiptSettlement(bal.balance_metal_gm, gm, rate);
+                } else {
+                    const inrVal = Math.round(Math.abs(gm) * rate * 100) / 100;
+                    const capped = Math.min(Math.max(0, bal.balance_inr), inrVal);
+                    settled = { metal_cleared_gm: 0, inr_offset_inr: capped };
+                }
                 let narration = String(row.narration || '').trim();
                 const rateBit = ` @ ₹${rate}/g`;
                 if (!narration) narration = `Metal received ${Math.abs(gm).toFixed(3)} g${rateBit}`;
                 else if (!/@\s*₹/.test(narration)) narration += rateBit;
-                if (!/₹ offset only/i.test(narration)) narration += ' — ₹ offset only (no cash received)';
                 const updated = await query(
                     `UPDATE reseller_erp_ledger_entries SET
                         amount_inr = $1,
@@ -1078,7 +1081,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 const inrOffset = Math.round(gm * rate * 100) / 100;
                 const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
                 const referenceNo = await nextMetalRef(query, req.user.id, 'MB');
-                const narration = `Metal credit converted to ₹ balance ${gm.toFixed(3)} g @ ₹${rate}/g — ₹ offset only (no cash received)`;
+                const narration = `Metal credit converted to ₹ balance ${gm.toFixed(3)} g @ ₹${rate}/g`;
                 const rows = await query(
                     `INSERT INTO reseller_erp_ledger_entries (
                         reseller_user_id, entry_date, entry_type, amount_inr, customer_id,

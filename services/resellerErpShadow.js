@@ -1013,7 +1013,13 @@ function registerShadowRoutes(app, deps) {
                     const metalGm = jainavMetalOwedGmFromLines(lines, slab);
                     const mcInr = jainavMcOwedInrFromLines(lines);
                     if (metalGm > 0) session.jainavMetalOwedGm = metalGm;
-                    if (mcInr > 0) session.jainavMcOwedInr = mcInr;
+                    if (mcInr > 0) {
+                        const prevMc = Number(session.jainavMcOwedInr);
+                        session.jainavMcOwedInr = Math.max(
+                            Number.isFinite(prevMc) && prevMc > 0 ? prevMc : 0,
+                            mcInr,
+                        );
+                    }
                 } else {
                     session.jainavMetalLedger = false;
                     session.metal_ledger_mode = 'amount';

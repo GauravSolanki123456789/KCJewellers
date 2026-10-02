@@ -9,6 +9,9 @@ const {
     metalGmForRunningBalance,
     metalDebitCreditFromLedgerEntry,
     metalDebitFromSaleWeight,
+    metalRatePerGFromLedgerRow,
+    sanitizeLedgerDescription,
+    virtualMetalReceiptSettlement,
     roundMetalGm,
 } = require('./erpLedgerMetal');
 
@@ -178,12 +181,36 @@ function applyDaybookLedgerColumns(rows) {
                         r.weight_gm || r.metal_gm,
                         r.description || r.narration,
                     );
-        totalDebit += dc.debit_inr;
-        totalCredit += dc.credit_inr;
-        totalDebitMetal += metalDc.debit_metal_gm;
-        totalCreditMetal += metalDc.credit_metal_gm;
-        running += dc.debit_inr - dc.credit_inr;
-        runningMetal += metalDc.debit_metal_gm - metalDc.credit_metal_gm;
+        const recvGm = Number(r.weight_gm || r.metal_gm) || 0;
+        if (r.virtual_metal_inr && recvGm > 0) {
+            const rate = metalRatePerGFromLedgerRow(r);
+            if (runningMetal >= 0.0005) {
+                const settled = virtualMetalReceiptSettlement(runningMetal, recvGm, rate);
+                dc.credit_inr = settled.inr_offset_inr;
+                runningMetal = Math.max(0, runningMetal - recvGm);
+            } else {
+                const stored = Number(dc.credit_inr) || 0;
+                const inrVal =
+                    stored > 0
+                        ? stored
+                        : rate > 0
+                          ? Math.round(recvGm * rate * 100) / 100
+                          : 0;
+                dc.credit_inr = Math.min(Math.max(0, running), inrVal);
+            }
+            metalDc.credit_metal_gm = 0;
+            totalDebit += dc.debit_inr;
+            totalCredit += dc.credit_inr;
+            totalDebitMetal += metalDc.debit_metal_gm;
+            running -= dc.credit_inr;
+        } else {
+            totalDebit += dc.debit_inr;
+            totalCredit += dc.credit_inr;
+            totalDebitMetal += metalDc.debit_metal_gm;
+            totalCreditMetal += metalDc.credit_metal_gm;
+            running += dc.debit_inr - dc.credit_inr;
+            runningMetal += metalDc.debit_metal_gm - metalDc.credit_metal_gm;
+        }
         return {
             ...r,
             debit_inr: Math.round(dc.debit_inr * 100) / 100,
@@ -274,14 +301,16 @@ function shadowSaleHasPostedSettlement(session) {
 }
 
 function shadowSaleMcOwedInr(s) {
-    const fromLines = jainavMcOwedInrFromLines(shadowSaleLines(s));
-    if (fromLines > 0) return fromLines;
     const session = shadowSaleSession(s);
+    const fromLines = jainavMcOwedInrFromLines(shadowSaleLines(s));
     const fromSession = Number(session.jainavMcOwedInr);
-    if (Number.isFinite(fromSession) && fromSession > 0) return Math.round(fromSession);
     const fromSettle = Number(session.jainavSettlement && session.jainavSettlement.totalMcOwedInr);
-    if (Number.isFinite(fromSettle) && fromSettle > 0) return Math.round(fromSettle);
-    return 0;
+    const best = Math.max(
+        fromLines > 0 ? fromLines : 0,
+        Number.isFinite(fromSession) && fromSession > 0 ? fromSession : 0,
+        Number.isFinite(fromSettle) && fromSettle > 0 ? fromSettle : 0,
+    );
+    return best > 0 ? Math.round(best) : 0;
 }
 
 function shadowSaleWeightGm(s) {
@@ -520,6 +549,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             description: isPay
                 ? formatLedgerPaymentDescription(p, customer.name, shadowBillById)
                 : p.narration || p.entry_type.replace(/_/g, ' '),
+            narration: p.narration || '',
             debit,
             credit,
             payment_mode: p.payment_mode,
@@ -537,13 +567,42 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     let running = 0;
     let runningMetal = 0;
     const transactions = orderedRows.map((r) => {
-        running += (Number(r.debit) || 0) - (Number(r.credit) || 0);
+        const debitInr = Number(r.debit) || 0;
+        let creditInr = Number(r.credit) || 0;
         const dMetal = Number(r.debit_metal_gm) || 0;
-        const cMetal = Number(r.credit_metal_gm) || 0;
-        runningMetal += dMetal - cMetal;
+        let cMetal = Number(r.credit_metal_gm) || 0;
+        let displayCreditMetal = cMetal;
+
+        if (r.virtual_metal_inr && Number(r.weight_gm) > 0) {
+            const rate = metalRatePerGFromLedgerRow(r);
+            const recvGm = Number(r.weight_gm);
+            displayCreditMetal = roundMetalGm(recvGm);
+            if (runningMetal >= 0.0005) {
+                const settled = virtualMetalReceiptSettlement(runningMetal, recvGm, rate);
+                creditInr = settled.inr_offset_inr;
+                runningMetal = Math.max(0, runningMetal - recvGm);
+            } else {
+                const inrVal =
+                    creditInr > 0
+                        ? creditInr
+                        : rate > 0
+                          ? Math.round(recvGm * rate * 100) / 100
+                          : 0;
+                creditInr = Math.min(Math.max(0, running), inrVal);
+                // Receipt converted to ₹ — do not add metal credit to running balance.
+            }
+            running -= creditInr;
+        } else {
+            running += debitInr - creditInr;
+            runningMetal += dMetal - cMetal;
+        }
+
         const { linked_bill_ref: _lb, ...pub } = r;
         return {
             ...pub,
+            description: sanitizeLedgerDescription(pub.description),
+            credit: creditInr,
+            credit_metal_gm: displayCreditMetal,
             balance_inr: Math.round(running * 100) / 100,
             balance_metal_gm: roundMetalGm(runningMetal),
         };
@@ -858,8 +917,6 @@ function customerAccountToCsv(account) {
     if (account.customer.mobile) push(['Mobile', account.customer.mobile]);
     if (account.customer.gstin) push(['GSTIN', account.customer.gstin]);
     lines.push('');
-    push(['Total billed', account.summary.total_billed_inr]);
-    push(['Total paid', account.summary.total_paid_inr]);
     push(['Balance due', account.summary.balance_due_inr]);
     push(['Metal balance (g)', account.summary.metal_balance_gm ?? 0]);
     lines.push('');

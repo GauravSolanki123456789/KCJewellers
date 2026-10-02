@@ -49,6 +49,27 @@ function isVirtualMetalInrOffsetRow(row) {
 /**
  * Metal received with ₹-offset: clear customer metal debt first, then value excess grams at rate.
  */
+function metalRatePerGFromLedgerRow(row) {
+    if (!row || typeof row !== 'object') return 0;
+    const stored = Number(row.metal_settlement_rate_per_g);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    const nar = String(row.narration || '');
+    const m = nar.match(/@\s*₹?\s*([\d,.]+)\s*\/?\s*g/i);
+    if (m) {
+        const n = Number(String(m[1]).replace(/,/g, ''));
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+}
+
+function sanitizeLedgerDescription(desc) {
+    return String(desc || '')
+        .replace(/\u00b9/g, '')
+        .replace(/\s*[—–-]\s*₹?\s*offset only.*$/gi, '')
+        .replace(/\s*offset only.*$/gi, '')
+        .trim();
+}
+
 function virtualMetalReceiptSettlement(metalBalanceBeforeGm, receivedGm, ratePerG) {
     const recv = Math.abs(Number(receivedGm) || 0);
     const debt = Math.max(0, Number(metalBalanceBeforeGm) || 0);
@@ -140,6 +161,8 @@ module.exports = {
     roundMetalGm,
     parseMetalGm,
     isVirtualMetalInrOffsetRow,
+    metalRatePerGFromLedgerRow,
+    sanitizeLedgerDescription,
     virtualMetalReceiptSettlement,
     metalGmForRunningBalance,
     metalGmFromLedgerRow,
