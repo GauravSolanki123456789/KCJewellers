@@ -6,6 +6,7 @@ import { Download, FileText, Loader2, Search } from 'lucide-react'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
+import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import {
@@ -298,7 +299,7 @@ export function ErpCustomerAccountPanel({
 
       {account ? (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className={`grid grid-cols-2 gap-2 ${laneMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             {[
               { l: 'Total billed', v: formatErpInr(account.summary.total_billed_inr) },
               { l: 'Total paid', v: formatErpInr(account.summary.total_paid_inr) },
@@ -307,12 +308,16 @@ export function ErpCustomerAccountPanel({
                 v: formatErpInr(account.summary.balance_due_inr),
                 accent: account.summary.balance_due_inr > 0,
               },
-              {
-                l: 'Metal balance',
-                v: formatMetalGm(account.summary.metal_balance_gm) || '0.000 g',
-                sub: metalBalanceHint(account.summary.metal_balance_gm || 0),
-                accent: Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005,
-              },
+              ...(laneMode
+                ? [
+                    {
+                      l: 'Metal balance',
+                      v: formatMetalGm(account.summary.metal_balance_gm) || '0.000 g',
+                      sub: metalBalanceHint(account.summary.metal_balance_gm || 0),
+                      accent: Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005,
+                    },
+                  ]
+                : []),
             ].map((c: { l: string; v: string; accent?: boolean; sub?: string }) => (
               <div key={c.l} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">{c.l}</p>
@@ -356,7 +361,7 @@ export function ErpCustomerAccountPanel({
               <tbody>
                 {account.transactions.map((t, i) => (
                   <tr key={`${t.date}-${t.ref}-${i}`} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
-                    <td className="whitespace-nowrap px-3 py-2">{t.date}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{formatErpDateDdMmYyyy(t.date)}</td>
                     <td className="px-3 py-2">{formatLedgerTransactionKind(t.kind)}</td>
                     <td className="px-3 py-2 font-mono">{t.ref || '—'}</td>
                     <td className="max-w-[140px] truncate px-3 py-2">{t.description}</td>

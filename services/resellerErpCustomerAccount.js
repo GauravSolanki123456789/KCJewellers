@@ -302,22 +302,23 @@ function pushShadowSaleRows(rows, s) {
     const session = shadowSaleSession(s);
     const lane = s.lane || 'jainav';
     const isJainav = lane === 'jainav';
-    const metalGm = shadowSaleWeightGm(s);
-    const saleMetalPostedElsewhere = isJainav && shadowSaleHasPostedSettlement(session);
-    const metalDebit = saleMetalPostedElsewhere ? 0 : metalGm;
-    const mcOwed = isJainav ? shadowSaleMcOwedInr(s) : 0;
-    const billAmt = isJainav && mcOwed > 0 ? mcOwed : Number(s.total_inr) || 0;
+    const metalLedgerMode =
+        session.jainavMetalLedger === true ||
+        session.metal_ledger_mode === 'metal' ||
+        session.metalLedgerMode === true;
+    const metalGm = metalLedgerMode ? shadowSaleWeightGm(s) : 0;
+    const billAmt = Number(s.total_inr) || 0;
     rows.push({
         date: normDate(s.bill_date),
         sort_id: s.id,
         kind: 'sale',
         ref: s.bill_number,
-        description: `(V NO: ${s.bill_number}) ${isJainav ? 'JAINAV SALE — metal + MC' : 'SALES A/C -'}`,
+        description: `(V NO: ${s.bill_number}) ${isJainav ? 'JAINAV SALE' : 'SALES A/C -'}`,
         debit: billAmt,
         credit: 0,
         lane,
         weight_gm: metalGm > 0 ? Math.round(metalGm * 1000) / 1000 : 0,
-        debit_metal_gm: metalDebit > 0 ? roundMetalGm(metalDebit) : 0,
+        debit_metal_gm: metalGm > 0 ? roundMetalGm(metalGm) : 0,
         credit_metal_gm: 0,
     });
 }
@@ -666,13 +667,15 @@ async function buildDaybook(query, resellerUserId, opts) {
             for (const s of shadowSales) {
                 const session = shadowSaleSession(s);
                 const isJainav = String(s.lane || 'jainav') === 'jainav';
-                const weightGm = shadowSaleWeightGm(s);
-                const mcOwed = isJainav ? shadowSaleMcOwedInr(s) : 0;
-                const amountInr = isJainav && mcOwed > 0 ? mcOwed : Number(s.total_inr) || 0;
-                const metalDc =
-                    isJainav && !shadowSaleHasPostedSettlement(session)
-                        ? metalDebitFromSaleWeight(weightGm)
-                        : { debit_metal_gm: 0, credit_metal_gm: 0 };
+                const metalLedgerMode =
+                    session.jainavMetalLedger === true ||
+                    session.metal_ledger_mode === 'metal' ||
+                    session.metalLedgerMode === true;
+                const weightGm = metalLedgerMode ? shadowSaleWeightGm(s) : 0;
+                const amountInr = Number(s.total_inr) || 0;
+                const metalDc = weightGm > 0
+                    ? metalDebitFromSaleWeight(weightGm)
+                    : { debit_metal_gm: 0, credit_metal_gm: 0 };
                 const flows = billCashflows('sale', amountInr);
                 rows.push({
                     row_key: `shadow:${s.id}`,

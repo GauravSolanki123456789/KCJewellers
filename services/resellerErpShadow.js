@@ -8,7 +8,6 @@ const {
     markPiecesShadowSold,
     restorePiecesFromShadowSold,
 } = require('./resellerErpStockPieces');
-const { applyJainavSettlementLedgerEntries } = require('./erpJainavSettlement');
 const {
     createShadowCollectedCashLedgerEntry,
     deleteLedgerEntriesForShadowBills,
@@ -226,11 +225,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
                 console.warn('erp shadow cash received:', le.message);
             }
         }
-        try {
-            await applyJainavSettlementLedgerEntries(query, resellerUserId, bill);
-        } catch (le) {
-            console.warn('erp jainav settlement ledger:', le.message);
-        }
+        // Metal / MC settlement is recorded in Lane Ledger (Add payment), not at bill save.
         const sourceEstimateId =
             body.source_estimate_id != null ? parseInt(String(body.source_estimate_id), 10) : null;
         const sourceEstimateIdsRaw = Array.isArray(body.source_estimate_ids) ? body.source_estimate_ids : [];

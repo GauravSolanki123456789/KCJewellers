@@ -29,26 +29,26 @@ function formatDdMmYyDash(raw: string): string | null {
   if (!dmy2) return null
   const yy = parseInt(dmy2[3], 10)
   const yyyy = yy >= 70 ? 1900 + yy : 2000 + yy
-  return `${dmy2[1]}/${dmy2[2]}/${yyyy}`
+  return `${dmy2[1]}-${dmy2[2]}-${yyyy}`
 }
 
 export function formatErpDateDdMmYyyy(iso?: string | null): string {
   if (!iso) return '—'
   const raw = String(iso).trim()
   const legacy = formatDdMmYyDash(raw)
-  if (legacy) return legacy
+  if (legacy) return legacy.replace(/\//g, '-')
   const s = raw.slice(0, 10)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
-  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
   const isoT = /^(\d{4}-\d{2}-\d{2})T/.exec(raw)
   if (isoT) {
     const p = isoT[1].split('-')
-    return `${p[2]}/${p[1]}/${p[0]}`
+    return `${p[2]}-${p[1]}-${p[0]}`
   }
   // Avoid Date.parse on values like "Sat Sep 27" (wrong year in JS).
   if (/^[A-Za-z]{3}\s/.test(raw)) return '—'
   const parts = istCalendarParts(raw)
-  if (parts) return `${parts.dd}/${parts.mm}/${parts.yyyy}`
+  if (parts) return `${parts.dd}-${parts.mm}-${parts.yyyy}`
   return s
 }
 

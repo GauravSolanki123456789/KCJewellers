@@ -793,7 +793,19 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const metalGm = parseMetalGm(req.body.metal_gm ?? req.body.metalWeight ?? req.body.weight_gm);
             const metalRate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
             let amount = parseAmount(req.body.amount_inr) ?? 0;
+            const virtualMetalValueInr = !!(
+                req.body.virtual_metal_value_inr ||
+                req.body.metal_value_offset_inr ||
+                req.body.book_metal_value_against_inr
+            );
+            const mayBookMetalAsInr =
+                virtualMetalValueInr ||
+                metalKind === 'to_cash' ||
+                metalKind === 'convert_cash' ||
+                metalKind === 'apply' ||
+                metalKind === 'redeem';
             if (
+                mayBookMetalAsInr &&
                 (!amount || amount <= 0) &&
                 metalGm != null &&
                 Math.abs(metalGm) >= 0.0005 &&
@@ -882,6 +894,9 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 } else {
                     narration = `Metal received ${absGm} g${rateBit}`;
                 }
+            }
+            if (virtualMetalValueInr && amount > 0 && narration) {
+                narration += ' — ₹ offset only (no cash received)';
             }
             if (
                 entryType === 'payment_in' &&

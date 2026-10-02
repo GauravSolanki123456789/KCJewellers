@@ -2802,36 +2802,6 @@ export function ErpBillingWorkspace() {
           </div>
         </div>
 
-        {!isOfficialGstBill ? (
-          <div className="mt-3 space-y-2 rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3 py-2.5 text-xs leading-relaxed text-[#1a1814]">
-            <p>
-              Jainav / cash sale — no GST invoice. After saving, record metal received, issued, applied, MC-against-metal, or leftover metal-to-cash in{' '}
-              <Link href={resellerErpModulePath('jainav-ledger')} className="font-semibold text-emerald-800 underline">
-                Lane Ledger
-              </Link>
-              .
-            </p>
-            {jainavMetalOwedGm > 0 || jainavMcOwedInr > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg border border-emerald-200 bg-white px-2.5 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]/50">Metal owed</p>
-                  <p className="mt-0.5 text-sm font-bold tabular-nums text-[#1a1814]">
-                    {jainavMetalOwedGm.toFixed(3)} g
-                  </p>
-                  <p className="text-[10px] text-[#1a1814]/55">Pure wt if Metal%; else net wt</p>
-                </div>
-                <div className="rounded-lg border border-emerald-200 bg-white px-2.5 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]/50">MC owed</p>
-                  <p className="mt-0.5 text-sm font-bold tabular-nums text-[#1a1814]">
-                    {formatErpInr(jainavMcOwedInr)}
-                  </p>
-                  <p className="text-[10px] text-[#1a1814]/55">Making charges only</p>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
         {paymentMethod === 'mixed' ? (
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <div>

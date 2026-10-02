@@ -387,6 +387,7 @@ function emptyPaymentForm() {
     metal_kind: 'received' as 'received' | 'issued' | 'apply' | 'mc_adjust' | 'to_cash',
     metal_gm: '',
     metal_rate: '',
+    metal_value_offset_inr: false,
   }
 }
 
@@ -761,6 +762,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           isMetal && form.metal_rate.trim()
             ? Number(String(form.metal_rate).replace(/[,₹\s]/g, ''))
             : undefined,
+        virtual_metal_value_inr:
+          isMetal &&
+          form.metal_value_offset_inr &&
+          (form.metal_kind === 'received' || form.metal_kind === 'apply'),
         customer_id: form.customer_id ? Number(form.customer_id) : null,
         payment_mode: isMetal ? 'metal' : form.payment_mode,
         reference_no: form.reference_no,
@@ -1409,7 +1414,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
     return (
       <tr key={e.id} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
-        <td className="whitespace-nowrap px-3 py-2.5">{e.entry_date}</td>
+        <td className="whitespace-nowrap px-3 py-2.5">{formatErpDateDdMmYyyy(e.entry_date)}</td>
         <td className="px-3 py-2.5">
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
@@ -1557,12 +1562,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           <p className="text-[11px] text-amber-800/70">{summary?.suspense_count ?? 0} unmatched</p>
         </div>
       </div>
-      {laneMode ? (
-        <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3 py-2 text-xs leading-relaxed text-[#1a1814]">
-          Dual-currency lane: rupees and metal grams both post here. After a Jainav sale, open Add payment → Metal (g) to receive metal, apply an existing metal balance, settle MC against metal, or convert leftover grams to cash.
-        </p>
-      ) : null}
-
       <div className="flex flex-wrap gap-2">
         {tabs.map((t) => (
           <button
@@ -1876,6 +1875,20 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     }
                   />
                 </label>
+                {form.metal_kind === 'received' || form.metal_kind === 'apply' ? (
+                  <label className="flex items-start gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
+                      checked={form.metal_value_offset_inr}
+                      onChange={(e) => setForm({ ...form, metal_value_offset_inr: e.target.checked })}
+                    />
+                    <span>
+                      Use metal × rate to reduce ₹ balance only (not cash received). Enter weight and ₹/g rate; leave
+                      cash amount empty unless customer also paid cash.
+                    </span>
+                  </label>
+                ) : null}
               </>
             ) : (
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
