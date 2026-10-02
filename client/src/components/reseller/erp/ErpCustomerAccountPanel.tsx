@@ -7,6 +7,7 @@ import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { appAlert, appConfirm } from '@/lib/app-notice'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import {
@@ -29,6 +30,9 @@ export type CustomerAccountTx = {
   weight_gm?: number
   debit_metal_gm?: number
   credit_metal_gm?: number
+  shadow_bill_id?: number
+  metal_ledger_mode?: boolean
+  virtual_metal_inr?: boolean
 }
 
 export type CustomerAccountData = {
@@ -77,7 +81,6 @@ export function ErpCustomerAccountPanel({
   const [selected, setSelected] = useState<ErpCustomer | null>(null)
   const [account, setAccount] = useState<CustomerAccountData | null>(null)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
   const [filterFrom, setFilterFrom] = useState(from)
   const [filterTo, setFilterTo] = useState(to)
   const [onDate, setOnDate] = useState('')
@@ -106,7 +109,6 @@ export function ErpCustomerAccountPanel({
   const loadAccount = useCallback(
     async (customer: ErpCustomer) => {
       setBusy(true)
-      setMsg(null)
       try {
         const path = laneMode
           ? '/api/reseller/erp/shadow/customer-account'
@@ -123,7 +125,7 @@ export function ErpCustomerAccountPanel({
         setQ(customer.name)
         setResults([])
       } catch (e) {
-        setMsg(erpErr(e))
+        appAlert(erpErr(e), 'error')
         setAccount(null)
         setSelected(null)
         setQ('')
@@ -164,7 +166,7 @@ export function ErpCustomerAccountPanel({
     try {
       if (format === 'pdf') {
         await downloadCustomerAccountPdf(account)
-        setMsg('PDF downloaded.')
+        appAlert('PDF downloaded.', 'success')
       } else {
         const path = laneMode
           ? '/api/reseller/erp/shadow/customer-account/export'
@@ -182,10 +184,10 @@ export function ErpCustomerAccountPanel({
         a.download = `payment ledger-${selected.name.replace(/\W+/g, '_')}.csv`
         a.click()
         URL.revokeObjectURL(url)
-        setMsg('Excel (CSV) downloaded.')
+        appAlert('Excel (CSV) downloaded.', 'success')
       }
     } catch (e) {
-      setMsg(erpErr(e))
+      appAlert(erpErr(e), 'error')
     } finally {
       setBusy(false)
     }
@@ -209,6 +211,24 @@ export function ErpCustomerAccountPanel({
     if (!selected) return
     void loadAccount(selected)
   }, [selected, filterFrom, filterTo, onDate, loadAccount])
+
+  const setShadowLedgerMode = async (shadowBillId: number, mode: 'metal' | 'amount') => {
+    const label =
+      mode === 'metal'
+        ? 'Show this sale as metal owed (g) + MC (₹) on the ledger? Bill total stays on the bill; only the ledger view changes.'
+        : 'Show this sale as full bill amount (₹) only on the ledger?'
+    if (!(await appConfirm(label))) return
+    setBusy(true)
+    try {
+      await axios.post(`/api/reseller/erp/shadow/documents/${shadowBillId}/ledger-mode`, { mode })
+      appAlert(mode === 'metal' ? 'Sale converted to metal + MC on ledger.' : 'Sale shown as amount only.', 'success')
+      if (selected) await loadAccount(selected)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className={`${erpCardCls} space-y-3`}>
@@ -356,6 +376,7 @@ export function ErpCustomerAccountPanel({
                   <th className="px-3 py-2.5 text-right">Debit</th>
                   <th className="px-3 py-2.5 text-right">Credit</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
+                  {laneMode ? <th className="px-3 py-2.5"> </th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -372,11 +393,35 @@ export function ErpCustomerAccountPanel({
                       {formatLedgerMoneyOrMetal(t.debit, t.debit_metal_gm ?? (t.debit ? t.weight_gm : 0))}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerMoneyOrMetal(t.credit, t.credit_metal_gm ?? (t.credit ? t.weight_gm : 0))}
+                      {formatLedgerMoneyOrMetal(
+                        t.credit,
+                        t.virtual_metal_inr
+                          ? 0
+                          : (t.credit_metal_gm ?? (t.credit ? t.weight_gm : 0)),
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                       {formatLedgerRunningBalance(t.balance_inr, t.balance_metal_gm)}
                     </td>
+                    {laneMode ? (
+                      <td className="px-2 py-2">
+                        {t.kind === 'sale' && t.shadow_bill_id ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-900"
+                            onClick={() =>
+                              void setShadowLedgerMode(
+                                t.shadow_bill_id!,
+                                t.metal_ledger_mode ? 'amount' : 'metal',
+                              )
+                            }
+                          >
+                            {t.metal_ledger_mode ? '₹ only' : 'Metal+MC'}
+                          </button>
+                        ) : null}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -389,7 +434,6 @@ export function ErpCustomerAccountPanel({
         </p>
       ) : null}
 
-      {msg ? <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/65">{msg}</p> : null}
     </div>
   )
 }

@@ -37,6 +37,27 @@ export function metalBalanceHint(balanceGm: number): string {
   return `You owe customer ${Math.abs(n).toFixed(3)} g`
 }
 
+export function isVirtualMetalInrOffset(entry: {
+  virtual_metal_inr?: boolean | null
+  narration?: string | null
+}): boolean {
+  if (entry?.virtual_metal_inr) return true
+  const nar = String(entry?.narration || '')
+  return /₹ offset only|no cash received/i.test(nar)
+}
+
+/** Grams that change running metal balance (not ₹-offset-only receipts). */
+export function ledgerEntryMetalGmForBalance(entry: {
+  metal_gm?: number | null
+  weight_kg?: number | null
+  reference_no?: string | null
+  narration?: string | null
+  virtual_metal_inr?: boolean | null
+}): number {
+  if (isVirtualMetalInrOffset(entry)) return 0
+  return ledgerEntryMetalGm(entry)
+}
+
 export function ledgerEntryMetalGm(entry: {
   metal_gm?: number | null
   weight_kg?: number | null

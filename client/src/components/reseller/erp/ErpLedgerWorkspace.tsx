@@ -27,7 +27,7 @@ import {
   type ErpLedgerEntry,
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
-import { appConfirm } from '@/lib/app-notice'
+import { appAlert, appConfirm } from '@/lib/app-notice'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { useErpOperator } from '@/context/ErpOperatorContext'
@@ -73,6 +73,8 @@ type DaybookTransaction = {
   balance_metal_gm?: number
   weight_gm?: number
   description?: string
+  metal_ledger_mode?: boolean
+  virtual_metal_inr?: boolean
 }
 
 type DaybookData = {
@@ -449,7 +451,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [customerFilter, setCustomerFilter] = useState('')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [accountResetToken, setAccountResetToken] = useState(0)
@@ -669,7 +670,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     setNewEmployeeName('')
     setCustomerFilter('')
     setQ('')
-    setMsg(null)
     setAccountResetToken((n) => n + 1)
     await reload()
   }, [laneMode, reload])
@@ -732,7 +732,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       return
     }
     setBusy(true)
-    setMsg(null)
     try {
       const metalKind = isMetal ? form.metal_kind : undefined
       const convertSide =
@@ -780,7 +779,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       setPayCustomerLabel('')
       setPayCustomerResults([])
       setPayBalances(null)
-      setMsg(isMetal ? 'Metal entry recorded.' : 'Payment recorded.')
+      appAlert(isMetal ? 'Metal entry recorded.' : 'Payment recorded.', 'success')
       setTab('entries')
       await reload()
     } catch (e) {
@@ -792,7 +791,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const onImportFile = async (file: File) => {
     setBusy(true)
-    setMsg(null)
     try {
       const parsed = await parseBankStatementFile(file)
       if (!parsed.rows.length) throw new Error('No transactions found — check bank format (IDFC / HDFC / generic).')
@@ -825,12 +823,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           duplicateCount: previewRes.data.duplicate_count || 0,
         },
       ])
-      setMsg(
+      appAlert(
         `Added ${rows.length} transaction(s) from ${file.name}` +
           (previewRes.data.duplicate_count
             ? ` · ${previewRes.data.duplicate_count} duplicate(s) flagged`
             : '') +
           (parsed.format === 'idfc' ? ' · IDFC format' : ''),
+        'success',
       )
     } catch (e) {
       alert(erpErr(e))
@@ -913,7 +912,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       return
     }
     setBusy(true)
-    setMsg(null)
     try {
       const res = await axios.post<{
         inserted: number
@@ -940,10 +938,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       void axios
         .get<{ batches: typeof importBatches }>('/api/reseller/erp/ledger/import-batches')
         .then((r) => setImportBatches(r.data.batches || []))
-      setMsg(
+      appAlert(
         `Imported ${res.data.inserted} entry(s) from ${file.fileName}` +
           (res.data.duplicates ? ` · ${res.data.duplicates} duplicate(s) skipped` : '') +
           (res.data.suspense ? ` · ${res.data.suspense} in suspense` : ''),
+        'success',
       )
       await reload()
     } catch (e) {
@@ -1018,6 +1017,26 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
   }
 
+  const convertShadowBillLedgerMode = async (shadowBillId: number, toMetal: boolean) => {
+    const label = toMetal
+      ? 'Show this sale as metal owed (g) + MC (₹) on the ledger?'
+      : 'Show this sale as full bill amount (₹) only on the ledger?'
+    if (!(await appConfirm(label))) return
+    setBusy(true)
+    try {
+      await axios.post(`/api/reseller/erp/shadow/documents/${shadowBillId}/ledger-mode`, {
+        mode: toMetal ? 'metal' : 'amount',
+      })
+      appAlert(toMetal ? 'Sale converted to metal + MC on ledger.' : 'Sale shown as amount only.', 'success')
+      await loadDaybook()
+      setAccountResetToken((t) => t + 1)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const removeDaybookRow = async (row: DaybookTransaction) => {
     const msg =
       row.source === 'bill'
@@ -1045,10 +1064,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const exportDaybookToTally = async () => {
     setBusy(true)
-    setMsg(null)
     try {
       const res = await exportDaybookToTallyLocal(dayBookDate)
-      setMsg(res.message || 'Exported to Tally.')
+      appAlert(res.message || 'Exported to Tally.', 'success')
     } catch (e) {
       alert(erpErr(e))
     } finally {
@@ -1206,7 +1224,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
         },
       )
-      setMsg(`Purchase saved — ${res.data.purchase_voucher.pv_number}. Upload stock in Products with this PV number.`)
+      appAlert(
+        `Purchase saved — ${res.data.purchase_voucher.pv_number}. Upload stock in Products with this PV number.`,
+        'success',
+      )
       setPvForm({
         entry_date: todayIso(),
         vendor_name: '',
@@ -1240,7 +1261,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       await axios.delete(`/api/reseller/erp/ledger/import-batches/${batchId}`)
       setImportBatches((prev) => prev.filter((b) => b.id !== batchId))
       if (lastBatchId === batchId) setLastBatchId(null)
-      setMsg(`Deleted import "${fileName}".`)
+      appAlert(`Deleted import "${fileName}".`, 'success')
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -1255,7 +1276,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     try {
       await axios.delete(`/api/reseller/erp/purchase-vouchers/${pvId}`)
       setPurchaseVouchers((prev) => prev.filter((p) => p.id !== pvId))
-      setMsg(`Deleted ${pvNumber}. Number is free to reuse.`)
+      appAlert(`Deleted ${pvNumber}. Number is free to reuse.`, 'success')
       await reload()
     } catch (e) {
       alert(erpErr(e))
@@ -1282,7 +1303,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         narration: expenseForm.narration,
         ledger_scope: laneMode ? 'lane' : 'official',
       })
-      setMsg('Entry saved.')
+      appAlert('Entry saved.', 'success')
       setExpenseForm({
         entry_date: todayIso(),
         entry_type: 'expense',
@@ -1588,18 +1609,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         </button>
       </div>
 
-      {msg ? (
-        <p
-          className={
-            /failed|start kc erp|cannot reach tally/i.test(msg)
-              ? 'rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-[var(--color-jewelry-black,#1a1814)]'
-              : 'rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900'
-          }
-        >
-          {msg}
-        </p>
-      ) : null}
-
       {tab === 'customer' ? (
         <ErpCustomerAccountPanel
           laneMode={laneMode}
@@ -1884,8 +1893,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       onChange={(e) => setForm({ ...form, metal_value_offset_inr: e.target.checked })}
                     />
                     <span>
-                      Use metal × rate to reduce ₹ balance only (not cash received). Enter weight and ₹/g rate; leave
-                      cash amount empty unless customer also paid cash.
+                      Use metal × rate to reduce ₹ balance only (not cash received).
                     </span>
                   </label>
                 ) : null}
@@ -2728,23 +2736,40 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                         {formatLedgerMoneyOrMetal(row.debit_inr, row.debit_metal_gm)}
                       </td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
-                        {formatLedgerMoneyOrMetal(row.credit_inr, row.credit_metal_gm)}
+                        {formatLedgerMoneyOrMetal(
+                          row.credit_inr,
+                          row.virtual_metal_inr ? 0 : row.credit_metal_gm,
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                         {formatLedgerRunningBalance(row.balance_inr, row.balance_metal_gm)}
                       </td>
                       <td className="px-2 py-2">
-                        {canDeleteRecords &&
-                        (row.bill_id || row.ledger_entry_id || row.shadow_bill_id) ? (
-                          <button
-                            type="button"
-                            className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
-                            onClick={() => void removeDaybookRow(row)}
-                            aria-label="Delete"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        ) : null}
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
+                          {laneMode && row.source === 'shadow_bill' && row.shadow_bill_id ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="rounded-lg border border-emerald-300 bg-emerald-50 px-1.5 py-1 text-[9px] font-semibold text-emerald-900"
+                              onClick={() =>
+                                void convertShadowBillLedgerMode(row.shadow_bill_id!, !row.metal_ledger_mode)
+                              }
+                            >
+                              {row.metal_ledger_mode ? '₹ only' : 'Metal+MC'}
+                            </button>
+                          ) : null}
+                          {canDeleteRecords &&
+                          (row.bill_id || row.ledger_entry_id || row.shadow_bill_id) ? (
+                            <button
+                              type="button"
+                              className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
+                              onClick={() => void removeDaybookRow(row)}
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))

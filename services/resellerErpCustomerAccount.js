@@ -6,6 +6,7 @@ const { parseDateOrNull, normDateIso } = require('./erpDateNormalize');
 const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
 const {
     metalGmFromLedgerRow,
+    metalGmForRunningBalance,
     metalDebitCreditFromLedgerEntry,
     metalDebitFromSaleWeight,
     roundMetalGm,
@@ -307,16 +308,19 @@ function pushShadowSaleRows(rows, s) {
         session.metal_ledger_mode === 'metal' ||
         session.metalLedgerMode === true;
     const metalGm = metalLedgerMode ? shadowSaleWeightGm(s) : 0;
-    const billAmt = Number(s.total_inr) || 0;
+    const mcOwed = metalLedgerMode ? shadowSaleMcOwedInr(s) : 0;
+    const billAmt = metalLedgerMode ? mcOwed : Number(s.total_inr) || 0;
     rows.push({
         date: normDate(s.bill_date),
         sort_id: s.id,
         kind: 'sale',
         ref: s.bill_number,
-        description: `(V NO: ${s.bill_number}) ${isJainav ? 'JAINAV SALE' : 'SALES A/C -'}`,
+        description: `(V NO: ${s.bill_number})`,
         debit: billAmt,
         credit: 0,
         lane,
+        shadow_bill_id: s.id,
+        metal_ledger_mode: metalLedgerMode,
         weight_gm: metalGm > 0 ? Math.round(metalGm * 1000) / 1000 : 0,
         debit_metal_gm: metalGm > 0 ? roundMetalGm(metalGm) : 0,
         credit_metal_gm: 0,
@@ -492,8 +496,9 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             if (amt >= 0) credit = amt;
             else debit = Math.abs(amt);
         }
-        const metalGm = metalGmFromLedgerRow(p);
-        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGm, p.narration);
+        const metalGmDisplay = metalGmFromLedgerRow(p);
+        const metalGmBal = metalGmForRunningBalance(p);
+        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGmBal, p.narration);
         const isPay = creditTypes.has(p.entry_type) || p.entry_type === 'payment_out';
         let linkedBillRef = null;
         if (p.shadow_bill_id && shadowBillById[p.shadow_bill_id]) {
@@ -515,9 +520,10 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             credit,
             payment_mode: p.payment_mode,
             linked_bill_ref: linkedBillRef,
-            weight_gm: metalGm,
+            weight_gm: metalGmDisplay,
             debit_metal_gm: metalDc.debit_metal_gm,
             credit_metal_gm: metalDc.credit_metal_gm,
+            virtual_metal_inr: metalGmBal !== metalGmDisplay && metalGmDisplay > 0,
         });
     }
 
@@ -672,7 +678,8 @@ async function buildDaybook(query, resellerUserId, opts) {
                     session.metal_ledger_mode === 'metal' ||
                     session.metalLedgerMode === true;
                 const weightGm = metalLedgerMode ? shadowSaleWeightGm(s) : 0;
-                const amountInr = Number(s.total_inr) || 0;
+                const mcOwed = metalLedgerMode ? shadowSaleMcOwedInr(s) : 0;
+                const amountInr = metalLedgerMode ? mcOwed : Number(s.total_inr) || 0;
                 const metalDc = weightGm > 0
                     ? metalDebitFromSaleWeight(weightGm)
                     : { debit_metal_gm: 0, credit_metal_gm: 0 };
@@ -691,6 +698,7 @@ async function buildDaybook(query, resellerUserId, opts) {
                     reference: s.bill_number || '',
                     amount_inr: amountInr,
                     weight_gm: weightGm,
+                    metal_ledger_mode: metalLedgerMode,
                     ...metalDc,
                     ...flows,
                 });
@@ -745,8 +753,9 @@ async function buildDaybook(query, resellerUserId, opts) {
             (p.pv_number ? `PV ${p.pv_number}` : null) ||
             '—';
         const isPay = ['payment_in', 'bill_advance', 'suspense_in', 'payment_out'].includes(p.entry_type);
-        const metalGm = metalGmFromLedgerRow(p);
-        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGm, p.narration);
+        const metalGmDisplay = metalGmFromLedgerRow(p);
+        const metalGmBal = metalGmForRunningBalance(p);
+        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGmBal, p.narration);
         rows.push({
             row_key: `ledger:${p.id}`,
             source: 'ledger',
@@ -760,10 +769,11 @@ async function buildDaybook(query, resellerUserId, opts) {
             payment_mode: String(p.payment_mode || '—').trim() || '—',
             reference: p.reference_no || p.bill_number || p.pv_number || '',
             amount_inr: Number(p.amount_inr) || 0,
-            weight_gm: metalGm,
-            metal_gm: metalGm,
+            weight_gm: metalGmDisplay,
+            metal_gm: metalGmDisplay,
             ...metalDc,
             ...flows,
+            virtual_metal_inr: metalGmBal !== metalGmDisplay && metalGmDisplay > 0,
             description: isPay
                 ? formatLedgerPaymentDescription(p, p.customer_name, shadowBillById)
                 : p.narration || String(p.entry_type || '').replace(/_/g, ' '),

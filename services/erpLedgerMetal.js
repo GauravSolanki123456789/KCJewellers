@@ -39,6 +39,19 @@ function metalGmFromNarration(narration) {
  * Prefers metal_gm. Falls back to weight_kg × 1000, then "123.000 g" in narration
  * (older Jainav posts stored grams only in the note, with amount_inr = 0).
  */
+function isVirtualMetalInrOffsetRow(row) {
+    if (!row || typeof row !== 'object') return false;
+    if (row.virtual_metal_inr === true || row.virtual_metal_value_inr === true) return true;
+    const nar = String(row.narration || '');
+    return /₹ offset only|no cash received/i.test(nar);
+}
+
+/** Grams that affect running metal balance (excludes ₹-offset-only metal receipts). */
+function metalGmForRunningBalance(row) {
+    if (isVirtualMetalInrOffsetRow(row)) return 0;
+    return metalGmFromLedgerRow(row);
+}
+
 function metalGmFromLedgerRow(row) {
     if (!row || typeof row !== 'object') return 0;
     const gm = Number(row.metal_gm);
@@ -101,6 +114,8 @@ function metalDebitFromSaleWeight(weightGm) {
 module.exports = {
     roundMetalGm,
     parseMetalGm,
+    isVirtualMetalInrOffsetRow,
+    metalGmForRunningBalance,
     metalGmFromLedgerRow,
     metalGmFromNarration,
     metalDebitCreditFromLedgerEntry,

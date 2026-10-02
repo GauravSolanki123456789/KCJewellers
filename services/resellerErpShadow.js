@@ -17,6 +17,7 @@ const {
     resolveErpBillTotalFromPayload,
     ensureSessionNetTotalInr,
 } = require('./erpBillTotalResolve');
+const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
 
 async function ensureShadowSchema(pool) {
     await pool.query(`
@@ -963,6 +964,79 @@ function registerShadowRoutes(app, deps) {
             res.status(500).json({ error: e.message || 'Failed to load document' });
         }
     });
+
+    app.post(
+        '/api/reseller/erp/shadow/documents/:id/ledger-mode',
+        checkAuth,
+        erpGate,
+        shadowGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+                const mode = String(req.body.mode || req.body.ledger_mode || 'metal')
+                    .trim()
+                    .toLowerCase();
+                if (mode !== 'metal' && mode !== 'amount') {
+                    return res.status(400).json({ error: 'mode must be metal or amount' });
+                }
+                const rows = await query(
+                    `SELECT id, session_json, lines_json FROM reseller_erp_shadow_bills
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Not found' });
+                const row = rows[0];
+                let session = row.session_json;
+                if (typeof session === 'string') {
+                    try {
+                        session = JSON.parse(session);
+                    } catch {
+                        session = {};
+                    }
+                }
+                session = session && typeof session === 'object' ? session : {};
+                let lines = row.lines_json;
+                if (typeof lines === 'string') {
+                    try {
+                        lines = JSON.parse(lines);
+                    } catch {
+                        lines = [];
+                    }
+                }
+                if (!Array.isArray(lines)) lines = [];
+                const slab = String(session.rateSlab || session.rate_slab || 'W').trim() || 'W';
+                if (mode === 'metal') {
+                    session.jainavMetalLedger = true;
+                    session.metal_ledger_mode = 'metal';
+                    const metalGm = jainavMetalOwedGmFromLines(lines, slab);
+                    const mcInr = jainavMcOwedInrFromLines(lines);
+                    if (metalGm > 0) session.jainavMetalOwedGm = metalGm;
+                    if (mcInr > 0) session.jainavMcOwedInr = mcInr;
+                } else {
+                    session.jainavMetalLedger = false;
+                    session.metal_ledger_mode = 'amount';
+                }
+                await query(
+                    `UPDATE reseller_erp_shadow_bills
+                     SET session_json = $3::jsonb, updated_at = NOW()
+                     WHERE id = $1 AND reseller_user_id = $2`,
+                    [id, req.user.id, JSON.stringify(session)],
+                );
+                res.json({
+                    success: true,
+                    bill_id: id,
+                    metal_ledger_mode: mode === 'metal',
+                    metal_owed_gm: session.jainavMetalOwedGm || 0,
+                    mc_owed_inr: session.jainavMcOwedInr || 0,
+                });
+            } catch (e) {
+                console.error('shadow ledger-mode:', e);
+                res.status(500).json({ error: e.message || 'Failed to update ledger mode' });
+            }
+        },
+    );
 
     app.delete('/api/reseller/erp/shadow/documents/:id', checkAuth, erpGate, shadowGate, async (req, res) => {
         try {
