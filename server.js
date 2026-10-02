@@ -990,8 +990,9 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_upload_slabs_enabled: resellerUploadSlabsEnabled,
                 reseller_erp_enabled: resellerErpEnabled,
                 reseller_rfid_enabled: resellerRfidEnabled,
-                reseller_digigold_enabled: resellerDigigoldEnabled,
-                reseller_digisilver_enabled: resellerDigisilverEnabled,
+                reseller_digigold_enabled: resellerDigigoldEnabled || resellerDigisilverEnabled,
+                reseller_digisilver_enabled: resellerDigigoldEnabled || resellerDigisilverEnabled,
+                reseller_digi_enabled: resellerDigigoldEnabled || resellerDigisilverEnabled,
                 reseller_enhanced_pictures_enabled: resellerEnhancedPicturesEnabled,
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_image_search_enabled: resellerImageSearchEnabled,
@@ -4793,14 +4794,24 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             params.push(!!req.body.reseller_rfid_enabled);
         }
 
-        if (req.body.reseller_digigold_enabled !== undefined) {
+        if (req.body.reseller_digi_enabled !== undefined) {
+            const on = !!req.body.reseller_digi_enabled;
             updates.push(`reseller_digigold_enabled = $${paramIndex++}`);
-            params.push(!!req.body.reseller_digigold_enabled);
-        }
-
-        if (req.body.reseller_digisilver_enabled !== undefined) {
+            params.push(on);
             updates.push(`reseller_digisilver_enabled = $${paramIndex++}`);
-            params.push(!!req.body.reseller_digisilver_enabled);
+            params.push(on);
+        } else {
+            if (req.body.reseller_digigold_enabled !== undefined || req.body.reseller_digisilver_enabled !== undefined) {
+                const on =
+                    req.body.reseller_digigold_enabled !== undefined &&
+                    req.body.reseller_digisilver_enabled !== undefined
+                        ? !!req.body.reseller_digigold_enabled || !!req.body.reseller_digisilver_enabled
+                        : !!(req.body.reseller_digigold_enabled ?? req.body.reseller_digisilver_enabled);
+                updates.push(`reseller_digigold_enabled = $${paramIndex++}`);
+                params.push(on);
+                updates.push(`reseller_digisilver_enabled = $${paramIndex++}`);
+                params.push(on);
+            }
         }
 
         if (req.body.reseller_enhanced_pictures_enabled !== undefined) {

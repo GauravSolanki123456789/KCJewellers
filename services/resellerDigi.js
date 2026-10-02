@@ -13,7 +13,7 @@ const {
 async function digiFlagsForUser(query, userId) {
     const uid = parseInt(String(userId), 10);
     if (!Number.isFinite(uid) || uid <= 0) {
-        return { gold: false, silver: false, tier: '' };
+        return { gold: false, silver: false, enabled: false, tier: '' };
     }
     const rows = await query(
         `SELECT COALESCE(reseller_digigold_enabled, false) AS gold,
@@ -22,8 +22,9 @@ async function digiFlagsForUser(query, userId) {
          FROM users WHERE id = $1`,
         [uid],
     );
-    if (!rows.length) return { gold: false, silver: false, tier: '' };
-    return { gold: !!rows[0].gold, silver: !!rows[0].silver, tier: rows[0].tier };
+    if (!rows.length) return { gold: false, silver: false, enabled: false, tier: '' };
+    const enabled = !!rows[0].gold || !!rows[0].silver;
+    return { gold: enabled, silver: enabled, enabled, tier: rows[0].tier };
 }
 
 function requireResellerDigi(query, productType) {
@@ -42,12 +43,10 @@ function requireResellerDigi(query, productType) {
             if (metal === 'silver' && !flags.silver) {
                 return res.status(403).json({ error: 'DigiSilver is not enabled for your account. Ask KC admin.' });
             }
-            if (!metal && !flags.gold && !flags.silver) {
-                return res.status(403).json({ error: 'DigiGold / DigiSilver is not enabled for your account.' });
+            if (!flags.enabled) {
+                return res.status(403).json({ error: 'DigiGold / DigiSilver is not enabled for your account. Ask KC admin.' });
             }
-            if (!metal && (flags.gold || flags.silver)) {
-                /* combined profile page */
-            } else if (metal !== 'gold' && metal !== 'silver') {
+            if (metal && metal !== 'gold' && metal !== 'silver' && metal !== 'all') {
                 return res.status(400).json({ error: 'metal must be gold or silver' });
             }
             req.resellerDigiFlags = flags;
@@ -228,7 +227,80 @@ async function ensureDigiSchema(pool) {
             ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(32),
             ADD COLUMN IF NOT EXISTS reference_no VARCHAR(128),
             ADD COLUMN IF NOT EXISTS notes TEXT,
-            ADD COLUMN IF NOT EXISTS recorded_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+            ADD COLUMN IF NOT EXISTS recorded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS enrollment_id INTEGER
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_digi_schemes
+            ADD COLUMN IF NOT EXISTS terms_and_conditions TEXT
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_digi_settings (
+            reseller_user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            standard_discount_per_gram NUMERIC(12, 2) NOT NULL DEFAULT 4,
+            standard_making_charge_pct NUMERIC(8, 4) NOT NULL DEFAULT 0,
+            exception_making_charge_pct NUMERIC(8, 4) NOT NULL DEFAULT 50,
+            exception_weight_under_grams NUMERIC(12, 3) NOT NULL DEFAULT 25,
+            raw_metal_wastage_pct NUMERIC(8, 4) NOT NULL DEFAULT 0,
+            shipping_charge_inr NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            support_whatsapp VARCHAR(32),
+            terms_and_conditions TEXT,
+            gst_note VARCHAR(120) NOT NULL DEFAULT '+ 3% GST applicable',
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_digi_enrollments (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            customer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            scheme_id INTEGER NOT NULL REFERENCES reseller_digi_schemes(id) ON DELETE RESTRICT,
+            metal_key VARCHAR(24) NOT NULL,
+            installment_inr NUMERIC(12, 2) NOT NULL,
+            duration_months INTEGER NOT NULL,
+            bonus_months INTEGER NOT NULL DEFAULT 0,
+            months_paid INTEGER NOT NULL DEFAULT 0,
+            bonus_grams NUMERIC(14, 6) NOT NULL DEFAULT 0,
+            bonus_credited BOOLEAN NOT NULL DEFAULT false,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_paid_at TIMESTAMP,
+            matured_at TIMESTAMP,
+            closed_at TIMESTAMP
+        )
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_digi_enroll_active
+            ON reseller_digi_enrollments (reseller_user_id, customer_user_id, scheme_id)
+            WHERE status = 'active'
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_digi_enroll_reseller
+            ON reseller_digi_enrollments (reseller_user_id, status, last_paid_at DESC)
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_digi_redemptions (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            customer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            metal_key VARCHAR(24) NOT NULL,
+            grams NUMERIC(14, 6) NOT NULL,
+            item_kind VARCHAR(32) NOT NULL,
+            making_charge_pct NUMERIC(8, 4) NOT NULL DEFAULT 0,
+            discount_per_gram NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            wastage_pct NUMERIC(8, 4) NOT NULL DEFAULT 0,
+            shipping_inr NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            doorstep BOOLEAN NOT NULL DEFAULT false,
+            retail_rate_per_gram NUMERIC(12, 2) NOT NULL DEFAULT 0,
+            notes TEXT,
+            status VARCHAR(20) NOT NULL DEFAULT 'requested',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_digi_redeem_reseller
+            ON reseller_digi_redemptions (reseller_user_id, status, created_at DESC)
     `);
 }
 
@@ -262,7 +334,7 @@ async function loadResellerPaymentRow(query, userId) {
     if (!Number.isFinite(id) || id <= 0) return null;
     const rows = await query(
         `SELECT id, customer_tier, business_name, custom_domain, reseller_invite_code,
-                reseller_razorpay_key_id, reseller_razorpay_key_secret
+                reseller_razorpay_key_id, reseller_razorpay_key_secret, mobile_number, name
          FROM users WHERE id = $1`,
         [id],
     );
@@ -307,22 +379,47 @@ async function buildPublicDigiConfig(query, reseller, metal) {
     const stored = await getStoredRates(reseller.id);
     const paymentRow = await loadResellerPaymentRow(query, reseller.id);
     const payment = publicPaymentSettings(paymentRow);
-    const tiers = await getDigiRateBundle(stored, metal);
+    const settings = await getOrCreateDigiSettings(query, reseller.id);
+    const allTiers = stored ? await getDigiRateBundle(stored, null) : [];
+    const filter = metal === 'gold' || metal === 'silver' ? metal : null;
+    const tiers = stored ? await getDigiRateBundle(stored, filter) : [];
     if (!tiers?.length || !stored) {
         return { ok: false, error: 'Rates not configured yet. Please ask the jeweller to update today rates.' };
     }
-    const hasRates = tiers.some((t) => t.retail_rate_per_gram > 0);
+    const hasRates =
+        tiers.some((t) => t.retail_rate_per_gram > 0) || allTiers.some((t) => t.retail_rate_per_gram > 0);
     if (!hasRates) {
         return { ok: false, error: 'Today rates are not set yet.' };
     }
+    const schemeFilter = metal === 'gold' || metal === 'silver' ? metal : null;
+    const schemeParams = [reseller.id];
+    let schemeSql = `SELECT id, product_type, scheme_name, description, installment_inr, duration_months,
+                            bonus_months, bonus_description, metal_key, terms_and_conditions, is_active, sort_order
+                     FROM reseller_digi_schemes
+                     WHERE reseller_user_id = $1 AND is_active = true`;
+    if (schemeFilter) {
+        schemeParams.push(schemeFilter);
+        schemeSql += ` AND product_type = $2`;
+    }
+    schemeSql += ` ORDER BY sort_order ASC, scheme_name ASC`;
+    const schemes = await query(schemeSql, schemeParams);
+    const supportWhatsapp =
+        String(settings.support_whatsapp || '').replace(/\D/g, '').slice(-10) ||
+        String(paymentRow?.mobile_number || '').replace(/\D/g, '').slice(-10) ||
+        null;
     return {
         ok: true,
         business_name: reseller.business_name || 'Jeweller',
         metal,
         tiers,
+        all_tiers: allTiers,
         payments_configured: payment.payments_configured,
         razorpay_key_id: payment.razorpay_key_id_set ? payment.razorpay_key_id : null,
         updated_at: stored.updated_at || null,
+        support_whatsapp: supportWhatsapp,
+        gst_note: settings.gst_note,
+        settings: publicDigiSettings(settings),
+        schemes,
     };
 }
 
@@ -360,6 +457,78 @@ async function saveDigiDiscounts(query, userId, body) {
         ],
     );
     return { ok: true, discounts };
+}
+
+async function saveDigiRules(query, userId, body) {
+    const uid = parseInt(String(userId), 10);
+    const current = await getOrCreateDigiSettings(query, uid);
+    const next = {
+        standard_discount_per_gram:
+            body.standard_discount_per_gram != null
+                ? Math.max(0, safeNum(body.standard_discount_per_gram))
+                : current.standard_discount_per_gram,
+        standard_making_charge_pct:
+            body.standard_making_charge_pct != null
+                ? Math.max(0, Math.min(100, safeNum(body.standard_making_charge_pct)))
+                : current.standard_making_charge_pct,
+        exception_making_charge_pct:
+            body.exception_making_charge_pct != null
+                ? Math.max(0, Math.min(100, safeNum(body.exception_making_charge_pct)))
+                : current.exception_making_charge_pct,
+        exception_weight_under_grams:
+            body.exception_weight_under_grams != null
+                ? Math.max(0, safeNum(body.exception_weight_under_grams))
+                : current.exception_weight_under_grams,
+        raw_metal_wastage_pct:
+            body.raw_metal_wastage_pct != null
+                ? Math.max(0, Math.min(100, safeNum(body.raw_metal_wastage_pct)))
+                : current.raw_metal_wastage_pct,
+        shipping_charge_inr:
+            body.shipping_charge_inr != null ? Math.max(0, safeNum(body.shipping_charge_inr)) : current.shipping_charge_inr,
+        support_whatsapp:
+            body.support_whatsapp != null
+                ? String(body.support_whatsapp || '').replace(/\D/g, '').slice(-10) || null
+                : current.support_whatsapp,
+        terms_and_conditions:
+            body.terms_and_conditions != null
+                ? String(body.terms_and_conditions || '').trim() || null
+                : current.terms_and_conditions,
+        gst_note:
+            body.gst_note != null
+                ? String(body.gst_note || '').trim().slice(0, 120) || DEFAULT_DIGI_SETTINGS.gst_note
+                : current.gst_note,
+    };
+    await query(
+        `INSERT INTO reseller_digi_settings (
+            reseller_user_id, standard_discount_per_gram, standard_making_charge_pct,
+            exception_making_charge_pct, exception_weight_under_grams, raw_metal_wastage_pct,
+            shipping_charge_inr, support_whatsapp, terms_and_conditions, gst_note, updated_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP)
+         ON CONFLICT (reseller_user_id) DO UPDATE SET
+            standard_discount_per_gram = EXCLUDED.standard_discount_per_gram,
+            standard_making_charge_pct = EXCLUDED.standard_making_charge_pct,
+            exception_making_charge_pct = EXCLUDED.exception_making_charge_pct,
+            exception_weight_under_grams = EXCLUDED.exception_weight_under_grams,
+            raw_metal_wastage_pct = EXCLUDED.raw_metal_wastage_pct,
+            shipping_charge_inr = EXCLUDED.shipping_charge_inr,
+            support_whatsapp = EXCLUDED.support_whatsapp,
+            terms_and_conditions = EXCLUDED.terms_and_conditions,
+            gst_note = EXCLUDED.gst_note,
+            updated_at = CURRENT_TIMESTAMP`,
+        [
+            uid,
+            next.standard_discount_per_gram,
+            next.standard_making_charge_pct,
+            next.exception_making_charge_pct,
+            next.exception_weight_under_grams,
+            next.raw_metal_wastage_pct,
+            next.shipping_charge_inr,
+            next.support_whatsapp,
+            next.terms_and_conditions,
+            next.gst_note,
+        ],
+    );
+    return { ok: true, rules: next };
 }
 
 async function createRazorpayOrder(keyId, keySecret, amountInr, notes) {
@@ -415,6 +584,198 @@ async function getCustomerHoldings(query, resellerUserId, customerUserId) {
         balance_grams: safeNum(r.balance_grams),
         updated_at: r.updated_at,
     }));
+}
+
+const DEFAULT_DIGI_SETTINGS = {
+    standard_discount_per_gram: 4,
+    standard_making_charge_pct: 0,
+    exception_making_charge_pct: 50,
+    exception_weight_under_grams: 25,
+    raw_metal_wastage_pct: 0,
+    shipping_charge_inr: 0,
+    support_whatsapp: null,
+    terms_and_conditions: null,
+    gst_note: '+ 3% GST applicable',
+};
+
+const REDEEM_KINDS = ['jewellery_standard', 'antique', 'purity_925', 'under_25g', 'raw_bar', 'coin'];
+
+function publicDigiSettings(row) {
+    if (!row) return { ...DEFAULT_DIGI_SETTINGS };
+    return {
+        standard_discount_per_gram: safeNum(row.standard_discount_per_gram),
+        standard_making_charge_pct: safeNum(row.standard_making_charge_pct),
+        exception_making_charge_pct: safeNum(row.exception_making_charge_pct),
+        exception_weight_under_grams: safeNum(row.exception_weight_under_grams) || 25,
+        raw_metal_wastage_pct: safeNum(row.raw_metal_wastage_pct),
+        shipping_charge_inr: safeNum(row.shipping_charge_inr),
+        support_whatsapp: row.support_whatsapp || null,
+        terms_and_conditions: row.terms_and_conditions || null,
+        gst_note: String(row.gst_note || DEFAULT_DIGI_SETTINGS.gst_note),
+    };
+}
+
+async function getOrCreateDigiSettings(query, resellerUserId) {
+    const uid = parseInt(String(resellerUserId), 10);
+    const rows = await query(`SELECT * FROM reseller_digi_settings WHERE reseller_user_id = $1`, [uid]);
+    if (rows.length) return publicDigiSettings(rows[0]);
+    await query(
+        `INSERT INTO reseller_digi_settings (reseller_user_id) VALUES ($1)
+         ON CONFLICT (reseller_user_id) DO NOTHING`,
+        [uid],
+    );
+    const again = await query(`SELECT * FROM reseller_digi_settings WHERE reseller_user_id = $1`, [uid]);
+    return publicDigiSettings(again[0] || null);
+}
+
+function computeRedemptionQuote({ grams, itemKind, doorstep, settings, retailRate }) {
+    const g = Math.max(0, safeNum(grams));
+    const retail = Math.max(0, safeNum(retailRate));
+    const kind = REDEEM_KINDS.includes(itemKind) ? itemKind : 'jewellery_standard';
+    const underG = Math.max(0, safeNum(settings.exception_weight_under_grams) || 25);
+    let effectiveKind = kind;
+    if (kind === 'jewellery_standard' && g > 0 && g < underG) {
+        effectiveKind = 'under_25g';
+    }
+    let makingPct = safeNum(settings.standard_making_charge_pct);
+    let discountPerG = Math.max(0, safeNum(settings.standard_discount_per_gram));
+    let wastagePct = 0;
+    if (effectiveKind === 'antique' || effectiveKind === 'purity_925' || effectiveKind === 'under_25g') {
+        makingPct = safeNum(settings.exception_making_charge_pct);
+    }
+    if (effectiveKind === 'raw_bar' || effectiveKind === 'coin') {
+        makingPct = 0;
+        discountPerG = 0;
+        wastagePct = Math.max(0, safeNum(settings.raw_metal_wastage_pct));
+    }
+    const metalValue = Math.round(g * retail * 100) / 100;
+    const discount = Math.round(g * discountPerG * 100) / 100;
+    const making = Math.round(metalValue * (makingPct / 100) * 100) / 100;
+    const wastageAmt = Math.round(metalValue * (wastagePct / 100) * 100) / 100;
+    const shipping = doorstep ? Math.max(0, safeNum(settings.shipping_charge_inr)) : 0;
+    const netPayable = Math.round((making + wastageAmt + shipping - discount) * 100) / 100;
+    return {
+        grams: g,
+        item_kind: effectiveKind,
+        retail_rate_per_gram: retail,
+        metal_value_inr: metalValue,
+        making_charge_pct: makingPct,
+        making_charge_inr: making,
+        discount_per_gram: discountPerG,
+        discount_inr: discount,
+        wastage_pct: wastagePct,
+        wastage_inr: wastageAmt,
+        shipping_inr: shipping,
+        doorstep: !!doorstep,
+        net_payable_inr: netPayable,
+    };
+}
+
+async function applySchemePayment(query, {
+    resellerUserId,
+    customerUserId,
+    schemeId,
+    metalKey,
+    amountInr,
+}) {
+    const sid = parseInt(String(schemeId), 10);
+    if (!Number.isFinite(sid) || sid <= 0) return null;
+    const schemes = await query(
+        `SELECT * FROM reseller_digi_schemes WHERE id = $1 AND reseller_user_id = $2`,
+        [sid, resellerUserId],
+    );
+    if (!schemes.length) return null;
+    const scheme = schemes[0];
+    const metal = metalKey || scheme.metal_key || (scheme.product_type === 'silver' ? 'silver' : 'gold_22k');
+    const installment = safeNum(scheme.installment_inr) || safeNum(amountInr);
+    const duration = parseInt(String(scheme.duration_months), 10) || 0;
+    const bonusMonths = Math.max(0, parseInt(String(scheme.bonus_months), 10) || 0);
+
+    let rows = await query(
+        `SELECT * FROM reseller_digi_enrollments
+         WHERE reseller_user_id = $1 AND customer_user_id = $2 AND scheme_id = $3 AND status = 'active'
+         LIMIT 1`,
+        [resellerUserId, customerUserId, sid],
+    );
+    if (!rows.length) {
+        rows = await query(
+            `INSERT INTO reseller_digi_enrollments (
+                reseller_user_id, customer_user_id, scheme_id, metal_key,
+                installment_inr, duration_months, bonus_months, months_paid, status, last_paid_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,0,'active',CURRENT_TIMESTAMP)
+             RETURNING *`,
+            [resellerUserId, customerUserId, sid, metal, installment, duration || 1, bonusMonths],
+        );
+    }
+    const enr = rows[0];
+    const monthsPaid = Number(enr.months_paid || 0) + 1;
+    const dur = Number(enr.duration_months) || duration || 0;
+    let status = 'active';
+    let bonusGrams = 0;
+    let bonusCredited = !!enr.bonus_credited;
+    let maturedAt = enr.matured_at;
+    if (dur > 0 && monthsPaid >= dur && !bonusCredited) {
+        status = 'matured';
+        maturedAt = new Date();
+        if (bonusMonths > 0 || Number(enr.bonus_months) > 0) {
+            const bm = Number(enr.bonus_months) || bonusMonths;
+            const stored = await getStoredRates(resellerUserId);
+            if (stored) {
+                const mk = enr.metal_key || metal;
+                const retail = safeNum(stored[RETAIL_RATE_COL[mk]]);
+                const discount = safeNum(stored[DISCOUNT_COL[mk]]);
+                const effective = effectiveRatePerGram(retail, discount);
+                bonusGrams = gramsFromAmount(bm * safeNum(enr.installment_inr), effective);
+                if (bonusGrams > 0) {
+                    await creditDigiHolding(query, {
+                        resellerUserId,
+                        customerUserId,
+                        metalKey: mk,
+                        grams: bonusGrams,
+                    });
+                    bonusCredited = true;
+                }
+            }
+        }
+    }
+    const updated = await query(
+        `UPDATE reseller_digi_enrollments SET
+            months_paid = $2,
+            status = $3,
+            bonus_grams = bonus_grams + $4,
+            bonus_credited = $5,
+            last_paid_at = CURRENT_TIMESTAMP,
+            matured_at = $6
+         WHERE id = $1
+         RETURNING *`,
+        [enr.id, monthsPaid, status, bonusGrams, bonusCredited, maturedAt],
+    );
+    return { enrollment: updated[0], bonusGrams, status };
+}
+
+function publicEnrollment(row, scheme) {
+    if (!row) return null;
+    const duration = Number(row.duration_months) || 0;
+    const paid = Number(row.months_paid) || 0;
+    return {
+        id: row.id,
+        scheme_id: row.scheme_id,
+        scheme_name: scheme?.scheme_name || row.scheme_name || null,
+        product_type: scheme?.product_type || row.product_type || null,
+        metal_key: row.metal_key,
+        installment_inr: safeNum(row.installment_inr),
+        duration_months: duration,
+        bonus_months: Number(row.bonus_months) || 0,
+        months_paid: paid,
+        months_remaining: duration > 0 ? Math.max(0, duration - paid) : 0,
+        bonus_grams: safeNum(row.bonus_grams),
+        bonus_credited: !!row.bonus_credited,
+        status: row.status,
+        started_at: row.started_at,
+        last_paid_at: row.last_paid_at,
+        matured_at: row.matured_at,
+        closed_at: row.closed_at,
+    };
 }
 
 function registerResellerDigiRoutes(app, deps) {
@@ -480,6 +841,11 @@ function registerResellerDigiRoutes(app, deps) {
             const metal = String(req.query.metal || 'gold').trim().toLowerCase();
             const flags = await digiFlagsForUser(query, req.user.id);
             const tiers = stored ? await getDigiRateBundle(stored, metal) : [];
+            const rules = await getOrCreateDigiSettings(query, req.user.id);
+            const supportWhatsapp =
+                String(rules.support_whatsapp || '').replace(/\D/g, '').slice(-10) ||
+                String(paymentRow?.mobile_number || '').replace(/\D/g, '').slice(-10) ||
+                null;
             res.json({
                 rates: stored,
                 tiers,
@@ -497,6 +863,9 @@ function registerResellerDigiRoutes(app, deps) {
                 business_name: paymentRow?.business_name || null,
                 digigold_enabled: flags.gold,
                 digisilver_enabled: flags.silver,
+                digi_enabled: flags.enabled,
+                rules,
+                support_whatsapp: supportWhatsapp,
             });
         } catch (e) {
             console.error('digi settings get:', e);
@@ -513,11 +882,22 @@ function registerResellerDigiRoutes(app, deps) {
             if (metal === 'silver' && !flags.silver) return res.status(403).json({ error: 'DigiSilver not enabled' });
             const result = await saveDigiDiscounts(query, req.user.id, req.body);
             if (!result.ok) return res.status(400).json({ error: result.error });
+            if (req.body.rules && typeof req.body.rules === 'object') {
+                await saveDigiRules(query, req.user.id, req.body.rules);
+            } else if (
+                req.body.standard_discount_per_gram != null ||
+                req.body.support_whatsapp != null ||
+                req.body.terms_and_conditions != null ||
+                req.body.shipping_charge_inr != null
+            ) {
+                await saveDigiRules(query, req.user.id, req.body);
+            }
             const stored = await getStoredRates(req.user.id);
             res.json({
                 ok: true,
                 tiers: stored ? await getDigiRateBundle(stored, metal) : [],
                 discounts: result.discounts,
+                rules: await getOrCreateDigiSettings(query, req.user.id),
             });
         } catch (e) {
             console.error('digi settings put:', e);
@@ -626,8 +1006,8 @@ function registerResellerDigiRoutes(app, deps) {
                 `INSERT INTO reseller_digi_schemes (
                     reseller_user_id, product_type, scheme_name, description,
                     installment_inr, duration_months, bonus_months, bonus_description,
-                    metal_key, is_active, sort_order
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    metal_key, is_active, sort_order, terms_and_conditions
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -636,11 +1016,12 @@ function registerResellerDigiRoutes(app, deps) {
                     String(req.body.description || '').trim() || null,
                     req.body.installment_inr != null ? safeNum(req.body.installment_inr) : null,
                     req.body.duration_months != null ? parseInt(String(req.body.duration_months), 10) || null : null,
-                    Math.max(0, parseInt(String(req.body.bonus_months || 0), 10) || 0),
+                    Math.max(0, parseInt(String(req.body.bonus_months ?? 1), 10) || 0),
                     String(req.body.bonus_description || '').trim() || null,
-                    req.body.metal_key ? String(req.body.metal_key).trim() : null,
+                    req.body.metal_key ? String(req.body.metal_key).trim() : productType === 'silver' ? 'silver' : 'gold_22k',
                     req.body.is_active !== false,
                     parseInt(String(req.body.sort_order || 0), 10) || 0,
+                    String(req.body.terms_and_conditions || '').trim() || null,
                 ],
             );
             res.status(201).json({ scheme: rows[0] });
@@ -676,6 +1057,7 @@ function registerResellerDigiRoutes(app, deps) {
                     metal_key = COALESCE($9, metal_key),
                     is_active = COALESCE($10, is_active),
                     sort_order = COALESCE($11, sort_order),
+                    terms_and_conditions = COALESCE($12, terms_and_conditions),
                     updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1 AND reseller_user_id = $2
                  RETURNING *`,
@@ -691,6 +1073,9 @@ function registerResellerDigiRoutes(app, deps) {
                     req.body.metal_key != null ? String(req.body.metal_key || '').trim() || null : null,
                     req.body.is_active != null ? !!req.body.is_active : null,
                     req.body.sort_order != null ? parseInt(String(req.body.sort_order), 10) || 0 : null,
+                    req.body.terms_and_conditions != null
+                        ? String(req.body.terms_and_conditions || '').trim() || null
+                        : null,
                 ],
             );
             res.json({ scheme: rows[0] });
@@ -786,7 +1171,24 @@ function registerResellerDigiRoutes(app, deps) {
                 metalKey,
                 grams,
             });
-            res.status(201).json({ ok: true, order: orderRows[0] });
+            let enrollmentId = null;
+            if (Number.isFinite(schemeId) && schemeId > 0) {
+                const applied = await applySchemePayment(query, {
+                    resellerUserId: req.user.id,
+                    customerUserId,
+                    schemeId,
+                    metalKey,
+                    amountInr: finalAmount,
+                });
+                enrollmentId = applied?.enrollment?.id || null;
+                if (enrollmentId) {
+                    await query(`UPDATE reseller_digi_orders SET enrollment_id = $2 WHERE id = $1`, [
+                        orderRows[0].id,
+                        enrollmentId,
+                    ]);
+                }
+            }
+            res.status(201).json({ ok: true, order: { ...orderRows[0], enrollment_id: enrollmentId } });
         } catch (e) {
             console.error('digi manual transaction:', e);
             res.status(500).json({ error: e.message || 'Failed to record transaction' });
@@ -826,13 +1228,17 @@ function registerResellerDigiRoutes(app, deps) {
             await ensureResellerSmsColumns(pool);
             const domain = normalizeDomain(req.query.domain || req.query.host || '');
             const code = req.query.code || req.query.invite || '';
-            const metal = String(req.query.metal || 'silver').trim().toLowerCase();
-            if (metal !== 'gold' && metal !== 'silver') {
+            const metal = String(req.query.metal || 'all').trim().toLowerCase();
+            if (metal !== 'gold' && metal !== 'silver' && metal !== 'all') {
                 return res.status(400).json({ error: 'metal must be gold or silver' });
             }
             const reseller = await resolveResellerFromRequest(query, { domain, code });
             if (!reseller) {
                 return res.status(404).json({ error: 'Store not found. Open this link from your jeweller.' });
+            }
+            const flags = await digiFlagsForUser(query, reseller.id);
+            if (!flags.enabled) {
+                return res.status(404).json({ error: 'DigiGold & DigiSilver is not enabled for this store.' });
             }
             const otpMeta = await getSharedCatalogOtpForCreator(
                 query,
@@ -909,6 +1315,10 @@ function registerResellerDigiRoutes(app, deps) {
             }
             const reseller = await resolveResellerFromRequest(query, { domain, code });
             if (!reseller) return res.status(404).json({ error: 'Store not found' });
+            const flags = await digiFlagsForUser(query, reseller.id);
+            if (!flags.enabled) {
+                return res.status(403).json({ error: 'DigiGold & DigiSilver is not enabled for this store.' });
+            }
 
             const paymentRow = await loadResellerPaymentRow(query, reseller.id);
             const keyId = String(paymentRow?.reseller_razorpay_key_id || '').trim();
@@ -927,13 +1337,26 @@ function registerResellerDigiRoutes(app, deps) {
             const grams = gramsFromAmount(amountInr, effective);
             if (grams <= 0) return res.status(400).json({ error: 'Amount too small for current rate' });
 
+            const schemeIdRaw = req.body.scheme_id != null ? parseInt(String(req.body.scheme_id), 10) : null;
+            const schemeId = Number.isFinite(schemeIdRaw) && schemeIdRaw > 0 ? schemeIdRaw : null;
+            if (schemeId) {
+                const sch = await query(
+                    `SELECT id, installment_inr, is_active FROM reseller_digi_schemes
+                     WHERE id = $1 AND reseller_user_id = $2`,
+                    [schemeId, reseller.id],
+                );
+                if (!sch.length || sch[0].is_active === false) {
+                    return res.status(400).json({ error: 'Scheme not found or inactive' });
+                }
+            }
+
             const orderRows = await query(
                 `INSERT INTO reseller_digi_orders (
                     reseller_user_id, customer_user_id, metal_key, amount_inr,
-                    retail_rate_per_gram, discount_inr, effective_rate_per_gram, grams, status
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+                    retail_rate_per_gram, discount_inr, effective_rate_per_gram, grams, status, scheme_id
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9)
                  RETURNING *`,
-                [reseller.id, req.user.id, metalKey, amountInr, retail, discount, effective, grams],
+                [reseller.id, req.user.id, metalKey, amountInr, retail, discount, effective, grams, schemeId],
             );
             const digiOrder = orderRows[0];
             const razorpayOrderId = await createRazorpayOrder(keyId, keySecret, amountInr, {
@@ -1005,10 +1428,28 @@ function registerResellerDigiRoutes(app, deps) {
                 metalKey: order.metal_key,
                 grams: order.grams,
             });
+            let bonusGrams = 0;
+            if (order.scheme_id) {
+                const applied = await applySchemePayment(query, {
+                    resellerUserId: order.reseller_user_id,
+                    customerUserId: req.user.id,
+                    schemeId: order.scheme_id,
+                    metalKey: order.metal_key,
+                    amountInr: order.amount_inr,
+                });
+                bonusGrams = applied?.bonusGrams || 0;
+                if (applied?.enrollment?.id) {
+                    await query(`UPDATE reseller_digi_orders SET enrollment_id = $2 WHERE id = $1`, [
+                        order.id,
+                        applied.enrollment.id,
+                    ]);
+                }
+            }
             const holdings = await getCustomerHoldings(query, order.reseller_user_id, req.user.id);
             res.json({
                 ok: true,
                 grams: safeNum(order.grams),
+                bonus_grams: bonusGrams,
                 metal_key: order.metal_key,
                 amount_inr: safeNum(order.amount_inr),
                 holdings,
@@ -1028,16 +1469,256 @@ function registerResellerDigiRoutes(app, deps) {
             if (!reseller) return res.status(404).json({ error: 'Store not found' });
             const holdings = await getCustomerHoldings(query, reseller.id, req.user.id);
             const txRows = await query(
-                `SELECT id, metal_key, amount_inr, grams, effective_rate_per_gram, paid_at, created_at
+                `SELECT id, metal_key, amount_inr, grams, effective_rate_per_gram, discount_inr,
+                        source, payment_mode, scheme_id, paid_at, created_at
                  FROM reseller_digi_orders
                  WHERE reseller_user_id = $1 AND customer_user_id = $2 AND status = 'paid'
-                 ORDER BY paid_at DESC NULLS LAST LIMIT 20`,
+                 ORDER BY paid_at DESC NULLS LAST LIMIT 50`,
                 [reseller.id, req.user.id],
             );
-            res.json({ holdings, transactions: txRows });
+            const enrollRows = await query(
+                `SELECT e.*, s.scheme_name, s.product_type, s.description, s.terms_and_conditions
+                 FROM reseller_digi_enrollments e
+                 LEFT JOIN reseller_digi_schemes s ON s.id = e.scheme_id
+                 WHERE e.reseller_user_id = $1 AND e.customer_user_id = $2
+                 ORDER BY e.started_at DESC`,
+                [reseller.id, req.user.id],
+            );
+            const redeemRows = await query(
+                `SELECT * FROM reseller_digi_redemptions
+                 WHERE reseller_user_id = $1 AND customer_user_id = $2
+                 ORDER BY created_at DESC LIMIT 30`,
+                [reseller.id, req.user.id],
+            );
+            const userRows = await query(`SELECT name, mobile_number FROM users WHERE id = $1`, [req.user.id]);
+            res.json({
+                profile: {
+                    name: userRows[0]?.name || req.user.name || '',
+                    mobile: userRows[0]?.mobile_number || req.user.mobile_number || '',
+                },
+                holdings,
+                transactions: txRows,
+                enrollments: enrollRows.map((r) => publicEnrollment(r, r)),
+                redemptions: redeemRows,
+            });
         } catch (e) {
             console.error('public digi wallet:', e);
             res.status(500).json({ error: e.message || 'Failed to load wallet' });
+        }
+    });
+
+    app.post('/api/public/digi/redeem-quote', checkAuth, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const domain = normalizeDomain(req.body.domain || req.body.host || '');
+            const code = req.body.code || req.body.invite || '';
+            const reseller = await resolveResellerFromRequest(query, { domain, code });
+            if (!reseller) return res.status(404).json({ error: 'Store not found' });
+            const flags = await digiFlagsForUser(query, reseller.id);
+            if (!flags.enabled) return res.status(403).json({ error: 'Not enabled' });
+            const metalKey = String(req.body.metal_key || '').trim();
+            if (!isValidMetalKey(metalKey)) return res.status(400).json({ error: 'Invalid metal' });
+            const stored = await getStoredRates(reseller.id);
+            if (!stored) return res.status(503).json({ error: 'Rates not configured' });
+            const settings = await getOrCreateDigiSettings(query, reseller.id);
+            const quote = computeRedemptionQuote({
+                grams: req.body.grams,
+                itemKind: req.body.item_kind,
+                doorstep: !!req.body.doorstep,
+                settings,
+                retailRate: stored[RETAIL_RATE_COL[metalKey]],
+            });
+            res.json({ quote });
+        } catch (e) {
+            console.error('public digi redeem-quote:', e);
+            res.status(500).json({ error: e.message || 'Failed to quote redemption' });
+        }
+    });
+
+    app.post('/api/public/digi/redeem', checkAuth, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const domain = normalizeDomain(req.body.domain || req.body.host || '');
+            const code = req.body.code || req.body.invite || '';
+            const reseller = await resolveResellerFromRequest(query, { domain, code });
+            if (!reseller) return res.status(404).json({ error: 'Store not found' });
+            const flags = await digiFlagsForUser(query, reseller.id);
+            if (!flags.enabled) return res.status(403).json({ error: 'Not enabled' });
+            const metalKey = String(req.body.metal_key || '').trim();
+            if (!isValidMetalKey(metalKey)) return res.status(400).json({ error: 'Invalid metal' });
+            const grams = safeNum(req.body.grams);
+            if (grams <= 0) return res.status(400).json({ error: 'Enter grams to redeem' });
+            const holdings = await getCustomerHoldings(query, reseller.id, req.user.id);
+            const bal = holdings.find((h) => h.metal_key === metalKey)?.balance_grams || 0;
+            if (grams > bal + 1e-9) {
+                return res.status(400).json({ error: `Available balance is ${bal.toFixed(3)} g` });
+            }
+            const stored = await getStoredRates(reseller.id);
+            if (!stored) return res.status(503).json({ error: 'Rates not configured' });
+            const settings = await getOrCreateDigiSettings(query, reseller.id);
+            const quote = computeRedemptionQuote({
+                grams,
+                itemKind: req.body.item_kind,
+                doorstep: !!req.body.doorstep,
+                settings,
+                retailRate: stored[RETAIL_RATE_COL[metalKey]],
+            });
+            await debitDigiHolding(query, {
+                resellerUserId: reseller.id,
+                customerUserId: req.user.id,
+                metalKey,
+                grams,
+            });
+            const rows = await query(
+                `INSERT INTO reseller_digi_redemptions (
+                    reseller_user_id, customer_user_id, metal_key, grams, item_kind,
+                    making_charge_pct, discount_per_gram, wastage_pct, shipping_inr, doorstep,
+                    retail_rate_per_gram, notes, status
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'requested')
+                 RETURNING *`,
+                [
+                    reseller.id,
+                    req.user.id,
+                    metalKey,
+                    grams,
+                    quote.item_kind,
+                    quote.making_charge_pct,
+                    quote.discount_per_gram,
+                    quote.wastage_pct,
+                    quote.shipping_inr,
+                    quote.doorstep,
+                    quote.retail_rate_per_gram,
+                    String(req.body.notes || '').trim() || null,
+                ],
+            );
+            const nextHoldings = await getCustomerHoldings(query, reseller.id, req.user.id);
+            res.status(201).json({ ok: true, redemption: rows[0], quote, holdings: nextHoldings });
+        } catch (e) {
+            console.error('public digi redeem:', e);
+            res.status(500).json({ error: e.message || 'Failed to submit redemption' });
+        }
+    });
+
+    app.put('/api/reseller/digi/rules', checkAuth, digiGateAny, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const result = await saveDigiRules(query, req.user.id, req.body.rules || req.body);
+            res.json(result);
+        } catch (e) {
+            console.error('digi rules put:', e);
+            res.status(500).json({ error: e.message || 'Failed to save rules' });
+        }
+    });
+
+    app.get('/api/reseller/digi/enrollments', checkAuth, digiGateAny, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const status = String(req.query.status || '').trim().toLowerCase();
+            const metal = String(req.query.metal || req.query.product_type || '').trim().toLowerCase();
+            const params = [req.user.id];
+            let sql = `
+                SELECT e.*, s.scheme_name, s.product_type, s.description,
+                       u.name AS customer_name, u.mobile_number AS customer_mobile
+                FROM reseller_digi_enrollments e
+                LEFT JOIN reseller_digi_schemes s ON s.id = e.scheme_id
+                LEFT JOIN users u ON u.id = e.customer_user_id
+                WHERE e.reseller_user_id = $1`;
+            if (status === 'active') {
+                sql += ` AND e.status = 'active'`;
+            } else if (status === 'closed') {
+                sql += ` AND e.status IN ('matured','closed')`;
+            }
+            if (metal === 'gold') {
+                sql += ` AND e.metal_key LIKE 'gold_%'`;
+            } else if (metal === 'silver') {
+                sql += ` AND e.metal_key = 'silver'`;
+            }
+            sql += ` ORDER BY e.last_paid_at DESC NULLS LAST, e.started_at DESC`;
+            const rows = await query(sql, params);
+            res.json({
+                enrollments: rows.map((r) => ({
+                    ...publicEnrollment(r, r),
+                    customer_name: r.customer_name,
+                    customer_mobile: r.customer_mobile,
+                })),
+            });
+        } catch (e) {
+            console.error('digi enrollments:', e);
+            res.status(500).json({ error: e.message || 'Failed to load enrollments' });
+        }
+    });
+
+    app.post('/api/reseller/digi/enrollments/:id/close', checkAuth, digiGateAny, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const id = parseInt(String(req.params.id), 10);
+            const rows = await query(
+                `UPDATE reseller_digi_enrollments
+                 SET status = 'closed', closed_at = CURRENT_TIMESTAMP
+                 WHERE id = $1 AND reseller_user_id = $2
+                 RETURNING *`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Enrollment not found' });
+            res.json({ enrollment: publicEnrollment(rows[0]) });
+        } catch (e) {
+            console.error('digi enrollment close:', e);
+            res.status(500).json({ error: e.message || 'Failed to close account' });
+        }
+    });
+
+    app.get('/api/reseller/digi/redemptions', checkAuth, digiGateAny, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const rows = await query(
+                `SELECT r.*, u.name AS customer_name, u.mobile_number AS customer_mobile
+                 FROM reseller_digi_redemptions r
+                 LEFT JOIN users u ON u.id = r.customer_user_id
+                 WHERE r.reseller_user_id = $1
+                 ORDER BY r.created_at DESC
+                 LIMIT 200`,
+                [req.user.id],
+            );
+            res.json({ redemptions: rows });
+        } catch (e) {
+            console.error('digi redemptions:', e);
+            res.status(500).json({ error: e.message || 'Failed to load redemptions' });
+        }
+    });
+
+    app.post('/api/reseller/digi/redemptions/:id/status', checkAuth, digiGateAny, requireJson, async (req, res) => {
+        try {
+            await ensureDigiSchema(pool);
+            const id = parseInt(String(req.params.id), 10);
+            const status = String(req.body.status || '').trim().toLowerCase();
+            if (!['requested', 'confirmed', 'dispatched', 'cancelled'].includes(status)) {
+                return res.status(400).json({ error: 'Invalid status' });
+            }
+            const existing = await query(
+                `SELECT * FROM reseller_digi_redemptions WHERE id = $1 AND reseller_user_id = $2`,
+                [id, req.user.id],
+            );
+            if (!existing.length) return res.status(404).json({ error: 'Redemption not found' });
+            const prev = existing[0];
+            if (status === 'cancelled' && prev.status !== 'cancelled') {
+                await creditDigiHolding(query, {
+                    resellerUserId: prev.reseller_user_id,
+                    customerUserId: prev.customer_user_id,
+                    metalKey: prev.metal_key,
+                    grams: prev.grams,
+                });
+            }
+            const rows = await query(
+                `UPDATE reseller_digi_redemptions
+                 SET status = $3, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1 AND reseller_user_id = $2
+                 RETURNING *`,
+                [id, req.user.id, status],
+            );
+            res.json({ redemption: rows[0] });
+        } catch (e) {
+            console.error('digi redemption status:', e);
+            res.status(500).json({ error: e.message || 'Failed to update redemption' });
         }
     });
 }

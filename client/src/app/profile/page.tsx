@@ -29,7 +29,7 @@ import {
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
-import { CUSTOMER_TIER } from '@/lib/customer-tier'
+import { CUSTOMER_TIER, hasResellerDigiAccess, type WholesaleUserFields } from '@/lib/customer-tier'
 import Link from 'next/link'
 import {
   Wallet,
@@ -229,11 +229,7 @@ function ProfilePageContent() {
       (auth.user as { reseller_erp_enabled?: boolean }).reseller_erp_enabled,
   )
   const resellerDigiEnabled = Boolean(
-    auth.isAuthenticated &&
-      isReseller &&
-      auth.user &&
-      ((auth.user as { reseller_digigold_enabled?: boolean }).reseller_digigold_enabled ||
-        (auth.user as { reseller_digisilver_enabled?: boolean }).reseller_digisilver_enabled),
+    auth.isAuthenticated && isReseller && auth.user && hasResellerDigiAccess(auth.user as WholesaleUserFields),
   )
   const resellerEnhancedPicturesEnabled = Boolean(
     auth.isAuthenticated &&

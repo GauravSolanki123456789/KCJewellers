@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Gem, Loader2, Wallet } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
-import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
+import { CUSTOMER_TIER, type WholesaleUserFields, hasResellerDigiAccess } from '@/lib/customer-tier'
 import { CATALOG_PATH, PROFILE_PATH } from '@/lib/routes'
 import { ErpDigiWorkspace } from '@/components/reseller/erp/ErpDigiWorkspace'
 
@@ -27,20 +27,18 @@ function ProfileDigiContent() {
   const auth = useAuth()
   const { customerTier, tierReady } = useCustomerTier()
   const user = auth.user as WholesaleUserFields | null
-  const goldEnabled = !!user?.reseller_digigold_enabled
-  const silverEnabled = !!user?.reseller_digisilver_enabled
-  const defaultTab = goldEnabled ? 'gold' : 'silver'
-  const [tab, setTab] = useState<'gold' | 'silver'>(defaultTab)
-
-  const enabled = goldEnabled || silverEnabled
+  const enabled = hasResellerDigiAccess(user)
+  const [tab, setTab] = useState<'gold' | 'silver'>('gold')
   const ready = auth.hasChecked && tierReady
 
-  const tabs = useMemo(() => {
-    const out: { id: 'gold' | 'silver'; label: string; icon: typeof Gem }[] = []
-    if (goldEnabled) out.push({ id: 'gold', label: 'DigiGold', icon: Gem })
-    if (silverEnabled) out.push({ id: 'silver', label: 'DigiSilver', icon: Wallet })
-    return out
-  }, [goldEnabled, silverEnabled])
+  const tabs = useMemo(
+    () =>
+      [
+        { id: 'gold' as const, label: 'DigiGold', icon: Gem },
+        { id: 'silver' as const, label: 'DigiSilver', icon: Wallet },
+      ],
+    [],
+  )
 
   if (!ready) {
     return (
@@ -80,7 +78,7 @@ function ProfileDigiContent() {
           DigiGold &amp; DigiSilver
         </h1>
         <p className="mt-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
-          Ask KC admin to enable DigiGold and/or DigiSilver for your account in B2B Clients → Reseller profile.
+          Ask KC admin to enable DigiGold &amp; DigiSilver for your account in B2B Clients → Reseller profile.
         </p>
         <Link href={PROFILE_PATH} className="mt-6 inline-block text-sm font-medium text-[var(--kc-accent,#c41e3a)]">
           Back to profile

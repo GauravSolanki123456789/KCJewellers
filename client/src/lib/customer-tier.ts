@@ -50,9 +50,11 @@ export type WholesaleUserFields = {
   reseller_erp_enabled?: boolean
   /** Admin enables Posh RFID tag linking in ERP products. */
   reseller_rfid_enabled?: boolean
-  /** Admin enables DigiGold chits / savings in Profile. */
+  /** Combined DigiGold & DigiSilver module (Profile tab — not ERP). */
+  reseller_digi_enabled?: boolean
+  /** Admin enables DigiGold chits / savings in Profile. Kept in sync with DigiSilver. */
   reseller_digigold_enabled?: boolean
-  /** Admin enables DigiSilver chits / savings in Profile. */
+  /** Admin enables DigiSilver chits / savings in Profile. Kept in sync with DigiGold. */
   reseller_digisilver_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio at `/reseller/enhanced-pictures`. */
   reseller_enhanced_pictures_enabled?: boolean
@@ -107,4 +109,16 @@ export function buildWholesalePricingInput(
     wholesale_making_charge_discount_percent: Number(user.wholesale_making_charge_discount_percent ?? 0),
     wholesale_markup_percent: Number(user.wholesale_markup_percent ?? 0),
   }
+}
+
+/** Combined DigiGold & DigiSilver module — one admin toggle enables both metals. */
+export function hasResellerDigiAccess(
+  user: WholesaleUserFields | null | undefined,
+): boolean {
+  if (!user) return false
+  return !!(
+    user.reseller_digi_enabled ||
+    user.reseller_digigold_enabled ||
+    user.reseller_digisilver_enabled
+  )
 }

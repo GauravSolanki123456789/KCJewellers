@@ -71,10 +71,10 @@ type AdminUser = {
   reseller_erp_enabled?: boolean
   /** Admin enables Posh RFID in ERP (`users.reseller_rfid_enabled`). */
   reseller_rfid_enabled?: boolean
-  /** Admin enables DigiGold in Profile (`users.reseller_digigold_enabled`). */
+  /** Admin enables DigiGold & DigiSilver in Profile (`users.reseller_digigold_enabled` + `reseller_digisilver_enabled`, kept in sync). */
   reseller_digigold_enabled?: boolean
-  /** Admin enables DigiSilver in Profile (`users.reseller_digisilver_enabled`). */
   reseller_digisilver_enabled?: boolean
+  reseller_digi_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio (`users.reseller_enhanced_pictures_enabled`). */
   reseller_enhanced_pictures_enabled?: boolean
   /** Admin enables B2B pricelist module (`users.reseller_pricelist_enabled`). */
@@ -191,8 +191,7 @@ function B2BAdminContent() {
     reseller_upload_slabs_enabled: false,
     reseller_erp_enabled: false,
     reseller_rfid_enabled: false,
-    reseller_digigold_enabled: false,
-    reseller_digisilver_enabled: false,
+    reseller_digi_enabled: false,
     reseller_enhanced_pictures_enabled: false,
     reseller_pricelist_enabled: false,
     reseller_image_search_enabled: false,
@@ -279,8 +278,10 @@ function B2BAdminContent() {
         reseller_upload_slabs_enabled: !!resellerModalUser.reseller_upload_slabs_enabled,
         reseller_erp_enabled: !!resellerModalUser.reseller_erp_enabled,
         reseller_rfid_enabled: !!resellerModalUser.reseller_rfid_enabled,
-        reseller_digigold_enabled: !!resellerModalUser.reseller_digigold_enabled,
-        reseller_digisilver_enabled: !!resellerModalUser.reseller_digisilver_enabled,
+        reseller_digi_enabled:
+          !!resellerModalUser.reseller_digi_enabled ||
+          !!resellerModalUser.reseller_digigold_enabled ||
+          !!resellerModalUser.reseller_digisilver_enabled,
         reseller_enhanced_pictures_enabled: !!resellerModalUser.reseller_enhanced_pictures_enabled,
         reseller_pricelist_enabled: !!resellerModalUser.reseller_pricelist_enabled,
         reseller_image_search_enabled: !!resellerModalUser.reseller_image_search_enabled,
@@ -390,8 +391,9 @@ function B2BAdminContent() {
         reseller_upload_slabs_enabled: resellerForm.reseller_upload_slabs_enabled,
         reseller_erp_enabled: resellerForm.reseller_erp_enabled,
         reseller_rfid_enabled: resellerForm.reseller_rfid_enabled,
-        reseller_digigold_enabled: resellerForm.reseller_digigold_enabled,
-        reseller_digisilver_enabled: resellerForm.reseller_digisilver_enabled,
+        reseller_digi_enabled: resellerForm.reseller_digi_enabled,
+        reseller_digigold_enabled: resellerForm.reseller_digi_enabled,
+        reseller_digisilver_enabled: resellerForm.reseller_digi_enabled,
         reseller_enhanced_pictures_enabled: resellerForm.reseller_enhanced_pictures_enabled,
         reseller_pricelist_enabled: resellerForm.reseller_pricelist_enabled,
         reseller_image_search_enabled: resellerForm.reseller_image_search_enabled,
@@ -1324,61 +1326,31 @@ function B2BAdminContent() {
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-200">DigiGold (Profile tab)</p>
-                      <p className="mt-0.5 text-xs text-slate-500">Chit schemes, balances &amp; gold savings — not in ERP menu</p>
+                      <p className="text-sm font-medium text-slate-200">DigiGold &amp; DigiSilver (Profile tab)</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Chit schemes, balances, gold &amp; silver savings — not in ERP menu
+                      </p>
                     </div>
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={resellerForm.reseller_digigold_enabled}
-                      aria-label="Enable DigiGold for reseller"
+                      aria-checked={resellerForm.reseller_digi_enabled}
+                      aria-label="Enable DigiGold and DigiSilver for reseller"
                       onClick={() =>
                         setResellerForm((f) => ({
                           ...f,
-                          reseller_digigold_enabled: !f.reseller_digigold_enabled,
+                          reseller_digi_enabled: !f.reseller_digi_enabled,
                         }))
                       }
                       className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
-                        resellerForm.reseller_digigold_enabled
+                        resellerForm.reseller_digi_enabled
                           ? 'border-violet-400/50 bg-violet-500'
                           : 'border-slate-600 bg-slate-800'
                       }`}
                     >
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
-                          resellerForm.reseller_digigold_enabled ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-200">DigiSilver (Profile tab)</p>
-                      <p className="mt-0.5 text-xs text-slate-500">Silver chit schemes &amp; customer ledger in Profile</p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={resellerForm.reseller_digisilver_enabled}
-                      aria-label="Enable DigiSilver for reseller"
-                      onClick={() =>
-                        setResellerForm((f) => ({
-                          ...f,
-                          reseller_digisilver_enabled: !f.reseller_digisilver_enabled,
-                        }))
-                      }
-                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
-                        resellerForm.reseller_digisilver_enabled
-                          ? 'border-violet-400/50 bg-violet-500'
-                          : 'border-slate-600 bg-slate-800'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
-                          resellerForm.reseller_digisilver_enabled ? 'translate-x-5' : 'translate-x-0'
+                          resellerForm.reseller_digi_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

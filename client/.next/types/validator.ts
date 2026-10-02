@@ -308,6 +308,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/digi/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/digi">> = Specific
+  const handler = {} as typeof import("../../src/app/digi/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/join-reseller/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/join-reseller">> = Specific
@@ -649,6 +658,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends LayoutConfig<"/catalog">> = Specific
   const handler = {} as typeof import("../../src/app/catalog/layout.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/digi/layout.tsx
+{
+  type __IsExpected<Specific extends LayoutConfig<"/digi">> = Specific
+  const handler = {} as typeof import("../../src/app/digi/layout.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

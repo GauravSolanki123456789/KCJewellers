@@ -55,6 +55,8 @@ export const RESELLER_IMAGE_SEARCH_PATH = '/reseller/image-search'
 export const RESELLER_PRICELIST_PATH = '/reseller/pricelist'
 /** Admin — test & activate Enhanced Picture prompts for a reseller. */
 export const ADMIN_ENHANCED_PICTURES_PATH = '/admin/enhanced-pictures'
+/** Public — DigiGold & DigiSilver hub. */
+export const DIGI_PATH = '/digi'
 /** Public — customer DigiGold purchase. */
 export const DIGI_GOLD_PATH = '/digi/gold'
 /** Public — customer DigiSilver purchase. */
