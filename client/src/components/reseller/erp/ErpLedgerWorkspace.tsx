@@ -2737,8 +2737,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       </td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
                         {formatLedgerMoneyOrMetal(
-                          row.credit_inr,
-                          row.virtual_metal_inr ? 0 : row.credit_metal_gm,
+                          row.virtual_metal_inr ? 0 : row.credit_inr,
+                          row.virtual_metal_inr
+                            ? row.weight_gm ?? row.credit_metal_gm
+                            : row.credit_metal_gm,
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">

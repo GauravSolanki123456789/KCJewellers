@@ -46,9 +46,31 @@ function isVirtualMetalInrOffsetRow(row) {
     return /₹ offset only|no cash received/i.test(nar);
 }
 
-/** Grams that affect running metal balance (excludes ₹-offset-only metal receipts). */
+/**
+ * Metal received with ₹-offset: clear customer metal debt first, then value excess grams at rate.
+ */
+function virtualMetalReceiptSettlement(metalBalanceBeforeGm, receivedGm, ratePerG) {
+    const recv = Math.abs(Number(receivedGm) || 0);
+    const debt = Math.max(0, Number(metalBalanceBeforeGm) || 0);
+    const cleared = roundMetalGm(Math.min(recv, debt));
+    const excess = roundMetalGm(Math.max(0, recv - cleared));
+    const rate = Number(ratePerG) || 0;
+    const inrOffset =
+        excess > 0 && rate > 0 ? Math.round(excess * rate * 100) / 100 : 0;
+    return { metal_cleared_gm: cleared, inr_offset_inr: inrOffset, excess_metal_gm: excess };
+}
+
+/** Grams credited to metal running balance for this row. */
 function metalGmForRunningBalance(row) {
-    if (isVirtualMetalInrOffsetRow(row)) return 0;
+    const nar = String(row?.narration || '');
+    if (/metal credit converted to ₹ balance/i.test(nar)) {
+        return metalGmFromLedgerRow(row);
+    }
+    if (isVirtualMetalInrOffsetRow(row)) {
+        const cleared = Number(row.metal_cleared_gm);
+        if (Number.isFinite(cleared) && cleared >= 0.0005) return roundMetalGm(cleared);
+        return 0;
+    }
     return metalGmFromLedgerRow(row);
 }
 
@@ -86,6 +108,9 @@ function metalDebitCreditFromLedgerEntry(entryType, metalGm, narration) {
         return { debit_metal_gm: gm, credit_metal_gm: 0 };
     }
     if (type === 'adjustment') {
+        if (/metal credit converted to ₹ balance/i.test(nar)) {
+            return { debit_metal_gm: gm, credit_metal_gm: 0 };
+        }
         if (/converted to cash|metal to cash/i.test(nar)) {
             if (/payable|shop owes|you owe/i.test(nar) || Number(metalGm) < 0) {
                 return { debit_metal_gm: gm, credit_metal_gm: 0 };
@@ -115,6 +140,7 @@ module.exports = {
     roundMetalGm,
     parseMetalGm,
     isVirtualMetalInrOffsetRow,
+    virtualMetalReceiptSettlement,
     metalGmForRunningBalance,
     metalGmFromLedgerRow,
     metalGmFromNarration,

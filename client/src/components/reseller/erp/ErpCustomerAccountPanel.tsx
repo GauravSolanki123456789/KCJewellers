@@ -31,6 +31,7 @@ export type CustomerAccountTx = {
   debit_metal_gm?: number
   credit_metal_gm?: number
   shadow_bill_id?: number
+  ledger_entry_id?: number
   metal_ledger_mode?: boolean
   virtual_metal_inr?: boolean
 }
@@ -212,6 +213,61 @@ export function ErpCustomerAccountPanel({
     void loadAccount(selected)
   }, [selected, filterFrom, filterTo, onDate, loadAccount])
 
+  const applyMetalRateToEntry = async (ledgerEntryId: number) => {
+    const rateStr = window.prompt('Metal rate (₹/g) to apply against ₹ balance:', '230')
+    if (rateStr == null || !rateStr.trim()) return
+    const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
+    if (!Number.isFinite(rate) || rate <= 0) {
+      appAlert('Enter a valid rate.', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      await axios.post(`/api/reseller/erp/ledger/entries/${ledgerEntryId}/apply-metal-rate`, {
+        metal_rate_per_g: rate,
+      })
+      appAlert('Metal rate applied to this receipt.', 'success')
+      if (selected) await loadAccount(selected)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const convertMetalCreditToInr = async () => {
+    if (!selected || !account) return
+    const bal = account.summary.metal_balance_gm || 0
+    if (bal >= -0.0005) {
+      appAlert('No metal credit on this account.', 'error')
+      return
+    }
+    const rateStr = window.prompt(
+      `Convert ${Math.abs(bal).toFixed(3)} g metal credit to ₹ balance at rate (₹/g):`,
+      '230',
+    )
+    if (rateStr == null || !rateStr.trim()) return
+    const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
+    if (!Number.isFinite(rate) || rate <= 0) {
+      appAlert('Enter a valid rate.', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      await axios.post('/api/reseller/erp/ledger/convert-metal-credit', {
+        customer_id: selected.id,
+        metal_rate_per_g: rate,
+        ledger_scope: laneMode ? 'lane' : 'official',
+      })
+      appAlert('Metal credit converted to ₹ balance.', 'success')
+      await loadAccount(selected)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const setShadowLedgerMode = async (shadowBillId: number, mode: 'metal' | 'amount') => {
     const label =
       mode === 'metal'
@@ -354,6 +410,20 @@ export function ErpCustomerAccountPanel({
               </div>
             ))}
           </div>
+          {laneMode && Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005 ? (
+            <div className="flex flex-wrap gap-2">
+              {account.summary.metal_balance_gm != null && account.summary.metal_balance_gm < -0.0005 ? (
+                <button
+                  type="button"
+                  className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-950"
+                  disabled={busy}
+                  onClick={() => void convertMetalCreditToInr()}
+                >
+                  Convert metal credit to ₹
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void exportAccount('csv')}>
               <Download className="size-4" />
@@ -394,9 +464,9 @@ export function ErpCustomerAccountPanel({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                       {formatLedgerMoneyOrMetal(
-                        t.credit,
+                        t.virtual_metal_inr ? 0 : t.credit,
                         t.virtual_metal_inr
-                          ? 0
+                          ? t.weight_gm
                           : (t.credit_metal_gm ?? (t.credit ? t.weight_gm : 0)),
                       )}
                     </td>
@@ -405,6 +475,20 @@ export function ErpCustomerAccountPanel({
                     </td>
                     {laneMode ? (
                       <td className="px-2 py-2">
+                        {t.ledger_entry_id &&
+                        t.weight_gm &&
+                        t.weight_gm > 0 &&
+                        !t.virtual_metal_inr &&
+                        String(t.kind).toLowerCase().includes('payment') ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="mb-1 whitespace-nowrap rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 text-[9px] font-semibold text-[#1a1814]"
+                            onClick={() => void applyMetalRateToEntry(t.ledger_entry_id!)}
+                          >
+                            Apply ₹ rate
+                          </button>
+                        ) : null}
                         {t.kind === 'sale' && t.shadow_bill_id ? (
                           <button
                             type="button"

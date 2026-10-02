@@ -56,15 +56,28 @@ function jainavMetalOwedGmFromLines(lines, slab) {
 }
 
 function jainavLineMcOwedInr(line) {
-    const display = Number(line.displayMcInr);
-    if (Number.isFinite(display) && display > 0) return Math.round(display);
+    const displayCandidates = [
+        line.displayMcInr,
+        line.display_mc_inr,
+        line.mcInr,
+        line.mc_inr,
+        line.mc_amount,
+        line.mcAmountInr,
+    ];
+    for (const raw of displayCandidates) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return Math.round(n);
+    }
     const mc = Number(line.mc_rate);
     if (!Number.isFinite(mc) || mc <= 0) return 0;
     const qty = Math.max(1, Number(line.qty) || 1);
     const wt = Number(line.weightGm ?? line.originalWeightGm ?? line.net_weight ?? 0) || 0;
-    const mcType = String(line.mc_type || '').toUpperCase();
+    const mcType = String(line.mc_type || line.mcType || '').toUpperCase();
     if (mcType.includes('GM') || mcType.includes('/G') || mcType.includes('PER G')) {
         return Math.round(mc * wt * qty);
+    }
+    if (mcType === 'PCS' || mcType === 'FIX' || mcType === 'RS' || mcType === 'PC' || mcType === '') {
+        if (mc >= 50 || qty === 1) return Math.round(mc * qty);
     }
     return Math.round(mc * qty);
 }

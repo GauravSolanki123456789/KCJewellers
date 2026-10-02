@@ -26,7 +26,13 @@ const {
 const { normDateIso } = require('./erpDateNormalize');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
-const { parseMetalGm, metalGmFromLedgerRow, roundMetalGm } = require('./erpLedgerMetal');
+const {
+    parseMetalGm,
+    metalGmFromLedgerRow,
+    roundMetalGm,
+    virtualMetalReceiptSettlement,
+} = require('./erpLedgerMetal');
+const { getCustomerBalancesBeforeLedgerEntry } = require('./resellerErpCustomerAccount');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -207,6 +213,10 @@ async function ensureLedgerSchema(pool) {
             ADD COLUMN IF NOT EXISTS weight_kg NUMERIC(12, 3);
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS metal_gm NUMERIC(14, 3);
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS metal_cleared_gm NUMERIC(14, 3);
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS virtual_metal_inr BOOLEAN NOT NULL DEFAULT false;
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer
@@ -799,13 +809,13 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 req.body.book_metal_value_against_inr
             );
             const mayBookMetalAsInr =
-                virtualMetalValueInr ||
                 metalKind === 'to_cash' ||
                 metalKind === 'convert_cash' ||
                 metalKind === 'apply' ||
                 metalKind === 'redeem';
             if (
                 mayBookMetalAsInr &&
+                !virtualMetalValueInr &&
                 (!amount || amount <= 0) &&
                 metalGm != null &&
                 Math.abs(metalGm) >= 0.0005 &&
@@ -864,6 +874,30 @@ function registerResellerErpLedgerRoutes(app, deps) {
             let referenceNo = trimStr(req.body.reference_no, 120);
             let narration = trimStr(req.body.narration, 2000);
             const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
+            let metalClearedGm = null;
+            let virtualMetalFlag = false;
+            if (
+                virtualMetalValueInr &&
+                resolvedMetalGm != null &&
+                Math.abs(resolvedMetalGm) >= 0.0005 &&
+                customerId
+            ) {
+                if (!metalRate || metalRate <= 0) {
+                    return res.status(400).json({ error: 'Enter metal rate (₹/g) for ₹ balance offset' });
+                }
+                const account = await buildCustomerAccount(query, req.user.id, {
+                    customerId,
+                    includeShadow: ledgerScope === 'lane',
+                });
+                const settled = virtualMetalReceiptSettlement(
+                    account.summary.metal_balance_gm,
+                    resolvedMetalGm,
+                    metalRate,
+                );
+                metalClearedGm = settled.metal_cleared_gm;
+                amount = settled.inr_offset_inr;
+                virtualMetalFlag = true;
+            }
             if (resolvedMetalGm != null && Math.abs(resolvedMetalGm) >= 0.0005 && !referenceNo) {
                 const metalPrefix =
                     metalKind === 'apply' || metalKind === 'redeem' || entryType === 'adjustment'
@@ -933,8 +967,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
                     payment_mode, reference_no, bank_name, counterparty_name, narration, is_suspense,
-                    ledger_scope, employee_id, pv_id, weight_kg, metal_gm
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                    ledger_scope, employee_id, pv_id, weight_kg, metal_gm, metal_cleared_gm, virtual_metal_inr
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -954,6 +988,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     pvId,
                     metalKgStore,
                     resolvedMetalGm,
+                    metalClearedGm,
+                    virtualMetalFlag,
                 ],
             );
             res.json({ success: true, entry: mapLedgerEntry(rows[0]) });
@@ -962,6 +998,113 @@ function registerResellerErpLedgerRoutes(app, deps) {
             res.status(500).json({ error: e.message || 'Failed to add entry' });
         }
     });
+
+    app.post(
+        '/api/reseller/erp/ledger/entries/:id/apply-metal-rate',
+        checkAuth,
+        erpGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+                const rate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+                if (!rate || rate <= 0) return res.status(400).json({ error: 'Enter metal rate (₹/g)' });
+                const existing = await query(
+                    `SELECT * FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                if (!existing.length) return res.status(404).json({ error: 'Entry not found' });
+                const row = existing[0];
+                const gm = parseMetalGm(row.metal_gm);
+                if (gm == null || Math.abs(gm) < 0.0005) {
+                    return res.status(400).json({ error: 'Entry has no metal weight' });
+                }
+                if (!row.customer_id) return res.status(400).json({ error: 'Customer required' });
+                const bal = await getCustomerBalancesBeforeLedgerEntry(
+                    query,
+                    req.user.id,
+                    row.customer_id,
+                    id,
+                );
+                const settled = virtualMetalReceiptSettlement(bal.balance_metal_gm, gm, rate);
+                let narration = String(row.narration || '').trim();
+                const rateBit = ` @ ₹${rate}/g`;
+                if (!narration) narration = `Metal received ${Math.abs(gm).toFixed(3)} g${rateBit}`;
+                else if (!/@\s*₹/.test(narration)) narration += rateBit;
+                if (!/₹ offset only/i.test(narration)) narration += ' — ₹ offset only (no cash received)';
+                const updated = await query(
+                    `UPDATE reseller_erp_ledger_entries SET
+                        amount_inr = $1,
+                        metal_cleared_gm = $2,
+                        virtual_metal_inr = true,
+                        narration = $3,
+                        updated_at = NOW()
+                     WHERE id = $4 AND reseller_user_id = $5
+                     RETURNING *`,
+                    [settled.inr_offset_inr, settled.metal_cleared_gm, narration, id, req.user.id],
+                );
+                res.json({ success: true, entry: mapLedgerEntry(updated[0]) });
+            } catch (e) {
+                console.error('apply-metal-rate:', e);
+                res.status(500).json({ error: e.message || 'Failed to apply rate' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/ledger/convert-metal-credit',
+        checkAuth,
+        erpGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                const customerId =
+                    req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null;
+                const rate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+                const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'lane';
+                const ledgerScope = LEDGER_SCOPES.has(ledgerScopeRaw) ? ledgerScopeRaw : 'lane';
+                if (!customerId) return res.status(400).json({ error: 'customer_id required' });
+                if (!rate || rate <= 0) return res.status(400).json({ error: 'Enter metal rate (₹/g)' });
+                const account = await buildCustomerAccount(query, req.user.id, {
+                    customerId,
+                    includeShadow: ledgerScope === 'lane',
+                });
+                const metalBal = Number(account.summary.metal_balance_gm) || 0;
+                if (metalBal >= -0.0005) {
+                    return res.status(400).json({ error: 'No metal credit to convert (metal balance is not negative)' });
+                }
+                const gm = roundMetalGm(Math.abs(metalBal));
+                const inrOffset = Math.round(gm * rate * 100) / 100;
+                const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
+                const referenceNo = await nextMetalRef(query, req.user.id, 'MB');
+                const narration = `Metal credit converted to ₹ balance ${gm.toFixed(3)} g @ ₹${rate}/g — ₹ offset only (no cash received)`;
+                const rows = await query(
+                    `INSERT INTO reseller_erp_ledger_entries (
+                        reseller_user_id, entry_date, entry_type, amount_inr, customer_id,
+                        payment_mode, reference_no, narration, is_suspense, ledger_scope,
+                        metal_gm, metal_cleared_gm, virtual_metal_inr
+                     ) VALUES ($1,$2,'adjustment',$3,$4,'metal',$5,$6,false,$7,$8,NULL,false)
+                     RETURNING *`,
+                    [
+                        req.user.id,
+                        entryDate,
+                        inrOffset,
+                        customerId,
+                        referenceNo,
+                        narration,
+                        ledgerScope,
+                        gm,
+                        null,
+                    ],
+                );
+                res.json({ success: true, entry: mapLedgerEntry(rows[0]) });
+            } catch (e) {
+                console.error('convert-metal-credit:', e);
+                res.status(500).json({ error: e.message || 'Failed to convert metal credit' });
+            }
+        },
+    );
 
     app.put('/api/reseller/erp/ledger/entries/:id', checkAuth, erpGate, requireJson, async (req, res) => {
         try {

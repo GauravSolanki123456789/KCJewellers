@@ -38,14 +38,6 @@ function LedgerStatementDocument({ account }: { account: CustomerAccountData }) 
         <Text style={styles.sub}>{account.customer.name}</Text>
         {account.customer.mobile ? <Text style={styles.sub}>Mobile: {account.customer.mobile}</Text> : null}
         <View style={styles.row}>
-          <Text style={styles.label}>Total billed</Text>
-          <Text>{formatPdfInr(account.summary.total_billed_inr)}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Total paid</Text>
-          <Text>{formatPdfInr(account.summary.total_paid_inr)}</Text>
-        </View>
-        <View style={styles.row}>
           <Text style={styles.label}>Balance due</Text>
           <Text>{formatPdfInr(account.summary.balance_due_inr)}</Text>
         </View>

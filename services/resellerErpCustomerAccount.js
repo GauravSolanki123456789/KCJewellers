@@ -274,12 +274,14 @@ function shadowSaleHasPostedSettlement(session) {
 }
 
 function shadowSaleMcOwedInr(s) {
+    const fromLines = jainavMcOwedInrFromLines(shadowSaleLines(s));
+    if (fromLines > 0) return fromLines;
     const session = shadowSaleSession(s);
     const fromSession = Number(session.jainavMcOwedInr);
     if (Number.isFinite(fromSession) && fromSession > 0) return Math.round(fromSession);
     const fromSettle = Number(session.jainavSettlement && session.jainavSettlement.totalMcOwedInr);
     if (Number.isFinite(fromSettle) && fromSettle > 0) return Math.round(fromSettle);
-    return jainavMcOwedInrFromLines(shadowSaleLines(s));
+    return 0;
 }
 
 function shadowSaleWeightGm(s) {
@@ -398,7 +400,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const entryParams = book ? [resellerUserId] : [resellerUserId, customerId];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
-                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg, metal_gm
+                           narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg, metal_gm,
+                           metal_cleared_gm, virtual_metal_inr
                     FROM reseller_erp_ledger_entries
                     WHERE reseller_user_id = $1 AND is_suspense = false`;
     if (book === 'cash') {
@@ -511,6 +514,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         rows.push({
             date: normDate(p.entry_date),
             sort_id: p.id,
+            ledger_entry_id: p.id,
             kind: p.entry_type,
             ref: p.reference_no || '',
             description: isPay
@@ -523,7 +527,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             weight_gm: metalGmDisplay,
             debit_metal_gm: metalDc.debit_metal_gm,
             credit_metal_gm: metalDc.credit_metal_gm,
-            virtual_metal_inr: metalGmBal !== metalGmDisplay && metalGmDisplay > 0,
+            virtual_metal_inr: !!p.virtual_metal_inr,
+            metal_cleared_gm: p.metal_cleared_gm != null ? roundMetalGm(p.metal_cleared_gm) : undefined,
         });
     }
 
@@ -709,7 +714,8 @@ async function buildDaybook(query, resellerUserId, opts) {
     const entryParams = [resellerUserId, day];
     let entrySql = `SELECT e.id, e.entry_date, e.entry_type, e.amount_inr, e.payment_mode, e.reference_no,
                            e.narration, e.bill_id, e.shadow_bill_id, e.customer_id, e.created_at,
-                           e.ledger_scope, e.counterparty_name, e.weight_kg, e.metal_gm,
+                           e.ledger_scope, e.counterparty_name, e.weight_kg, e.metal_gm, e.metal_cleared_gm,
+                           e.virtual_metal_inr,
                            c.name AS customer_name, b.bill_number, pv.pv_number
                     FROM reseller_erp_ledger_entries e
                     LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
@@ -878,6 +884,23 @@ function customerAccountToCsv(account) {
     return lines.join('\r\n');
 }
 
+async function getCustomerBalancesBeforeLedgerEntry(query, resellerUserId, customerId, ledgerEntryId) {
+    const account = await buildCustomerAccount(query, resellerUserId, {
+        customerId,
+        includeShadow: true,
+    });
+    const txs = account.transactions || [];
+    const idx = txs.findIndex((t) => t.ledger_entry_id === ledgerEntryId);
+    if (idx <= 0) {
+        return { balance_inr: 0, balance_metal_gm: 0 };
+    }
+    const prev = txs[idx - 1];
+    return {
+        balance_inr: Number(prev.balance_inr) || 0,
+        balance_metal_gm: roundMetalGm(prev.balance_metal_gm),
+    };
+}
+
 module.exports = {
     buildCustomerAccount,
     buildDaybook,
@@ -886,4 +909,5 @@ module.exports = {
     cashBookKind,
     ensureCashBookCustomers,
     compactCustomerName,
+    getCustomerBalancesBeforeLedgerEntry,
 };
