@@ -37,6 +37,7 @@ import { exportDaybookToTallyLocal } from '@/lib/erp-tally-export'
 import { downloadDaybookPdf, type DaybookExportData } from '@/lib/erp-ledger-statement-pdf'
 import {
   formatLedgerMoneyOrMetal,
+  formatLedgerVirtualMetalCredit,
   formatLedgerRunningBalance,
   formatMetalGm,
   ledgerEntryMetalGm,
@@ -75,6 +76,7 @@ type DaybookTransaction = {
   description?: string
   metal_ledger_mode?: boolean
   virtual_metal_inr?: boolean
+  virtual_metal_show_inr_credit?: boolean
 }
 
 type DaybookData = {
@@ -2736,12 +2738,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                         {formatLedgerMoneyOrMetal(row.debit_inr, row.debit_metal_gm)}
                       </td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
-                        {formatLedgerMoneyOrMetal(
-                          row.virtual_metal_inr ? 0 : row.credit_inr,
-                          row.virtual_metal_inr
-                            ? row.weight_gm ?? row.credit_metal_gm
-                            : row.credit_metal_gm,
-                        )}
+                        {formatLedgerVirtualMetalCredit({
+                          virtual_metal_inr: row.virtual_metal_inr,
+                          virtual_metal_show_inr_credit: row.virtual_metal_show_inr_credit,
+                          credit: row.credit_inr,
+                          weight_gm: row.weight_gm,
+                          credit_metal_gm: row.credit_metal_gm,
+                        })}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                         {formatLedgerRunningBalance(row.balance_inr, row.balance_metal_gm)}

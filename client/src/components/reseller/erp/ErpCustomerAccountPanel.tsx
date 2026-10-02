@@ -7,11 +7,12 @@ import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpCustomer } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
-import { appAlert, appConfirm } from '@/lib/app-notice'
+import { appAlert, appConfirm, appPrompt } from '@/lib/app-notice'
 import { downloadCustomerAccountPdf } from '@/lib/erp-ledger-statement-pdf'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import {
   formatLedgerMoneyOrMetal,
+  formatLedgerVirtualMetalCredit,
   formatLedgerRunningBalance,
   formatMetalGm,
   metalBalanceHint,
@@ -34,6 +35,7 @@ export type CustomerAccountTx = {
   ledger_entry_id?: number
   metal_ledger_mode?: boolean
   virtual_metal_inr?: boolean
+  virtual_metal_show_inr_credit?: boolean
 }
 
 export type CustomerAccountData = {
@@ -214,7 +216,7 @@ export function ErpCustomerAccountPanel({
   }, [selected, filterFrom, filterTo, onDate, loadAccount])
 
   const applyMetalRateToEntry = async (ledgerEntryId: number) => {
-    const rateStr = window.prompt('Metal rate (₹/g) to apply against ₹ balance:', '230')
+    const rateStr = await appPrompt('Metal rate (₹/g) to apply against ₹ balance:', '230')
     if (rateStr == null || !rateStr.trim()) return
     const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
     if (!Number.isFinite(rate) || rate <= 0) {
@@ -242,7 +244,7 @@ export function ErpCustomerAccountPanel({
       appAlert('No metal credit on this account.', 'error')
       return
     }
-    const rateStr = window.prompt(
+    const rateStr = await appPrompt(
       `Convert ${Math.abs(bal).toFixed(3)} g metal credit to ₹ balance at rate (₹/g):`,
       '230',
     )
@@ -415,7 +417,7 @@ export function ErpCustomerAccountPanel({
               {account.summary.metal_balance_gm != null && account.summary.metal_balance_gm < -0.0005 ? (
                 <button
                   type="button"
-                  className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-950"
+                  className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-xs font-semibold text-[#1a1814] shadow-sm hover:bg-[var(--color-slate-900,#f7f4ef)]"
                   disabled={busy}
                   onClick={() => void convertMetalCreditToInr()}
                 >
@@ -463,12 +465,7 @@ export function ErpCustomerAccountPanel({
                       {formatLedgerMoneyOrMetal(t.debit, t.debit_metal_gm ?? (t.debit ? t.weight_gm : 0))}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerMoneyOrMetal(
-                        t.virtual_metal_inr ? 0 : t.credit,
-                        t.virtual_metal_inr
-                          ? t.weight_gm
-                          : (t.credit_metal_gm ?? (t.credit ? t.weight_gm : 0)),
-                      )}
+                      {formatLedgerVirtualMetalCredit(t)}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                       {formatLedgerRunningBalance(t.balance_inr, t.balance_metal_gm)}

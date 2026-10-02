@@ -2,15 +2,22 @@ export type AppNoticeTone = 'info' | 'error' | 'success'
 
 type AlertHandler = (message: string, tone?: AppNoticeTone) => void
 type ConfirmHandler = (message: string) => Promise<boolean>
+type PromptHandler = (message: string, defaultValue?: string) => Promise<string | null>
 
 let alertHandler: AlertHandler | null = null
 let confirmHandler: ConfirmHandler | null = null
+let promptHandler: PromptHandler | null = null
 const pendingAlerts: Array<{ message: string; tone?: AppNoticeTone }> = []
 let globalsInstalled = false
 
-export function registerAppNotice(alert: AlertHandler, confirm: ConfirmHandler) {
+export function registerAppNotice(
+  alert: AlertHandler,
+  confirm: ConfirmHandler,
+  prompt?: PromptHandler,
+) {
   alertHandler = alert
   confirmHandler = confirm
+  if (prompt) promptHandler = prompt
   if (pendingAlerts.length) {
     const queued = pendingAlerts.splice(0, pendingAlerts.length)
     for (const item of queued) alert(item.message, item.tone)
@@ -18,6 +25,7 @@ export function registerAppNotice(alert: AlertHandler, confirm: ConfirmHandler) 
   return () => {
     if (alertHandler === alert) alertHandler = null
     if (confirmHandler === confirm) confirmHandler = null
+    if (promptHandler === prompt) promptHandler = null
   }
 }
 
@@ -35,6 +43,16 @@ export function appConfirm(message: unknown): Promise<boolean> {
   if (confirmHandler) return confirmHandler(text)
   if (typeof window !== 'undefined') return Promise.resolve(window.confirm(text))
   return Promise.resolve(false)
+}
+
+export function appPrompt(message: unknown, defaultValue = ''): Promise<string | null> {
+  const text = String(message ?? '').trim() || 'Enter a value'
+  if (promptHandler) return promptHandler(text, defaultValue)
+  if (typeof window !== 'undefined') {
+    const v = window.prompt(text, defaultValue)
+    return Promise.resolve(v == null ? null : v)
+  }
+  return Promise.resolve(null)
 }
 
 export function installAppNoticeGlobals() {

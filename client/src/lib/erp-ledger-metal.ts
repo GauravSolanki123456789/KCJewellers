@@ -7,6 +7,25 @@ export function formatMetalGm(gm: number | null | undefined): string {
 }
 
 /** Debit / credit / amount cell: ₹ and/or grams, never a blank ₹0 when metal exists. */
+export function formatLedgerVirtualMetalCredit(tx: {
+  virtual_metal_inr?: boolean
+  virtual_metal_show_inr_credit?: boolean
+  credit?: number
+  weight_gm?: number
+  credit_metal_gm?: number
+}): string {
+  if (tx.virtual_metal_inr && tx.virtual_metal_show_inr_credit) {
+    return formatLedgerMoneyOrMetal(tx.credit, 0)
+  }
+  if (tx.virtual_metal_inr) {
+    return formatLedgerMoneyOrMetal(0, tx.weight_gm ?? tx.credit_metal_gm)
+  }
+  return formatLedgerMoneyOrMetal(
+    tx.credit,
+    tx.credit_metal_gm ?? (tx.credit ? tx.weight_gm : 0),
+  )
+}
+
 export function formatLedgerMoneyOrMetal(
   inr: number | null | undefined,
   gm: number | null | undefined,

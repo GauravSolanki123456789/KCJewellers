@@ -20,11 +20,20 @@ type ConfirmItem = {
   resolve: (ok: boolean) => void
 }
 
+type PromptItem = {
+  id: number
+  message: string
+  defaultValue: string
+  resolve: (value: string | null) => void
+}
+
 let nextId = 1
 
 export function AppNoticeHost() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [confirm, setConfirm] = useState<ConfirmItem | null>(null)
+  const [prompt, setPrompt] = useState<PromptItem | null>(null)
+  const [promptDraft, setPromptDraft] = useState('')
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
@@ -45,6 +54,11 @@ export function AppNoticeHost() {
         new Promise<boolean>((resolve) => {
           setConfirm({ id: nextId++, message, resolve })
         }),
+      (message, defaultValue = '') =>
+        new Promise<string | null>((resolve) => {
+          setPromptDraft(defaultValue)
+          setPrompt({ id: nextId++, message, defaultValue, resolve })
+        }),
     )
   }, [])
 
@@ -53,6 +67,14 @@ export function AppNoticeHost() {
       current?.resolve(ok)
       return null
     })
+  }
+
+  const closePrompt = (value: string | null) => {
+    setPrompt((current) => {
+      current?.resolve(value)
+      return null
+    })
+    setPromptDraft('')
   }
 
   return (
@@ -123,6 +145,40 @@ export function AppNoticeHost() {
                 onClick={() => closeConfirm(true)}
               >
                 Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {prompt ? (
+        <div className="fixed inset-0 z-[20010] flex items-end justify-center bg-black/40 p-3 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-4 shadow-2xl">
+            <p className="whitespace-pre-wrap text-sm font-medium leading-snug text-[#1a1814]">
+              {prompt.message}
+            </p>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="mt-3 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-medium text-[#1a1814] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
+              value={promptDraft}
+              onChange={(e) => setPromptDraft(e.target.value)}
+              autoFocus
+            />
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white text-sm font-semibold text-[#1a1814]"
+                onClick={() => closePrompt(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[var(--kc-accent,#c41e3a)] text-sm font-semibold text-white"
+                onClick={() => closePrompt(promptDraft.trim())}
+              >
+                OK
               </button>
             </div>
           </div>

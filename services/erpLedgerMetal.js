@@ -81,6 +81,43 @@ function virtualMetalReceiptSettlement(metalBalanceBeforeGm, receivedGm, ratePer
     return { metal_cleared_gm: cleared, inr_offset_inr: inrOffset, excess_metal_gm: excess };
 }
 
+/**
+ * ₹-offset metal receipt in running ledger.
+ * With metal debt: clear grams first, only excess × rate reduces ₹ (Metal+MC view).
+ * With no metal debt: full grams × rate reduces ₹ (₹-only bill view).
+ */
+function applyVirtualMetalInrCredit(runningInr, runningMetalGm, recvGm, ratePerG) {
+    const recv = Math.abs(Number(recvGm) || 0);
+    const metalBefore = Number(runningMetalGm) || 0;
+    if (recv < 0.0005) {
+        return {
+            creditInr: 0,
+            runningMetalAfter: roundMetalGm(metalBefore),
+            displayCreditMetalGm: 0,
+            showInrCredit: false,
+        };
+    }
+    const rate = Number(ratePerG) || 0;
+    if (metalBefore >= 0.0005) {
+        const settled = virtualMetalReceiptSettlement(metalBefore, recv, rate);
+        return {
+            creditInr: settled.inr_offset_inr,
+            runningMetalAfter: Math.max(0, metalBefore - recv),
+            displayCreditMetalGm: recv,
+            showInrCredit: false,
+        };
+    }
+    const inrVal = rate > 0 ? Math.round(recv * rate * 100) / 100 : 0;
+    const due = Math.max(0, Number(runningInr) || 0);
+    const creditInr = Math.min(due, inrVal);
+    return {
+        creditInr,
+        runningMetalAfter: roundMetalGm(metalBefore),
+        displayCreditMetalGm: 0,
+        showInrCredit: creditInr > 0,
+    };
+}
+
 /** Grams credited to metal running balance for this row. */
 function metalGmForRunningBalance(row) {
     const nar = String(row?.narration || '');
@@ -164,6 +201,7 @@ module.exports = {
     metalRatePerGFromLedgerRow,
     sanitizeLedgerDescription,
     virtualMetalReceiptSettlement,
+    applyVirtualMetalInrCredit,
     metalGmForRunningBalance,
     metalGmFromLedgerRow,
     metalGmFromNarration,

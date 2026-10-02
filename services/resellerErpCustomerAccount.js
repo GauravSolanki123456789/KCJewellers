@@ -11,7 +11,7 @@ const {
     metalDebitFromSaleWeight,
     metalRatePerGFromLedgerRow,
     sanitizeLedgerDescription,
-    virtualMetalReceiptSettlement,
+    applyVirtualMetalInrCredit,
     roundMetalGm,
 } = require('./erpLedgerMetal');
 
@@ -182,23 +182,17 @@ function applyDaybookLedgerColumns(rows) {
                         r.description || r.narration,
                     );
         const recvGm = Number(r.weight_gm || r.metal_gm) || 0;
+        let virtualMetalShowInrCredit = false;
         if (r.virtual_metal_inr && recvGm > 0) {
-            const rate = metalRatePerGFromLedgerRow(r);
-            if (runningMetal >= 0.0005) {
-                const settled = virtualMetalReceiptSettlement(runningMetal, recvGm, rate);
-                dc.credit_inr = settled.inr_offset_inr;
-                runningMetal = Math.max(0, runningMetal - recvGm);
-            } else {
-                const stored = Number(dc.credit_inr) || 0;
-                const inrVal =
-                    stored > 0
-                        ? stored
-                        : rate > 0
-                          ? Math.round(recvGm * rate * 100) / 100
-                          : 0;
-                dc.credit_inr = Math.min(Math.max(0, running), inrVal);
-            }
-            metalDc.credit_metal_gm = 0;
+            const rate = metalRatePerGFromLedgerRow({
+                narration: r.narration || r.description,
+                metal_settlement_rate_per_g: r.metal_settlement_rate_per_g,
+            });
+            const applied = applyVirtualMetalInrCredit(running, runningMetal, recvGm, rate);
+            dc.credit_inr = applied.creditInr;
+            runningMetal = applied.runningMetalAfter;
+            metalDc.credit_metal_gm = applied.displayCreditMetalGm;
+            virtualMetalShowInrCredit = applied.showInrCredit;
             totalDebit += dc.debit_inr;
             totalCredit += dc.credit_inr;
             totalDebitMetal += metalDc.debit_metal_gm;
@@ -220,6 +214,7 @@ function applyDaybookLedgerColumns(rows) {
             credit_metal_gm: metalDc.credit_metal_gm,
             weight_gm: roundMetalGm(metalDc.debit_metal_gm || metalDc.credit_metal_gm || r.weight_gm),
             balance_metal_gm: roundMetalGm(runningMetal),
+            virtual_metal_show_inr_credit: virtualMetalShowInrCredit,
         };
     });
     return {
@@ -573,24 +568,15 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         let cMetal = Number(r.credit_metal_gm) || 0;
         let displayCreditMetal = cMetal;
 
+        let virtualMetalShowInrCredit = false;
         if (r.virtual_metal_inr && Number(r.weight_gm) > 0) {
             const rate = metalRatePerGFromLedgerRow(r);
             const recvGm = Number(r.weight_gm);
-            displayCreditMetal = roundMetalGm(recvGm);
-            if (runningMetal >= 0.0005) {
-                const settled = virtualMetalReceiptSettlement(runningMetal, recvGm, rate);
-                creditInr = settled.inr_offset_inr;
-                runningMetal = Math.max(0, runningMetal - recvGm);
-            } else {
-                const inrVal =
-                    creditInr > 0
-                        ? creditInr
-                        : rate > 0
-                          ? Math.round(recvGm * rate * 100) / 100
-                          : 0;
-                creditInr = Math.min(Math.max(0, running), inrVal);
-                // Receipt converted to ₹ — do not add metal credit to running balance.
-            }
+            const applied = applyVirtualMetalInrCredit(running, runningMetal, recvGm, rate);
+            creditInr = applied.creditInr;
+            runningMetal = applied.runningMetalAfter;
+            displayCreditMetal = applied.displayCreditMetalGm;
+            virtualMetalShowInrCredit = applied.showInrCredit;
             running -= creditInr;
         } else {
             running += debitInr - creditInr;
@@ -603,6 +589,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             description: sanitizeLedgerDescription(pub.description),
             credit: creditInr,
             credit_metal_gm: displayCreditMetal,
+            virtual_metal_show_inr_credit: virtualMetalShowInrCredit,
             balance_inr: Math.round(running * 100) / 100,
             balance_metal_gm: roundMetalGm(runningMetal),
         };
@@ -611,9 +598,10 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     const totalBilled = orderedRows
         .filter((r) => r.kind === 'sale' || r.kind === 'debit')
         .reduce((s, r) => s + r.debit, 0);
-    const totalPaid = orderedRows
-        .filter((r) => r.kind === 'payment_in' || r.kind === 'bill_advance' || r.kind === 'suspense_in')
-        .reduce((s, r) => s + r.credit, 0);
+    const payKinds = new Set(['payment_in', 'bill_advance', 'suspense_in']);
+    const totalPaid = transactions
+        .filter((r) => payKinds.has(r.kind))
+        .reduce((s, r) => s + (Number(r.credit) || 0), 0);
     const balanceDue = transactions.length
         ? transactions[transactions.length - 1].balance_inr
         : 0;
@@ -838,7 +826,8 @@ async function buildDaybook(query, resellerUserId, opts) {
             metal_gm: metalGmDisplay,
             ...metalDc,
             ...flows,
-            virtual_metal_inr: metalGmBal !== metalGmDisplay && metalGmDisplay > 0,
+            virtual_metal_inr: !!p.virtual_metal_inr,
+            narration: p.narration || '',
             description: isPay
                 ? formatLedgerPaymentDescription(p, p.customer_name, shadowBillById)
                 : p.narration || String(p.entry_type || '').replace(/_/g, ' '),
