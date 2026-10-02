@@ -1,38 +1,62 @@
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 
+export type LedgerCellFormatOpts = {
+  /** Helvetica PDF: plain numbers, no ₹ (avoids superscript artifacts). */
+  pdfSafe?: boolean
+  laneLedger?: boolean
+  /** Lane ledger: Balance column is ₹ only; metal in Metal balance column. */
+  splitMetalColumn?: boolean
+}
+
+function formatInrAmount(amount: number, pdfSafe?: boolean): string {
+  const n = Math.round(amount)
+  if (pdfSafe) return n.toLocaleString('en-IN')
+  return formatErpInr(n)
+}
+
 export function formatMetalGm(gm: number | null | undefined): string {
   const n = Number(gm)
   if (!Number.isFinite(n) || Math.abs(n) < 0.0005) return ''
   return `${n.toFixed(3)} g`
 }
 
+export function formatMetalBalanceCell(gm: number | null | undefined): string {
+  const part = formatMetalGm(gm)
+  return part || '—'
+}
+
 /** Debit / credit / amount cell: ₹ and/or grams, never a blank ₹0 when metal exists. */
-export function formatLedgerVirtualMetalCredit(tx: {
-  virtual_metal_inr?: boolean
-  virtual_metal_show_inr_credit?: boolean
-  credit?: number
-  weight_gm?: number
-  credit_metal_gm?: number
-}): string {
+export function formatLedgerVirtualMetalCredit(
+  tx: {
+    virtual_metal_inr?: boolean
+    virtual_metal_show_inr_credit?: boolean
+    credit?: number
+    weight_gm?: number
+    credit_metal_gm?: number
+  },
+  opts: LedgerCellFormatOpts = {},
+): string {
   if (tx.virtual_metal_inr && tx.virtual_metal_show_inr_credit) {
-    return formatLedgerMoneyOrMetal(tx.credit, 0)
+    return formatLedgerMoneyOrMetal(tx.credit, 0, opts)
   }
   if (tx.virtual_metal_inr) {
-    return formatLedgerMoneyOrMetal(0, tx.weight_gm ?? tx.credit_metal_gm)
+    return formatLedgerMoneyOrMetal(0, tx.weight_gm ?? tx.credit_metal_gm, opts)
   }
   return formatLedgerMoneyOrMetal(
     tx.credit,
     tx.credit_metal_gm ?? (tx.credit ? tx.weight_gm : 0),
+    opts,
   )
 }
 
 export function formatLedgerMoneyOrMetal(
   inr: number | null | undefined,
   gm: number | null | undefined,
+  opts: LedgerCellFormatOpts = {},
 ): string {
   const money = Number(inr) || 0
   const metal = Number(gm) || 0
-  const moneyPart = Math.abs(money) >= 0.005 ? formatErpInr(money) : ''
+  const moneyPart = Math.abs(money) >= 0.005 ? formatInrAmount(money, opts.pdfSafe) : ''
   const metalPart = formatMetalGm(Math.abs(metal))
   if (moneyPart && metalPart) return `${moneyPart} · ${metalPart}`
   if (moneyPart) return moneyPart
@@ -43,8 +67,9 @@ export function formatLedgerMoneyOrMetal(
 export function formatLedgerRunningBalance(
   inr: number | null | undefined,
   gm: number | null | undefined,
+  opts: LedgerCellFormatOpts = {},
 ): string {
-  const money = formatErpInr(Number(inr) || 0)
+  const money = formatInrAmount(Number(inr) || 0, opts.pdfSafe)
   const metal = formatMetalGm(gm)
   return metal ? `${money} · ${metal}` : money
 }
@@ -68,38 +93,41 @@ export function isRupeeOnlyGstSale(row: {
   return false
 }
 
-export function formatLedgerDebitCell(row: {
-  debit?: number
-  debit_inr?: number
-  debit_metal_gm?: number
-  weight_gm?: number
-  lane?: string | null
-  rupee_only_debit?: boolean | null
-  metal_ledger_mode?: boolean | null
-  source?: string | null
-  shadow_bill_id?: number | null
-  kind?: string | null
-}): string {
+export function formatLedgerDebitCell(
+  row: {
+    debit?: number
+    debit_inr?: number
+    debit_metal_gm?: number
+    weight_gm?: number
+    lane?: string | null
+    rupee_only_debit?: boolean | null
+    metal_ledger_mode?: boolean | null
+    source?: string | null
+    shadow_bill_id?: number | null
+    kind?: string | null
+  },
+  opts: LedgerCellFormatOpts = {},
+): string {
   const inr = row.debit_inr ?? row.debit
   if (isRupeeOnlyGstSale(row)) {
-    return formatLedgerMoneyOrMetal(inr, 0)
+    return formatLedgerMoneyOrMetal(inr, 0, opts)
   }
   const metal =
     row.debit_metal_gm ??
     (Math.abs(Number(inr) || 0) >= 0.005 ? row.weight_gm : 0)
-  return formatLedgerMoneyOrMetal(inr, metal)
+  return formatLedgerMoneyOrMetal(inr, metal, opts)
 }
 
-/** Official payment ledger: running balance is ₹ only. Lane ledger: ₹ + metal when metal exists. */
+/** Official payment ledger: running balance is ₹ only. Lane: split metal to its own column when requested. */
 export function formatLedgerBalanceCell(
   balanceInr: number | null | undefined,
   balanceMetalGm: number | null | undefined,
-  opts: { laneLedger?: boolean },
+  opts: LedgerCellFormatOpts = {},
 ): string {
-  if (!opts.laneLedger) {
-    return formatErpInr(Number(balanceInr) || 0)
+  if (!opts.laneLedger || opts.splitMetalColumn) {
+    return formatInrAmount(Number(balanceInr) || 0, opts.pdfSafe)
   }
-  return formatLedgerRunningBalance(balanceInr, balanceMetalGm)
+  return formatLedgerRunningBalance(balanceInr, balanceMetalGm, opts)
 }
 
 export function metalBalanceHint(balanceGm: number): string {

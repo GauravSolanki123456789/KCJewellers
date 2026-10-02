@@ -34,6 +34,10 @@ export type ErpQuoteTotals = {
   billingDiscount?: number
   mcDiscount?: number
   cashDiscount?: number
+  paymentMethod?: string
+  mixedCash?: number
+  mixedOnline?: number
+  mixedCard?: number
 }
 
 /** Ensure Slab R gold lines carry MC discount display fields for PDF/grid. */
@@ -248,6 +252,19 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
         : undefined,
     billingDiscount:
       discountSummary.totalDiscountInr !== 0 ? discountSummary.totalDiscountInr : undefined,
+    paymentMethod: session.paymentMethod || undefined,
+    mixedCash:
+      session.cashAmountInr != null && Number.isFinite(Number(session.cashAmountInr))
+        ? Number(session.cashAmountInr)
+        : undefined,
+    mixedOnline:
+      session.onlineAmountInr != null && Number.isFinite(Number(session.onlineAmountInr))
+        ? Number(session.onlineAmountInr)
+        : undefined,
+    mixedCard:
+      session.cardAmountInr != null && Number.isFinite(Number(session.cardAmountInr))
+        ? Number(session.cardAmountInr)
+        : undefined,
   }
 }
 

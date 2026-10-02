@@ -16,6 +16,7 @@ import {
   formatLedgerVirtualMetalCredit,
   formatLedgerDebitCell,
   formatLedgerBalanceCell,
+  formatMetalBalanceCell,
   formatMetalGm,
   metalBalanceHint,
 } from '@/lib/erp-ledger-metal'
@@ -392,19 +393,6 @@ export function ErpCustomerAccountPanel({
 
       {account ? (
         <>
-          <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-4 py-3 text-center">
-            <p className="text-sm font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]">
-              {shopName}
-            </p>
-            <p className="mt-1 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              Ledger of {selected?.name || account.customer.name}
-              {onDate
-                ? ` from ${formatErpDateDdMmYyyy(onDate)} to ${formatErpDateDdMmYyyy(onDate)}`
-                : filterFrom || filterTo
-                  ? ` from ${filterFrom ? formatErpDateDdMmYyyy(filterFrom) : '—'} to ${filterTo ? formatErpDateDdMmYyyy(filterTo) : '—'}`
-                  : ''}
-            </p>
-          </div>
           <div className={`grid grid-cols-2 gap-2 ${laneMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             {[
               { l: 'Total billed', v: formatErpInr(account.summary.total_billed_inr) },
@@ -476,6 +464,7 @@ export function ErpCustomerAccountPanel({
                   <th className="px-3 py-2.5 text-right">Debit</th>
                   <th className="px-3 py-2.5 text-right">Credit</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
+                  {laneMode ? <th className="px-3 py-2.5 text-right">Metal balance</th> : null}
                   {laneMode ? <th className="px-3 py-2.5"> </th> : null}
                 </tr>
               </thead>
@@ -490,14 +479,22 @@ export function ErpCustomerAccountPanel({
                       {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerDebitCell(t)}
+                      {formatLedgerDebitCell(t, { laneLedger: laneMode, splitMetalColumn: laneMode })}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerVirtualMetalCredit(t)}
+                      {formatLedgerVirtualMetalCredit(t, { laneLedger: laneMode, splitMetalColumn: laneMode })}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, { laneLedger: laneMode })}
+                      {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, {
+                        laneLedger: laneMode,
+                        splitMetalColumn: laneMode,
+                      })}
                     </td>
+                    {laneMode ? (
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                        {formatMetalBalanceCell(t.balance_metal_gm)}
+                      </td>
+                    ) : null}
                     {laneMode ? (
                       <td className="px-2 py-2">
                         {t.ledger_entry_id &&

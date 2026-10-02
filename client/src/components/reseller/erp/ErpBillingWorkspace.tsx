@@ -217,6 +217,7 @@ type BillingDraft = {
   paymentMethod: ErpPaymentMethod
   cashAmountInr: string
   onlineAmountInr: string
+  cardAmountInr: string
   editingBillId?: number | null
   editingBillNumber?: string | null
   editingBillType?: string | null
@@ -434,6 +435,7 @@ export function ErpBillingWorkspace() {
   const [paymentMethod, setPaymentMethod] = useState<ErpPaymentMethod>('bank')
   const [cashAmountInr, setCashAmountInr] = useState('')
   const [onlineAmountInr, setOnlineAmountInr] = useState('')
+  const [cardAmountInr, setCardAmountInr] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
   const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
@@ -840,6 +842,7 @@ export function ErpBillingWorkspace() {
       if (d.paymentMethod) setPaymentMethod(d.paymentMethod)
       if (d.cashAmountInr != null) setCashAmountInr(d.cashAmountInr)
       if (d.onlineAmountInr != null) setOnlineAmountInr(d.onlineAmountInr)
+      if (d.cardAmountInr != null) setCardAmountInr(d.cardAmountInr)
       if (d.editingBillId != null) setEditingBillId(d.editingBillId)
       if (d.editingBillNumber) setEditingBillNumber(d.editingBillNumber)
       if (d.editingBillType) setEditingBillType(d.editingBillType)
@@ -891,6 +894,7 @@ export function ErpBillingWorkspace() {
       setPaymentMethod(session.paymentMethod || 'bank')
       setCashAmountInr(session.cashAmountInr != null ? String(session.cashAmountInr) : '')
       setOnlineAmountInr(session.onlineAmountInr != null ? String(session.onlineAmountInr) : '')
+      setCardAmountInr(session.cardAmountInr != null ? String(session.cardAmountInr) : '')
       if (session.cashDiscountInr != null && Number.isFinite(Number(session.cashDiscountInr))) {
         setCashDiscountInr(String(session.cashDiscountInr))
       } else {
@@ -958,6 +962,7 @@ export function ErpBillingWorkspace() {
         paymentMethod: session.paymentMethod || 'bank',
         cashAmountInr: session.cashAmountInr != null ? String(session.cashAmountInr) : '',
         onlineAmountInr: session.onlineAmountInr != null ? String(session.onlineAmountInr) : '',
+        cardAmountInr: session.cardAmountInr != null ? String(session.cardAmountInr) : '',
         editingBillId: bill.id,
         editingBillNumber: bill.bill_number,
         editingBillType: bill.bill_type,
@@ -1088,13 +1093,25 @@ export function ErpBillingWorkspace() {
       paymentMethod,
       cashAmountInr,
       onlineAmountInr,
+      cardAmountInr,
       editingBillId,
       editingBillNumber,
       editingBillType,
       editingBillStatus,
       gstEnabled,
     })
-  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus, gstEnabled])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, cardAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus, gstEnabled])
+
+  useEffect(() => {
+    if (paymentMethod !== 'mixed') return
+    const parsePart = (s: string) => {
+      const n = Number(String(s).replace(/[^\d.]/g, ''))
+      return Number.isFinite(n) && n > 0 ? n : 0
+    }
+    const sum = parsePart(cashAmountInr) + parsePart(onlineAmountInr) + parsePart(cardAmountInr)
+    const next = sum > 0 ? String(Math.round(sum)) : ''
+    setCollectedAmountInr((prev) => (prev === next ? prev : next))
+  }, [paymentMethod, cashAmountInr, onlineAmountInr, cardAmountInr])
 
   useEffect(() => {
     if (!hydrated || !displayRates) return
@@ -1953,6 +1970,8 @@ export function ErpBillingWorkspace() {
           paymentMethod === 'mixed' && cashAmountInr.trim() !== '' ? Number(cashAmountInr) : null,
         onlineAmountInr:
           paymentMethod === 'mixed' && onlineAmountInr.trim() !== '' ? Number(onlineAmountInr) : null,
+        cardAmountInr:
+          paymentMethod === 'mixed' && cardAmountInr.trim() !== '' ? Number(cardAmountInr) : null,
         mcDiscountInr: discountSummary.mcDiscountInr,
         cashDiscountInr: parsedExplicitCashDiscount,
         totalDiscountInr: discountSummary.totalDiscountInr,
@@ -2734,8 +2753,14 @@ export function ErpBillingWorkspace() {
               className={`${erpInputCls} py-2 text-sm tabular-nums`}
               inputMode="decimal"
               value={collectedAmountInr}
+              readOnly={paymentMethod === 'mixed'}
               onChange={(e) => setCollectedAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
               placeholder="Received"
+              title={
+                paymentMethod === 'mixed'
+                  ? 'Auto total of Cash + Online + Card'
+                  : 'Amount received from customer'
+              }
             />
         </div>
           <div>
@@ -2788,14 +2813,33 @@ export function ErpBillingWorkspace() {
         </div>
 
         {paymentMethod === 'mixed' ? (
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
             <div>
               <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Cash (₹)</label>
-              <input className={`${erpInputCls} py-2 text-sm`} value={cashAmountInr} onChange={(e) => setCashAmountInr(e.target.value)} />
+              <input
+                className={`${erpInputCls} py-2 text-sm tabular-nums`}
+                inputMode="decimal"
+                value={cashAmountInr}
+                onChange={(e) => setCashAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
+              />
             </div>
             <div>
               <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Online (₹)</label>
-              <input className={`${erpInputCls} py-2 text-sm`} value={onlineAmountInr} onChange={(e) => setOnlineAmountInr(e.target.value)} />
+              <input
+                className={`${erpInputCls} py-2 text-sm tabular-nums`}
+                inputMode="decimal"
+                value={onlineAmountInr}
+                onChange={(e) => setOnlineAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
+              />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Card (₹)</label>
+              <input
+                className={`${erpInputCls} py-2 text-sm tabular-nums`}
+                inputMode="decimal"
+                value={cardAmountInr}
+                onChange={(e) => setCardAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
+              />
             </div>
           </div>
         ) : null}

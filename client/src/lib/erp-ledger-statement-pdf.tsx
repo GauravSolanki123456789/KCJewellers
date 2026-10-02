@@ -2,13 +2,14 @@ import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer
 import { presentPdfBlob } from '@/lib/pdf-share'
 import type { CustomerAccountData } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { formatLedgerTransactionKind, formatPdfInr } from '@/lib/erp-ledger-labels'
-import { formatMetalGm, metalBalanceHint, formatLedgerDebitCell, formatLedgerBalanceCell, formatLedgerVirtualMetalCredit } from '@/lib/erp-ledger-metal'
+import { formatMetalGm, metalBalanceHint, formatLedgerDebitCell, formatLedgerBalanceCell, formatLedgerVirtualMetalCredit, formatMetalBalanceCell, type LedgerCellFormatOpts } from '@/lib/erp-ledger-metal'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 
 function pdfLedgerDescription(raw: string): string {
   return String(raw || '')
     .replace(/\u00b9/g, '')
+    .replace(/₹/g, 'Rs. ')
     .replace(/\s*[—–-]\s*₹?\s*offset only.*$/gi, '')
     .replace(/\s*offset only.*$/gi, '')
     .trim()
@@ -69,7 +70,8 @@ const styles = StyleSheet.create({
   cW: { width: '10%', textAlign: 'right' },
   c5: { width: '10%', textAlign: 'right' },
   c6: { width: '10%', textAlign: 'right' },
-  c7: { width: '12%', textAlign: 'right' },
+  c7: { width: '11%', textAlign: 'right' },
+  c8: { width: '10%', textAlign: 'right' },
 })
 
 function LedgerStatementDocument({
@@ -85,6 +87,11 @@ function LedgerStatementDocument({
   const headline = period
     ? `Ledger of ${customer} ${period}`
     : `Ledger of ${customer}`
+  const laneFmt: LedgerCellFormatOpts = {
+    pdfSafe: true,
+    laneLedger: !!meta.laneLedger,
+    splitMetalColumn: !!meta.laneLedger,
+  }
 
   return (
     <Document>
@@ -115,6 +122,7 @@ function LedgerStatementDocument({
           <Text style={styles.c5}>Debit</Text>
           <Text style={styles.c6}>Credit</Text>
           <Text style={styles.c7}>Balance</Text>
+          {meta.laneLedger ? <Text style={styles.c8}>Metal bal.</Text> : null}
         </View>
         {account.transactions.map((t, i) => (
           <View key={`${t.ref}-${i}`} style={styles.tableRow}>
@@ -125,21 +133,25 @@ function LedgerStatementDocument({
             <Text style={styles.cW}>
               {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
             </Text>
-            <Text style={styles.c5}>{formatLedgerDebitCell(t)}</Text>
+            <Text style={styles.c5}>{formatLedgerDebitCell(t, laneFmt)}</Text>
             <Text style={styles.c6}>
-              {formatLedgerVirtualMetalCredit({
-                virtual_metal_inr: t.virtual_metal_inr,
-                virtual_metal_show_inr_credit: t.virtual_metal_show_inr_credit,
-                credit: t.credit,
-                weight_gm: t.weight_gm,
-                credit_metal_gm: t.credit_metal_gm,
-              })}
+              {formatLedgerVirtualMetalCredit(
+                {
+                  virtual_metal_inr: t.virtual_metal_inr,
+                  virtual_metal_show_inr_credit: t.virtual_metal_show_inr_credit,
+                  credit: t.credit,
+                  weight_gm: t.weight_gm,
+                  credit_metal_gm: t.credit_metal_gm,
+                },
+                laneFmt,
+              )}
             </Text>
             <Text style={styles.c7}>
-              {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, {
-                laneLedger: !!meta.laneLedger,
-              })}
+              {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, laneFmt)}
             </Text>
+            {meta.laneLedger ? (
+              <Text style={styles.c8}>{formatMetalBalanceCell(t.balance_metal_gm)}</Text>
+            ) : null}
           </View>
         ))}
       </Page>

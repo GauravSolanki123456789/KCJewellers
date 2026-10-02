@@ -25,6 +25,17 @@ export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
 type PdfCol = { key: string; label: string; w: string }
 
+function paymentMethodPdfLabel(method?: string | null): string {
+  const m = String(method || '').toLowerCase()
+  if (m === 'bank') return 'Bank / RTGS'
+  if (m === 'cash') return 'Cash'
+  if (m === 'upi') return 'UPI'
+  if (m === 'gpay') return 'GPay'
+  if (m === 'card') return 'Card'
+  if (m === 'mixed') return 'Mixed'
+  return method ? String(method) : '—'
+}
+
 function isSilverMetal(line: ErpBillLine): boolean {
   return String(line.metal_type || '').toLowerCase().startsWith('silver')
 }
@@ -546,6 +557,50 @@ export function ErpQuotePdfDocument({
                 Rs.{Math.round(totals.mcDiscount).toLocaleString('en-IN')}
               </Text>
             </View>
+          ) : null}
+          {!ratesUnfixed && totals.paymentMethod ? (
+            <>
+              <View style={styles.summaryChip}>
+                <Text style={styles.summaryLabel}>Payment mode</Text>
+                <Text style={styles.summaryValue}>{paymentMethodPdfLabel(totals.paymentMethod)}</Text>
+              </View>
+              {totals.collectedAmount != null && totals.collectedAmount > 0 ? (
+                <View style={styles.summaryChip}>
+                  <Text style={styles.summaryLabel}>Collected</Text>
+                  <Text style={styles.summaryValue}>
+                    Rs.{Math.round(totals.collectedAmount).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+              ) : null}
+              {totals.paymentMethod === 'mixed' ? (
+                <>
+                  {totals.mixedCash != null && totals.mixedCash > 0 ? (
+                    <View style={styles.summaryChip}>
+                      <Text style={styles.summaryLabel}>Cash</Text>
+                      <Text style={styles.summaryValue}>
+                        Rs.{Math.round(totals.mixedCash).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {totals.mixedOnline != null && totals.mixedOnline > 0 ? (
+                    <View style={styles.summaryChip}>
+                      <Text style={styles.summaryLabel}>Online</Text>
+                      <Text style={styles.summaryValue}>
+                        Rs.{Math.round(totals.mixedOnline).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {totals.mixedCard != null && totals.mixedCard > 0 ? (
+                    <View style={styles.summaryChip}>
+                      <Text style={styles.summaryLabel}>Card</Text>
+                      <Text style={styles.summaryValue}>
+                        Rs.{Math.round(totals.mixedCard).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+            </>
           ) : null}
           {!ratesUnfixed ? (
             <View style={styles.summaryNet}>

@@ -17,8 +17,8 @@ export function formatLedgerTransactionKind(kind: string | null | undefined): st
   return k.replace(/_/g, ' ')
 }
 
-/** PDF-safe INR prefix (Helvetica lacks ₹ glyph — avoids superscript artifacts). */
+/** PDF-safe INR — plain grouped digits (Helvetica lacks ₹). */
 export function formatPdfInr(amount: number | null | undefined): string {
   if (amount == null || !Number.isFinite(Number(amount))) return '—'
-  return `Rs. ${Math.round(Number(amount)).toLocaleString('en-IN')}`
+  return Math.round(Number(amount)).toLocaleString('en-IN')
 }

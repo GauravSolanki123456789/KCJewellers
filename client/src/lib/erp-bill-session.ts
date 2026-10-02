@@ -43,6 +43,7 @@ export type ErpBillSession = {
   paymentMethod?: ErpPaymentMethod
   cashAmountInr?: number
   onlineAmountInr?: number
+  cardAmountInr?: number
   /** Estimate converted via ledger (no official SALE number). */
   billedViaLedger?: boolean
   /** Place of supply for this bill (overrides GST settings default). */
@@ -102,6 +103,7 @@ export function buildErpBillSession(input: {
   paymentMethod?: ErpPaymentMethod
   cashAmountInr?: number | null
   onlineAmountInr?: number | null
+  cardAmountInr?: number | null
   operatorDisplayName?: string | null
   gstEnabled?: boolean
   jainavSettlement?: Record<string, unknown> | null
@@ -157,6 +159,10 @@ export function buildErpBillSession(input: {
     onlineAmountInr:
       input.onlineAmountInr != null && Number.isFinite(Number(input.onlineAmountInr))
         ? Number(input.onlineAmountInr)
+        : undefined,
+    cardAmountInr:
+      input.cardAmountInr != null && Number.isFinite(Number(input.cardAmountInr))
+        ? Number(input.cardAmountInr)
         : undefined,
     operatorDisplayName: input.operatorDisplayName?.trim() || undefined,
     jainavSettlement:

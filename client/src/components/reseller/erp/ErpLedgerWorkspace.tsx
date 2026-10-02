@@ -2686,6 +2686,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                 {formatLedgerBalanceCell(dayBookLedger.debit, dayBookLedger.debitMetal, {
                   laneLedger: laneMode,
+                  splitMetalColumn: laneMode,
                 })}
               </p>
             </div>
@@ -2694,6 +2695,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                 {formatLedgerBalanceCell(dayBookLedger.credit, dayBookLedger.creditMetal, {
                   laneLedger: laneMode,
+                  splitMetalColumn: laneMode,
                 })}
               </p>
             </div>
@@ -2702,6 +2704,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               <p className="font-bold tabular-nums text-emerald-900">
                 {formatLedgerBalanceCell(dayBookLedger.balance, dayBookLedger.balanceMetal, {
                   laneLedger: laneMode,
+                  splitMetalColumn: laneMode,
                 })}
               </p>
             </div>
@@ -2743,15 +2746,18 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <td className="px-3 py-2.5 uppercase">{row.payment_mode || '—'}</td>
                       <td className="max-w-[120px] truncate px-3 py-2.5">{row.reference || '—'}</td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
-                        {formatLedgerDebitCell({
-                          debit_inr: row.debit_inr,
-                          debit_metal_gm: row.debit_metal_gm,
-                          weight_gm: row.weight_gm,
-                          source: row.source,
-                          metal_ledger_mode: row.metal_ledger_mode,
-                          shadow_bill_id: row.shadow_bill_id,
-                          kind: row.kind,
-                        })}
+                        {formatLedgerDebitCell(
+                          {
+                            debit_inr: row.debit_inr,
+                            debit_metal_gm: row.debit_metal_gm,
+                            weight_gm: row.weight_gm,
+                            source: row.source,
+                            metal_ledger_mode: row.metal_ledger_mode,
+                            shadow_bill_id: row.shadow_bill_id,
+                            kind: row.kind,
+                          },
+                          { laneLedger: laneMode, splitMetalColumn: laneMode },
+                        )}
                       </td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
                         {formatLedgerVirtualMetalCredit({
@@ -2765,6 +2771,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                         {formatLedgerBalanceCell(row.balance_inr, row.balance_metal_gm, {
                           laneLedger: laneMode,
+                          splitMetalColumn: laneMode,
                         })}
                       </td>
                       <td className="px-2 py-2">
