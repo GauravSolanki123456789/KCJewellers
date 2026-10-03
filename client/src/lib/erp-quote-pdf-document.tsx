@@ -526,30 +526,12 @@ export function ErpQuotePdfDocument({
             </View>
           ) : null}
           {!ratesUnfixed && totals.billingDiscount != null && totals.billingDiscount !== 0 ? (
-            <>
-              {totals.collectedAmount != null ? (
-                <View style={styles.summaryChip}>
-                  <Text style={styles.summaryLabel}>Collected</Text>
-                  <Text style={styles.summaryValue}>
-                    Rs.{Math.round(totals.collectedAmount).toLocaleString('en-IN')}
-                  </Text>
-                </View>
-              ) : null}
-              {totals.cashDiscount != null && totals.cashDiscount !== 0 ? (
-                <View style={styles.summaryChip}>
-                  <Text style={styles.summaryLabel}>Cash discount</Text>
-                  <Text style={styles.summaryValue}>
-                    Rs.{Math.round(totals.cashDiscount).toLocaleString('en-IN')}
-                  </Text>
-                </View>
-              ) : null}
-              <View style={styles.summaryChip}>
-                <Text style={styles.summaryLabel}>Total discount</Text>
-                <Text style={styles.summaryValue}>
-                  Rs.{Math.round(totals.billingDiscount).toLocaleString('en-IN')}
-                </Text>
-              </View>
-            </>
+            <View style={styles.summaryChip}>
+              <Text style={styles.summaryLabel}>Total discount</Text>
+              <Text style={styles.summaryValue}>
+                Rs.{Math.round(totals.billingDiscount).toLocaleString('en-IN')}
+              </Text>
+            </View>
           ) : !ratesUnfixed && totals.mcDiscount != null && totals.mcDiscount > 0 ? (
             <View style={styles.summaryChip}>
               <Text style={styles.summaryLabel}>Total discount</Text>

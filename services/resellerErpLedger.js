@@ -415,12 +415,33 @@ function buildCashReceivedNarration({ recNumber, customerName, billNumber, entry
     return 'CASH - CASH RECEIVED';
 }
 
-async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
-    const session = bill.session || {};
-    const raw = session.collectedAmountInr ?? session.collected_amount_inr;
+/** Official GST bills: auto cash receipt only for physical cash (full collected or mixed cash slice). */
+function resolveOfficialBillCashReceiptInr(session) {
+    const s = session && typeof session === 'object' ? session : {};
+    const pay = String(s.paymentMethod ?? s.payment_method ?? '')
+        .trim()
+        .toLowerCase();
+    if (pay === 'upi' || pay === 'gpay' || pay === 'card') {
+        return null;
+    }
+    if (pay === 'mixed') {
+        const cashRaw = s.cashAmountInr ?? s.cash_amount_inr;
+        if (cashRaw == null || String(cashRaw).trim() === '') return null;
+        const cash = Number(cashRaw);
+        if (!Number.isFinite(cash) || cash <= 0) return null;
+        return Math.round(cash * 100) / 100;
+    }
+    const raw = s.collectedAmountInr ?? s.collected_amount_inr;
     if (raw == null || String(raw).trim() === '') return null;
     const amount = Number(raw);
-    if (!Number.isFinite(amount) || amount <= 0 || !bill.id) return null;
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    return Math.round(amount * 100) / 100;
+}
+
+async function createCollectedCashLedgerEntry(query, resellerUserId, bill) {
+    const session = bill.session || {};
+    const amount = resolveOfficialBillCashReceiptInr(session);
+    if (amount == null || amount <= 0 || !bill.id) return null;
     const existing = await query(
         `SELECT id FROM reseller_erp_ledger_entries
          WHERE reseller_user_id = $1 AND bill_id = $2 AND entry_type = 'payment_in'
