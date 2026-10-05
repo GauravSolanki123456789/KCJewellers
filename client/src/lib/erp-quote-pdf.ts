@@ -22,6 +22,12 @@ import {
 } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 
+export function shouldShowPaymentModeOnEstimatePdf(method?: string | null): boolean {
+  const m = String(method || '').trim().toLowerCase()
+  if (!m) return false
+  return m !== 'cash' && m !== 'bank'
+}
+
 export type ErpQuoteTotals = {
   count: number
   weight: number

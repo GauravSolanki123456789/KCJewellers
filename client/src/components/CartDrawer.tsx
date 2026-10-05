@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { CHECKOUT_PATH } from '@/lib/routes'
 import { useCart } from '@/context/CartContext'
@@ -13,8 +13,8 @@ import {
   isFixedPriceCatalogItem,
 } from '@/lib/pricing'
 import { cn } from '@/lib/utils'
-import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
-import { optimizedCatalogThumbSrc } from '@/lib/catalog-image-next'
+import { buildCartThumbSrcCandidates, resolveCartItemImageRaw } from '@/lib/catalog-cart-thumb'
+import type { Item } from '@/lib/pricing'
 import { productImageSurfaceClass, productImageWellClass } from '@/lib/product-image-theme'
 
 type Breakdown = {
@@ -28,39 +28,38 @@ type CartDrawerProps = {
   onClose: () => void
 }
 
-function CartItemImage({ src, alt }: { src: string; alt: string }) {
-  const normalized = normalizeCatalogImageSrc(src)
-  const thumbSrc = normalized ? optimizedCatalogThumbSrc(normalized, 160) : ''
-  const [hasImageError, setHasImageError] = useState(false)
+function CartItemImage({ item, alt }: { item: Item; alt: string }) {
+  const normalized = resolveCartItemImageRaw(item)
+  const candidates = useMemo(
+    () => buildCartThumbSrcCandidates(normalized, 192),
+    [normalized],
+  )
+  const [srcIdx, setSrcIdx] = useState(0)
   useEffect(() => {
-    setHasImageError(false)
-  }, [src])
+    setSrcIdx(0)
+  }, [normalized])
   const thumbShell = `w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg flex items-center justify-center ${productImageSurfaceClass}`
-  if (!normalized) {
+  if (!normalized || candidates.length === 0) {
     return (
       <div className={thumbShell}>
         <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
       </div>
     )
   }
-  if (hasImageError) {
-    return (
-      <div className={thumbShell}>
-        <span className="text-xl font-bold text-slate-500">{alt.charAt(0)}</span>
-      </div>
-    )
-  }
+  const src = candidates[Math.min(srcIdx, candidates.length - 1)]!
   return (
     <div
       className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg overflow-hidden isolate ${productImageWellClass}`}
     >
       <img
-        src={thumbSrc || normalized}
+        src={src}
         alt={alt}
         className={cn('w-full h-full object-contain')}
         loading="lazy"
         decoding="async"
-        onError={() => setHasImageError(true)}
+        onError={() => {
+          setSrcIdx((i) => (i + 1 < candidates.length ? i + 1 : i))
+        }}
       />
     </div>
   )
@@ -143,7 +142,6 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                   retailLine != null &&
                   retailLine > lineTotal + 0.5
                 const displayName = ci.item.item_name || ci.item.short_name || 'Item'
-                const imageUrl = ci.item.image_url
                 const weightLabel = getCustomerDisplayWeightLabel(ci.item)
                 return (
                   <div
@@ -152,13 +150,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
                     className="rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden p-4"
                   >
                     <div className="flex gap-3 sm:gap-4">
-                      {imageUrl ? (
-                        <CartItemImage src={imageUrl} alt={displayName} />
-                      ) : (
-                        <div className="w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg bg-slate-800 flex items-center justify-center">
-                          <span className="text-xl font-bold text-slate-500">{displayName.charAt(0)}</span>
-                        </div>
-                      )}
+                      <CartItemImage item={ci.item} alt={displayName} />
                       <div className="flex-1 min-w-0 flex flex-col gap-3">
                         <div>
                           <div className="font-semibold text-slate-100 truncate">

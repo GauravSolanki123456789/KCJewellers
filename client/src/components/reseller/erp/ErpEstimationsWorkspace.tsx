@@ -36,6 +36,7 @@ import {
   isEstimateBilled,
   resolveBillEstimateStatus,
 } from '@/lib/erp-estimate-status'
+import type { ErpBillSession } from '@/lib/erp-bill-session'
 import {
   Download,
   Eye,
@@ -402,9 +403,6 @@ export function ErpEstimationsWorkspace() {
       </div>
 
       <div className={`${erpCardCls} space-y-2`}>
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-          Metal summary · {periodMetalLabel} (GST estimates only)
-        </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
             { label: 'Gold weight', value: `${metal.goldWeightGm.toFixed(3)} g` },
@@ -444,6 +442,7 @@ export function ErpEstimationsWorkspace() {
               <th className="px-3 py-2.5 font-semibold">Customer</th>
               <th className="px-3 py-2.5 font-semibold">Items</th>
               <th className="px-3 py-2.5 font-semibold">Net total</th>
+              <th className="px-3 py-2.5 font-semibold">Narration</th>
               <th className="px-3 py-2.5 font-semibold">Status</th>
               <th className="px-3 py-2.5 font-semibold">Actions</th>
             </tr>
@@ -451,7 +450,7 @@ export function ErpEstimationsWorkspace() {
           <tbody>
             {bills.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                <td colSpan={9} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                   No estimations in this period.
                 </td>
               </tr>
@@ -459,6 +458,10 @@ export function ErpEstimationsWorkspace() {
               bills.map((b) => {
                 const effectiveStatus = resolveBillEstimateStatus(b)
                 const billed = isEstimateBilled(b) || effectiveStatus === 'billed'
+                const narration =
+                  typeof (b.session as ErpBillSession | undefined)?.estimateNarration === 'string'
+                    ? String((b.session as ErpBillSession).estimateNarration).trim()
+                    : ''
                 return (
                 <tr key={b.id} className="border-b border-[var(--color-slate-700,#e8e4df)]/50">
                   <td className="px-3 py-2.5">
@@ -484,6 +487,9 @@ export function ErpEstimationsWorkspace() {
                   <td className="px-3 py-2.5 tabular-nums">{b.lines?.length ?? 0}</td>
                   <td className="px-3 py-2.5 font-semibold tabular-nums text-[var(--kc-accent,#c41e3a)]">
                     {formatErpInr(b.total_inr)}
+                  </td>
+                  <td className="max-w-[120px] truncate px-3 py-2.5 text-[var(--color-jewelry-black,#1a1814)]">
+                    {narration || '—'}
                   </td>
                   <td className="px-3 py-2.5">
                     {billed ? (

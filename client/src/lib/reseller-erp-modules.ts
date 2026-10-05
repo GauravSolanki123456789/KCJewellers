@@ -50,6 +50,7 @@ export type ResellerErpModuleId =
   | 'floors'
   | 'hardware'
   | 'print-formats'
+  | 'estimate-narrations'
   | 'rol'
   | 'gst'
   | 'slabs'
@@ -87,6 +88,8 @@ export type ResellerErpModule = {
   href?: string
   /** Visible only after Jainav mode unlock (F9Rs* + Enter) */
   jainavOnly?: boolean
+  /** ERP admin operator only (hub + quick nav) */
+  adminOnly?: boolean
 }
 
 export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
@@ -335,6 +338,16 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     kind: 'workspace',
   },
   {
+    id: 'estimate-narrations',
+    title: 'Estimate narrations',
+    short: 'Narrations',
+    description: 'Dropdown options for estimate tracking (not on PDF)',
+    icon: ClipboardCheck,
+    group: 'tools',
+    kind: 'settings',
+    adminOnly: true,
+  },
+  {
     id: 'integrations',
     title: 'Integrations hub',
     short: 'APIs',
@@ -466,6 +479,7 @@ export function listErpModulesForHub(opts: {
   if (isAdmin) {
     return RESELLER_ERP_MODULES.filter((m) => {
       if (m.id === 'shadow') return false
+      if (m.adminOnly && !isAdmin) return false
       if (!opts.canAccess(m.id)) return false
       if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) return false
       return true
@@ -473,6 +487,7 @@ export function listErpModulesForHub(opts: {
   }
   return RESELLER_ERP_MODULES.filter((m) => {
     if (m.id === 'shadow') return false
+    if (m.adminOnly && !isAdmin) return false
     if (!opts.canAccess(m.id)) return false
     if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) return false
     return true
@@ -490,6 +505,7 @@ export function listErpQuickNavModules(opts: {
   for (const m of RESELLER_ERP_MODULES) {
     if (m.id === 'shadow') continue
     if (m.id === 'erp-users' && !isAdmin) continue
+    if (m.adminOnly && !isAdmin) continue
     if (!opts.canAccess(m.id)) continue
     if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) continue
     ids.add(m.id)

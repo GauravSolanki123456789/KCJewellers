@@ -43,6 +43,10 @@ const { registerRolRoutes, ensureRolSchema } = require('./resellerErpRol');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
 const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin, operatorCanSaveSalesBill } = require('./resellerErpOperators');
 const {
+    registerEstimateNarrationRoutes,
+    assertEstimateNarrationIfRequired,
+} = require('./resellerErpEstimateNarrations');
+const {
     registerShadowRoutes,
     createShadowBillFromBillingPayload,
     shouldRouteSaleToShadowLedger,
@@ -933,6 +937,7 @@ function registerResellerErpRoutes(app, deps) {
         getPublicApiBaseUrl,
         uploadsRoot,
     });
+    registerEstimateNarrationRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
 
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
         try {
@@ -1390,6 +1395,13 @@ function registerResellerErpRoutes(app, deps) {
             const statusRaw = trimStr(req.body.status, 32) || 'draft';
             const status = statusRaw.toLowerCase();
             const sessionObj = req.body.session;
+            const narrErr = await assertEstimateNarrationIfRequired(
+                query,
+                req.user.id,
+                billType,
+                sessionObj,
+            );
+            if (narrErr) return res.status(400).json({ error: narrErr });
             const offlineOpId = trimStr(sessionObj.offlineOpId || req.body.offline_op_id, 80);
             if (offlineOpId) {
                 const officialHit = await query(
@@ -1709,6 +1721,13 @@ function registerResellerErpRoutes(app, deps) {
             });
             const sessionJson = JSON.stringify(req.body.session);
             const sessionObj = req.body.session;
+            const narrErr = await assertEstimateNarrationIfRequired(
+                query,
+                req.user.id,
+                billTypeForTotal,
+                sessionObj,
+            );
+            if (narrErr) return res.status(400).json({ error: narrErr });
             const status = trimStr(req.body.status, 32);
             const stLower = String(status || '').toLowerCase();
             if (

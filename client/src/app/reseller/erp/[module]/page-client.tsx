@@ -17,6 +17,7 @@ import { ErpCreditDebitNotesWorkspace } from '@/components/reseller/erp/ErpCredi
 import { ErpLedgerWorkspace } from '@/components/reseller/erp/ErpLedgerWorkspace'
 import { ErpHardwareWorkspace } from '@/components/reseller/erp/ErpHardwareWorkspace'
 import { ErpPrintFormatsWorkspace } from '@/components/reseller/erp/ErpPrintFormatsWorkspace'
+import { ErpEstimateNarrationsWorkspace } from '@/components/reseller/erp/ErpEstimateNarrationsWorkspace'
 import { ErpDesignMasterWorkspace } from '@/components/reseller/erp/ErpDesignMasterWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
 import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace'
@@ -72,6 +73,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpHardwareWorkspace />
     case 'print-formats':
       return <ErpPrintFormatsWorkspace />
+    case 'estimate-narrations':
+      return <ErpEstimateNarrationsWorkspace />
     case 'billing':
       return (
         <Suspense fallback={<div className="py-8 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">Loading billing…</div>}>

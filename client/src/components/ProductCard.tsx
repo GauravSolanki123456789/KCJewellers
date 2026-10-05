@@ -412,7 +412,13 @@ export default function ProductCard({
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            cart.add({ ...active, include_box: resolvedIncludeBox })
+            cart.add({
+              ...active,
+              include_box: resolvedIncludeBox,
+              image_url: active.image_url || product.image_url,
+              secondary_image_url:
+                active.secondary_image_url ?? product.secondary_image_url ?? undefined,
+            })
           }}
         >
           <span className="kc-btn-cart">

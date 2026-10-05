@@ -38,6 +38,7 @@ const NEVER_JAINAV_LOCK_IDS = new Set<string>([
   'integrations',
   'hardware',
   'print-formats',
+  'estimate-narrations',
   'erp-users',
 ])
 
@@ -75,6 +76,7 @@ export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'integrations',
   'hardware',
   'print-formats',
+  'estimate-narrations',
   'backup',
   'offline',
   'erp-users',

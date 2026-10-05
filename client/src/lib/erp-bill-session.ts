@@ -54,6 +54,8 @@ export type ErpBillSession = {
   invoicePrintOverrides?: ErpInvoicePrintOverrides
   /** ERP operator display name when estimate/bill was saved */
   operatorDisplayName?: string
+  /** Internal tracking only — not shown on estimate PDF */
+  estimateNarration?: string
   /** When false, bill/estimate totals exclude 3% GST. */
   gstEnabled?: boolean
   /** Jainav lane metal + MC settlement snapshot (optional). */
@@ -105,6 +107,7 @@ export function buildErpBillSession(input: {
   onlineAmountInr?: number | null
   cardAmountInr?: number | null
   operatorDisplayName?: string | null
+  estimateNarration?: string | null
   gstEnabled?: boolean
   jainavSettlement?: Record<string, unknown> | null
   jainavMetalOwedGm?: number | null
@@ -165,6 +168,7 @@ export function buildErpBillSession(input: {
         ? Number(input.cardAmountInr)
         : undefined,
     operatorDisplayName: input.operatorDisplayName?.trim() || undefined,
+    estimateNarration: input.estimateNarration?.trim() || undefined,
     jainavSettlement:
       input.jainavSettlement && typeof input.jainavSettlement === 'object'
         ? input.jainavSettlement

@@ -17,7 +17,7 @@ export function shouldOptimizeCatalogImage(src: string | null | undefined): bool
 }
 
 /** Product grid / cards — retina-sharp at ~400px display without downloading 3K originals. */
-export const CATALOG_CARD_IMAGE_QUALITY = 84
+export const CATALOG_CARD_IMAGE_QUALITY = 86
 
 /** PDP hero — slightly higher for zoom; still served at `sizes`-appropriate width. */
 export const CATALOG_PDP_IMAGE_QUALITY = 88

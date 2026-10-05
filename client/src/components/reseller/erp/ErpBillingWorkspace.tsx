@@ -142,6 +142,7 @@ import {
   giftMrpSlabPrice,
 } from '@/lib/erp-gift-mrp-pricing'
 import { ErpBillingStackedRow } from '@/components/reseller/erp/ErpBillingStackedRow'
+import { ErpBillingSuggestField } from '@/components/reseller/erp/ErpBillingSuggestField'
 import { resolveCustomerPlaceOfSupply } from '@/lib/erp-place-of-supply'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import {
@@ -218,6 +219,7 @@ type BillingDraft = {
   cashAmountInr: string
   onlineAmountInr: string
   cardAmountInr: string
+  estimateNarration: string
   editingBillId?: number | null
   editingBillNumber?: string | null
   editingBillType?: string | null
@@ -436,6 +438,9 @@ export function ErpBillingWorkspace() {
   const [cashAmountInr, setCashAmountInr] = useState('')
   const [onlineAmountInr, setOnlineAmountInr] = useState('')
   const [cardAmountInr, setCardAmountInr] = useState('')
+  const [estimateNarration, setEstimateNarration] = useState('')
+  const [narrationRequired, setNarrationRequired] = useState(true)
+  const [narrationOptions, setNarrationOptions] = useState<string[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
   const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
@@ -821,6 +826,16 @@ export function ErpBillingWorkspace() {
   }, [duplicateScanMsg, scanErrorMsg])
 
   useEffect(() => {
+    axios
+      .get<{ enabled: boolean; options: { label: string }[] }>('/api/reseller/erp/estimate-narrations')
+      .then((res) => {
+        setNarrationRequired(res.data.enabled !== false)
+        setNarrationOptions((res.data.options || []).map((o) => o.label))
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const d = loadDraft()
     if (d && !editIdParam) {
       if (d.customerId != null) setCustomerId(d.customerId)
@@ -843,6 +858,7 @@ export function ErpBillingWorkspace() {
       if (d.cashAmountInr != null) setCashAmountInr(d.cashAmountInr)
       if (d.onlineAmountInr != null) setOnlineAmountInr(d.onlineAmountInr)
       if (d.cardAmountInr != null) setCardAmountInr(d.cardAmountInr)
+      if (d.estimateNarration != null) setEstimateNarration(d.estimateNarration)
       if (d.editingBillId != null) setEditingBillId(d.editingBillId)
       if (d.editingBillNumber) setEditingBillNumber(d.editingBillNumber)
       if (d.editingBillType) setEditingBillType(d.editingBillType)
@@ -892,6 +908,9 @@ export function ErpBillingWorkspace() {
         session.collectedAmountInr != null ? String(session.collectedAmountInr) : '',
       )
       setPaymentMethod(session.paymentMethod || 'bank')
+      setEstimateNarration(
+        typeof session.estimateNarration === 'string' ? session.estimateNarration : '',
+      )
       setCashAmountInr(session.cashAmountInr != null ? String(session.cashAmountInr) : '')
       setOnlineAmountInr(session.onlineAmountInr != null ? String(session.onlineAmountInr) : '')
       setCardAmountInr(session.cardAmountInr != null ? String(session.cardAmountInr) : '')
@@ -963,6 +982,8 @@ export function ErpBillingWorkspace() {
         cashAmountInr: session.cashAmountInr != null ? String(session.cashAmountInr) : '',
         onlineAmountInr: session.onlineAmountInr != null ? String(session.onlineAmountInr) : '',
         cardAmountInr: session.cardAmountInr != null ? String(session.cardAmountInr) : '',
+        estimateNarration:
+          typeof session.estimateNarration === 'string' ? session.estimateNarration : '',
         editingBillId: bill.id,
         editingBillNumber: bill.bill_number,
         editingBillType: bill.bill_type,
@@ -1024,6 +1045,9 @@ export function ErpBillingWorkspace() {
       setAdvancePaidInr('')
       setCollectedAmountInr('')
       setPaymentMethod(session.paymentMethod || 'bank')
+      setEstimateNarration(
+        typeof session.estimateNarration === 'string' ? session.estimateNarration : '',
+      )
       if (session.goldSlabRShowMc === false) setGoldSlabRShowMc(false)
       const merged = mergeEstimateLines(bills)
       const mcMode = session.goldSlabRShowMc === false ? false : goldSlabRShowMc
@@ -1094,13 +1118,14 @@ export function ErpBillingWorkspace() {
       cashAmountInr,
       onlineAmountInr,
       cardAmountInr,
+      estimateNarration,
       editingBillId,
       editingBillNumber,
       editingBillType,
       editingBillStatus,
       gstEnabled,
     })
-  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, cardAmountInr, editingBillId, editingBillNumber, editingBillType, editingBillStatus, gstEnabled])
+  }, [hydrated, customerId, customerName, mobile, address, customerPan, customerGst, rateSlab, lines, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, displayRates, advancePaidInr, collectedAmountInr, cashDiscountInr, paymentMethod, cashAmountInr, onlineAmountInr, cardAmountInr, estimateNarration, editingBillId, editingBillNumber, editingBillType, editingBillStatus, gstEnabled])
 
   useEffect(() => {
     if (paymentMethod !== 'mixed') return
@@ -1848,6 +1873,8 @@ export function ErpBillingWorkspace() {
     setPaymentMethod('bank')
     setCashAmountInr('')
     setOnlineAmountInr('')
+    setCardAmountInr('')
+    setEstimateNarration('')
     clearDraftStorage()
     void loadDisplayRates()
     router.replace(resellerErpModulePath('billing'))
@@ -1979,6 +2006,7 @@ export function ErpBillingWorkspace() {
         goldSlabRShowMc,
         gstEnabled: effectiveGstEnabled,
         operatorDisplayName: operator?.displayName || operator?.username || '',
+        estimateNarration: estimateNarration.trim() || null,
         ...(billType === 'sale' && !isOfficialGstBill
           ? {
               jainavMetalOwedGm: jainavMetalOwedGm > 0 ? jainavMetalOwedGm : undefined,
@@ -2142,6 +2170,10 @@ export function ErpBillingWorkspace() {
   const generateQuote = async (modeOverride?: ErpQuoteOutputMode) => {
     if (String(editingBillStatus || '').toLowerCase() === 'billed') {
       alert('This estimation is already billed. Products are shown for reference.')
+      return
+    }
+    if (narrationRequired && !estimateNarration.trim()) {
+      alert('Select a narration before generating an estimate.')
       return
     }
     if (modeOverride) setQuoteOutputOverride(modeOverride)
@@ -2841,6 +2873,23 @@ export function ErpBillingWorkspace() {
                 onChange={(e) => setCardAmountInr(e.target.value.replace(/[^\d.]/g, ''))}
               />
             </div>
+          </div>
+        ) : null}
+
+        {narrationRequired ? (
+          <div className="mt-2 max-w-md">
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+              Narration <span className="text-[var(--kc-accent,#c41e3a)]">*</span>
+            </label>
+            <ErpBillingSuggestField
+              value={estimateNarration}
+              placeholder="Search narration…"
+              options={narrationOptions}
+              preserveCase
+              emptyText="No narrations — ask admin to add in Estimate narrations"
+              onChange={setEstimateNarration}
+              onCommit={setEstimateNarration}
+            />
           </div>
         ) : null}
 

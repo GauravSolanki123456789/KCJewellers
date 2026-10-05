@@ -5,6 +5,7 @@ import type { ItemWithPdfImage } from '@/lib/pdf-embed-images'
 import { getKcPdfPalette, type KcPdfPalette } from '@/lib/kc-pdf-palette'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
+import { shouldShowPaymentModeOnEstimatePdf } from '@/lib/erp-quote-pdf'
 import { billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { pieceSlabMetalFraction } from '@/lib/erp-piece-slab-pricing'
@@ -542,10 +543,12 @@ export function ErpQuotePdfDocument({
           ) : null}
           {!ratesUnfixed && totals.paymentMethod ? (
             <>
-              <View style={styles.summaryChip}>
-                <Text style={styles.summaryLabel}>Payment mode</Text>
-                <Text style={styles.summaryValue}>{paymentMethodPdfLabel(totals.paymentMethod)}</Text>
-              </View>
+              {shouldShowPaymentModeOnEstimatePdf(totals.paymentMethod) ? (
+                <View style={styles.summaryChip}>
+                  <Text style={styles.summaryLabel}>Payment mode</Text>
+                  <Text style={styles.summaryValue}>{paymentMethodPdfLabel(totals.paymentMethod)}</Text>
+                </View>
+              ) : null}
               {totals.collectedAmount != null && totals.collectedAmount > 0 ? (
                 <View style={styles.summaryChip}>
                   <Text style={styles.summaryLabel}>Collected</Text>
