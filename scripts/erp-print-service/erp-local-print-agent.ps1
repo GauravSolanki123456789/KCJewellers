@@ -55,6 +55,24 @@ function Resolve-TscPrinterName([string]$Requested) {
     return $Requested
 }
 
+function Resolve-ZebraPrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    foreach ($n in $names) {
+        if ($n -match 'Zebra|ZDesigner|GC420|EPL|ZPL') { return $n }
+    }
+    return $Requested
+}
+
+function Resolve-LabelPrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    if ($Requested -match 'Zebra|ZDesigner|GC420|EPL|ZPL') {
+        return Resolve-ZebraPrinterName $Requested
+    }
+    return Resolve-TscPrinterName $Requested
+}
+
 function Invoke-RawPrintBinary([string]$PrinterName, [string]$EscPosBase64) {
     $resolved = Resolve-TscPrinterName $PrinterName
     if ($PrinterName -match 'EPSON|TM-m|TM-T|Receipt|Billing') {
@@ -229,10 +247,12 @@ function Invoke-TallyImport([string]$TallyUrl, [string]$Xml, $LedgerCfg) {
 }
 
 function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
-    $resolved = Resolve-TscPrinterName $PrinterName
+    $resolved = Resolve-LabelPrinterName $PrinterName
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $tmp = Join-Path $env:TEMP "kc-erp-label-$(Get-Date -Format 'yyyyMMddHHmmss')-$suffix.prn"
-    [System.IO.File]::WriteAllText($tmp, [string]$Tspl, [System.Text.Encoding]::UTF8)
+    # No UTF-8 BOM — Zebra/TSC raw jobs fail silently if the stream starts with EF BB BF.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($tmp, [string]$Tspl, $utf8NoBom)
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = 'powershell.exe'
@@ -384,7 +404,7 @@ Write-Host ' KC ERP Print Service'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Labels: TSC TTP-244 Pro · Receipts: EPSON TM-m30III Receipt · Tally export'
+Write-Host ' Labels: TSC / Zebra GC420t · Receipts: EPSON TM-m30III Receipt · Tally export'
 Write-Host ' Run CHECK-TSC-Printer.bat if labels fail.'
 Write-Host ' Press Ctrl+C to stop.'
 Write-Host ''

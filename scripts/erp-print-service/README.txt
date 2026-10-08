@@ -25,7 +25,8 @@ Windows printer name: TSC TTP-244 Pro (exact name from Windows Printers)
 Zebra GC420t:
   ERP Hardware → + Zebra GC420t (or add printer manually)
   Label format: ZPL (Zebra GC420t)
-  Windows printer name: exact name from Settings → Printers (e.g. ZDesigner GC420t)
-  Run START-KC-Label-Print.bat on the shop PC, then Test print.
+  Windows printer name: exact name from Settings → Printers (e.g. Zebra GC420t - EPL)
+  ERP Print formats → Label (Zebra) → paste/upload your ZPL (.prn), Save
+  After updating this folder on the shop PC: close the print window and run START-KC-Label-Print.bat again.
 
 If start fails: right-click START-KC-Label-Print.bat → Run as administrator (once).

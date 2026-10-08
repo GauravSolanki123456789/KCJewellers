@@ -83,6 +83,22 @@ PRINT 1,1
 /** Standard silver label — also the default fallback template. */
 export const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER
 
+/** Zebra GC420t — keep as one continuous ZPL line (no TSPL line-break repair). */
+export const DEFAULT_LABEL_ZPL =
+  'CT~~CD,~CC^~CT~^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ^XA^MMT^PW280^LL0120^LS0^BY1,3,46^FT9,97^BCN,,N,N^FD{{barcode}}^FS^FT25,33^A0N,14,14^FH^FD{{product_name}}^FS^FT20,50^A0N,17,16^FH^FD{{company_code}}^FS^FT156,40^A0N,23,24^FH^FDWT:{{gross_weight}}^FS^FT158,68^A0N,23,24^FH^FDPCS:{{pcs_label}}^FS^FT150,102^A0N,23,24^FH^FDMY925 {{net_weight}}^FS^FT157,120^A0N,22,21^FH^FDInc:{{size}}^FS^FT20,120^A0N,23,21^FH^FD{{barcode}}^FS^PQ1,0,1,Y^XZ'
+
+export function isZplLabelTemplate(raw: string | null | undefined): boolean {
+  return /\^XA|\^XZ|\^FO|\^FT|\^BY|\^BCN|\^FD|\^PQ|\^A0/i.test(String(raw || ''))
+}
+
+export function preserveZplTemplate(raw: string | null | undefined): string {
+  return String(raw || '')
+    .replace(/\r\n/g, '')
+    .replace(/\r/g, '')
+    .replace(/\n/g, '')
+    .trim()
+}
+
 /** Box-assigned pieces — prints box name on label (use with smart rule: box code present). */
 export const DEFAULT_LABEL_PRN_BOX = `
 SIZE 92.5 mm, 15 mm
@@ -305,6 +321,9 @@ export type ErpPrintFormatsSettings = {
   labelPrnTemplate?: string
   labelPrnRules?: LabelPrnRule[]
   labelUsePrn?: boolean
+  labelZebraPrnTemplate?: string
+  labelZebraPrnRules?: LabelPrnRule[]
+  labelUseZebraPrn?: boolean
   billTemplate?: string
   estimateTemplateGold?: string
   estimateTemplateSilver?: string
@@ -478,6 +497,14 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
   pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
   pf.labelPrnRules = migrateLabelPrnRules(pf)
+  pf.labelZebraPrnTemplate = normalizeLabelTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL, 'zpl')
+  if (pf.labelUseZebraPrn == null) pf.labelUseZebraPrn = true
+  if (Array.isArray(pf.labelZebraPrnRules) && pf.labelZebraPrnRules.length) {
+    pf.labelZebraPrnRules = pf.labelZebraPrnRules.map((rule) => ({
+      ...rule,
+      template: normalizeLabelTemplate(rule.template || pf.labelZebraPrnTemplate, 'zpl'),
+    }))
+  }
   if (pf.billTemplate?.trim()) {
     pf.billTemplate = applyBillTemplatePreservation(pf.billTemplate, DEFAULT_BILL_TEMPLATE)
   } else {
@@ -578,6 +605,7 @@ function repairCorruptedPrnTemplate(raw: string): string {
 export function normalizePrnTemplate(raw: string | null | undefined): string {
   const preserved = preservePrnTemplate(raw)
   if (!preserved.trim()) return DEFAULT_LABEL_PRN
+  if (isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved)
   if (isPrnTemplateLikelyCorrupted(preserved)) {
     return repairCorruptedPrnTemplate(preserved)
   }
@@ -586,7 +614,54 @@ export function normalizePrnTemplate(raw: string | null | undefined): string {
 
 export function isPrnTemplateLikelyCorrupted(raw: string | null | undefined): boolean {
   const s = String(raw || '')
+  if (isZplLabelTemplate(s)) return false
   return /mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(s) || (s.length > 80 && !s.includes('\n'))
+}
+
+export function normalizeLabelTemplate(
+  raw: string | null | undefined,
+  engine: 'tspl' | 'zpl',
+): string {
+  const preserved = preservePrnTemplate(raw)
+  if (!preserved.trim()) return engine === 'zpl' ? DEFAULT_LABEL_ZPL : DEFAULT_LABEL_PRN
+  if (engine === 'zpl' || isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved)
+  return normalizePrnTemplate(preserved)
+}
+
+export function formatRawLabelForPrint(raw: string): string {
+  if (isZplLabelTemplate(raw)) {
+    return `${preserveZplTemplate(raw)}\r\n`
+  }
+  const body = normalizePrnTemplate(raw)
+  return `${body.split('\n').join('\r\n')}\r\n`
+}
+
+export function buildDefaultLabelZebraPrnRules(fallbackTemplate?: string): LabelPrnRule[] {
+  const base = preserveZplTemplate(fallbackTemplate || DEFAULT_LABEL_ZPL)
+  return [
+    {
+      id: 'zebra-gold',
+      name: 'Gold',
+      enabled: true,
+      priority: 20,
+      metalTypes: ['GOLD'],
+      requireAny: [],
+      requireAll: [],
+      requireNone: [],
+      template: base,
+    },
+    {
+      id: 'zebra-silver',
+      name: 'Silver · standard',
+      enabled: true,
+      priority: 10,
+      metalTypes: ['SILVER'],
+      requireAny: [],
+      requireAll: [],
+      requireNone: [],
+      template: base,
+    },
+  ]
 }
 
 export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {

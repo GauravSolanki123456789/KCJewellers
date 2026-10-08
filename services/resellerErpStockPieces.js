@@ -2615,7 +2615,14 @@ function registerStockPieceRoutes(app, deps) {
                     tspl = rendered.tspl;
                     labelRuleName = rendered.ruleName;
                 } else if (profile?.labelFormat === 'zpl') {
-                    tspl = labelPrinter.generateZPLLabel(itemData);
+                    const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, {
+                        ...printFormats,
+                        labelZebraPrnTemplate:
+                            printFormats.labelZebraPrnTemplate || erpPrint.DEFAULT_LABEL_ZPL,
+                        labelUseZebraPrn: true,
+                    });
+                    tspl = rendered.tspl;
+                    labelRuleName = rendered.ruleName;
                 } else {
                     tspl = labelPrinter.generateTSPLLabel(itemData);
                 }
@@ -2707,14 +2714,33 @@ function registerStockPieceRoutes(app, deps) {
             const printerConfig = profileToPrinterConfig(profile);
             const itemData = buildTestLabelItemData(hw, profile);
             const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
-            const prnTemplate = erpPrint.normalizePrnTemplate(
-                printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
-            );
-            const tspl = usePrn
-                ? erpPrint.renderTemplate(prnTemplate, erpPrint.buildLabelTemplateVarsFromItemData(itemData))
-                : profile?.labelFormat === 'zpl'
-                  ? labelPrinter.generateZPLLabel(itemData)
-                  : labelPrinter.generateTSPLLabel(itemData);
+            let tspl;
+            if (usePrn && profile?.labelFormat === 'zpl') {
+                const rendered = erpPrint.renderPrnLabelForPiece(
+                    { barcode: itemData.barcode, product_name: itemData.productName },
+                    hw,
+                    profile,
+                    {
+                        ...printFormats,
+                        labelZebraPrnTemplate:
+                            printFormats.labelZebraPrnTemplate || erpPrint.DEFAULT_LABEL_ZPL,
+                        labelUseZebraPrn: true,
+                    },
+                );
+                tspl = rendered.tspl;
+            } else if (usePrn) {
+                const prnTemplate = erpPrint.normalizePrnTemplate(
+                    printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
+                );
+                tspl = erpPrint.renderTemplate(
+                    prnTemplate,
+                    erpPrint.buildLabelTemplateVarsFromItemData(itemData),
+                );
+            } else if (profile?.labelFormat === 'zpl') {
+                tspl = labelPrinter.generateZPLLabel(itemData);
+            } else {
+                tspl = labelPrinter.generateTSPLLabel(itemData);
+            }
 
             if (req.body.send_to_printer && printerConfig?.type === 'network' && printerConfig.address) {
                 await labelPrinter.sendRawToPrinter(tspl, printerConfig);

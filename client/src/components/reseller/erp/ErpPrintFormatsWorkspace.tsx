@@ -16,12 +16,16 @@ import {
   DEFAULT_ESTIMATE_TEMPLATE_GOLD,
   DEFAULT_ESTIMATE_TEMPLATE_SILVER,
   DEFAULT_LABEL_PRN,
+  DEFAULT_LABEL_ZPL,
   DEFAULT_LABEL_PRN_BOX,
   DEFAULT_LABEL_PRN_GOLD,
   DEFAULT_LABEL_PRN_SILVER,
   DEFAULT_LABEL_PRN_SILVER_EXTRAS,
   buildDefaultLabelPrnRules,
+  buildDefaultLabelZebraPrnRules,
+  preserveZplTemplate,
   isPrnTemplateLikelyCorrupted,
+  isZplLabelTemplate,
   LABEL_RULE_FIELD_KEYS,
   LABEL_RULE_FIELD_LABELS,
   migratePrintFormats,
@@ -105,7 +109,9 @@ export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'label' | 'bill' | 'estimate'>('label')
+  const [tab, setTab] = useState<'label' | 'labelZebra' | 'bill' | 'estimate'>('label')
+  const labelZebra = tab === 'labelZebra'
+  const labelRules = labelZebra ? pf.labelZebraPrnRules : pf.labelPrnRules
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const ruleFileRef = useRef<HTMLInputElement>(null)
@@ -129,6 +135,11 @@ export function ErpPrintFormatsWorkspace() {
           ...rule,
           template: preservePrnTemplate(rule.template),
         })),
+        labelZebraPrnTemplate: preserveZplTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL),
+        labelZebraPrnRules: (pf.labelZebraPrnRules || []).map((rule) => ({
+          ...rule,
+          template: preserveZplTemplate(rule.template),
+        })),
         billTemplate: preserveBillTemplate(pf.billTemplate),
         estimateTemplateGold: preserveBillTemplate(pf.estimateTemplateGold),
         estimateTemplateSilver: preserveBillTemplate(pf.estimateTemplateSilver),
@@ -144,16 +155,20 @@ export function ErpPrintFormatsWorkspace() {
   }
 
   const updateRule = (id: string, patch: Partial<LabelPrnRule>) => {
+    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
     setPf((p) => ({
       ...p,
-      labelPrnRules: (p.labelPrnRules || []).map((r) => (r.id === id ? { ...r, ...patch } : r)),
+      [key]: ((p[key] as LabelPrnRule[] | undefined) || []).map((r) =>
+        r.id === id ? { ...r, ...patch } : r,
+      ),
     }))
   }
 
   const removeRule = (id: string) => {
+    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
     setPf((p) => ({
       ...p,
-      labelPrnRules: (p.labelPrnRules || []).filter((r) => r.id !== id),
+      [key]: ((p[key] as LabelPrnRule[] | undefined) || []).filter((r) => r.id !== id),
     }))
   }
 
@@ -202,14 +217,31 @@ export function ErpPrintFormatsWorkspace() {
       requireNone: presets.requireNone || [],
       template: templates[preset || 'blank'] || DEFAULT_LABEL_PRN,
     }
+    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
+    const fallbackTpl = labelZebra ? DEFAULT_LABEL_ZPL : DEFAULT_LABEL_PRN
+    const ruleWithTpl = {
+      ...rule,
+      template: labelZebra ? preserveZplTemplate(fallbackTpl) : rule.template,
+    }
     setPf((p) => ({
       ...p,
-      labelPrnRules: [...(p.labelPrnRules || []), rule].sort((a, b) => b.priority - a.priority),
+      [key]: [...((p[key] as LabelPrnRule[] | undefined) || []), ruleWithTpl].sort(
+        (a, b) => b.priority - a.priority,
+      ),
     }))
     setExpandedRuleId(id)
   }
 
   const enableSmartRules = () => {
+    if (labelZebra) {
+      if ((pf.labelZebraPrnRules || []).length) return
+      setPf((p) => ({
+        ...p,
+        labelZebraPrnRules: buildDefaultLabelZebraPrnRules(p.labelZebraPrnTemplate),
+      }))
+      setExpandedRuleId('zebra-gold')
+      return
+    }
     if ((pf.labelPrnRules || []).length) return
     setPf((p) => ({
       ...p,
@@ -223,9 +255,10 @@ export function ErpPrintFormatsWorkspace() {
     listKey: 'requireAny' | 'requireAll' | 'requireNone',
     field: LabelRuleFieldKey,
   ) => {
+    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
     setPf((p) => ({
       ...p,
-      labelPrnRules: (p.labelPrnRules || []).map((r) => {
+      [key]: ((p[key] as LabelPrnRule[] | undefined) || []).map((r) => {
         if (r.id !== id) return r
         const current = new Set(r[listKey] || [])
         if (current.has(field)) current.delete(field)
@@ -237,11 +270,23 @@ export function ErpPrintFormatsWorkspace() {
 
   const onUploadRulePrn = async (file: File, ruleId: string) => {
     const raw = await file.text()
-    updateRule(ruleId, { template: suggestPrnPlaceholders(raw) })
+    updateRule(ruleId, {
+      template:
+        labelZebra || isZplLabelTemplate(raw) ? preserveZplTemplate(raw) : suggestPrnPlaceholders(raw),
+    })
   }
 
   const onUploadPrn = async (file: File) => {
     const raw = await file.text()
+    if (labelZebra || isZplLabelTemplate(raw)) {
+      setPf((p) => ({
+        ...p,
+        labelZebraPrnTemplate: preserveZplTemplate(raw),
+        labelUseZebraPrn: true,
+      }))
+      setTab('labelZebra')
+      return
+    }
     const converted = suggestPrnPlaceholders(raw)
     setPf((p) => ({ ...p, labelPrnTemplate: converted, labelUsePrn: true }))
     setTab('label')
@@ -262,6 +307,18 @@ export function ErpPrintFormatsWorkspace() {
           >
             <Tag className="mr-1 inline size-4" />
             Label (TSC)
+          </button>
+          <button
+            type="button"
+            className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
+              tab === 'labelZebra'
+                ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+            }`}
+            onClick={() => setTab('labelZebra')}
+          >
+            <Tag className="mr-1 inline size-4" />
+            Label (Zebra)
           </button>
           <button
             type="button"
@@ -290,12 +347,14 @@ export function ErpPrintFormatsWorkspace() {
         </div>
       </div>
 
-      {tab === 'label' ? (
+      {tab === 'label' || tab === 'labelZebra' ? (
         <>
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                TSC label PRN template
+                {labelZebra
+                  ? 'Zebra label template (ZPL / EPL / .prn)'
+                  : 'TSC label PRN template'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -316,7 +375,13 @@ export function ErpPrintFormatsWorkspace() {
                 <button
                   type="button"
                   className={erpBtnGhost}
-                  onClick={() => setPf((p) => ({ ...p, labelPrnTemplate: DEFAULT_LABEL_PRN }))}
+                  onClick={() =>
+                    setPf((p) =>
+                      labelZebra
+                        ? { ...p, labelZebraPrnTemplate: DEFAULT_LABEL_ZPL }
+                        : { ...p, labelPrnTemplate: DEFAULT_LABEL_PRN },
+                    )
+                  }
                 >
                   <RotateCcw className="size-4" />
                   Reset sample
@@ -326,12 +391,22 @@ export function ErpPrintFormatsWorkspace() {
             <label className="mb-3 flex items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
               <input
                 type="checkbox"
-                checked={pf.labelUsePrn !== false}
-                onChange={(e) => setPf((p) => ({ ...p, labelUsePrn: e.target.checked }))}
+                checked={
+                  labelZebra ? pf.labelUseZebraPrn !== false : pf.labelUsePrn !== false
+                }
+                onChange={(e) =>
+                  setPf((p) =>
+                    labelZebra
+                      ? { ...p, labelUseZebraPrn: e.target.checked }
+                      : { ...p, labelUsePrn: e.target.checked },
+                  )
+                }
               />
-              Use this PRN template for barcode labels (TTP-244)
+              {labelZebra
+                ? 'Use this template for Zebra/USB labels (GC420t — set ZPL format in Hardware)'
+                : 'Use this PRN template for barcode labels (TTP-244)'}
             </label>
-            {isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
+            {!labelZebra && isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
               <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                 Line breaks in this PRN look corrupted (commands glued together). TSC needs one command per line.
                 <button
@@ -350,20 +425,36 @@ export function ErpPrintFormatsWorkspace() {
               </div>
             ) : null}
             <textarea
-              className={`${erpInputCls} min-h-[320px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
-              value={pf.labelPrnTemplate || ''}
-              onChange={(e) => setPf((p) => ({ ...p, labelPrnTemplate: e.target.value }))}
+              className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed ${
+                labelZebra ? 'whitespace-pre overflow-x-auto' : 'whitespace-pre-wrap'
+              }`}
+              value={labelZebra ? pf.labelZebraPrnTemplate || '' : pf.labelPrnTemplate || ''}
+              onChange={(e) =>
+                setPf((p) =>
+                  labelZebra
+                    ? { ...p, labelZebraPrnTemplate: e.target.value }
+                    : { ...p, labelPrnTemplate: e.target.value },
+                )
+              }
+              onBlur={() => {
+                if (!labelZebra) return
+                setPf((p) => ({
+                  ...p,
+                  labelZebraPrnTemplate: preserveZplTemplate(p.labelZebraPrnTemplate),
+                }))
+              }}
               spellCheck={false}
+              wrap={labelZebra ? 'off' : undefined}
             />
           </div>
 
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                Smart label rules
+                {labelZebra ? 'Zebra smart label rules' : 'Smart label rules'}
               </p>
               <div className="flex flex-wrap gap-2">
-                {!pf.labelPrnRules?.length ? (
+                {!labelRules?.length ? (
                   <button type="button" className={erpBtnPrimary} onClick={enableSmartRules}>
                     <Wand2 className="size-4" />
                     Enable smart rules
@@ -408,9 +499,9 @@ export function ErpPrintFormatsWorkspace() {
               }}
             />
 
-            {!pf.labelPrnRules?.length ? null : (
+            {!labelRules?.length ? null : (
               <div className="space-y-3">
-                {[...(pf.labelPrnRules || [])]
+                {[...(labelRules || [])]
                   .sort((a, b) => b.priority - a.priority)
                   .map((rule) => {
                     const open = expandedRuleId === rule.id
@@ -596,10 +687,19 @@ export function ErpPrintFormatsWorkspace() {
                             </div>
 
                             <textarea
-                              className={`${erpInputCls} min-h-[240px] font-mono text-[11px] leading-relaxed`}
+                              className={`${erpInputCls} min-h-[240px] font-mono text-[11px] leading-relaxed ${
+                                labelZebra ? 'whitespace-pre overflow-x-auto' : 'whitespace-pre-wrap'
+                              }`}
                               value={rule.template || ''}
                               onChange={(e) => updateRule(rule.id, { template: e.target.value })}
+                              onBlur={() => {
+                                if (!labelZebra) return
+                                updateRule(rule.id, {
+                                  template: preserveZplTemplate(rule.template),
+                                })
+                              }}
                               spellCheck={false}
+                              wrap={labelZebra ? 'off' : undefined}
                             />
                           </div>
                         ) : null}

@@ -191,7 +191,7 @@ export function ErpHardwareWorkspace() {
       id: newProfileId(),
       name: 'Zebra GC420t',
       connection: 'usb',
-      windowsPrinter: { name: 'ZDesigner GC420t', portHint: 'USB001' },
+      windowsPrinter: { name: 'Zebra GC420t - EPL', portHint: 'USB002' },
       labelFormat: 'zpl',
       isDefault: !(hw.printerProfiles?.length || 0),
     }

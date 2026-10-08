@@ -1,6 +1,6 @@
 import type { ErpHardwareSettings, ErpSerialSettings } from '@/lib/erp-hardware'
 import { DEFAULT_SERIAL, getPrinterProfileById } from '@/lib/erp-hardware'
-import { normalizePrnTemplate } from '@/lib/erp-print-templates'
+import { formatRawLabelForPrint } from '@/lib/erp-print-templates'
 import { printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
 
 export type SerialPortLike = {
@@ -122,10 +122,9 @@ export async function disconnectLabelPrinter() {
   labelPrinterPortOpen = false
 }
 
-/** TSC TTP-244 expects CRLF-separated TSPL commands. */
+/** Raw label payload for USB agent or serial (TSPL multi-line or ZPL single-line). */
 export function formatTsplForSerial(tspl: string): string {
-  const body = normalizePrnTemplate(tspl)
-  return `${body.split('\n').join('\r\n')}\r\n`
+  return formatRawLabelForPrint(tspl)
 }
 
 export async function sendTsplOverSerial(port: SerialPortLike, tspl: string) {

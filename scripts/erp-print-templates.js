@@ -85,6 +85,22 @@ PRINT 1,1
 /** Legacy alias — silver standard layout. */
 const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER;
 
+/** Zebra GC420t — single-line ZPL (.prn export). Do not run TSPL line-break repair on this. */
+const DEFAULT_LABEL_ZPL =
+    'CT~~CD,~CC^~CT~^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ^XA^MMT^PW280^LL0120^LS0^BY1,3,46^FT9,97^BCN,,N,N^FD{{barcode}}^FS^FT25,33^A0N,14,14^FH^FD{{product_name}}^FS^FT20,50^A0N,17,16^FH^FD{{company_code}}^FS^FT156,40^A0N,23,24^FH^FDWT:{{gross_weight}}^FS^FT158,68^A0N,23,24^FH^FDPCS:{{pcs_label}}^FS^FT150,102^A0N,23,24^FH^FDMY925 {{net_weight}}^FS^FT157,120^A0N,22,21^FH^FDInc:{{size}}^FS^FT20,120^A0N,23,21^FH^FD{{barcode}}^FS^PQ1,0,1,Y^XZ';
+
+function isZplLabelTemplate(raw) {
+    return /\^XA|\^XZ|\^FO|\^FT|\^BY|\^BCN|\^FD|\^PQ|\^A0/i.test(String(raw || ''));
+}
+
+function preserveZplTemplate(raw) {
+    return String(raw || '')
+        .replace(/\r\n/g, '')
+        .replace(/\r/g, '')
+        .replace(/\n/g, '')
+        .trim();
+}
+
 const DEFAULT_LABEL_PRN_MRP = `
 SIZE 92.5 mm, 15 mm
 GAP 3 mm, 0 mm
@@ -282,6 +298,47 @@ function migrateLabelPrnRules(printFormats) {
         .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 }
 
+function migrateLabelZebraPrnRules(printFormats) {
+    const pf = printFormats || {};
+    const raw = pf.labelZebraPrnRules;
+    if (!Array.isArray(raw) || !raw.length) return [];
+    return raw
+        .map((rule) => ({
+            id: String(rule.id || newRuleId()),
+            name: String(rule.name || 'Label rule').trim() || 'Label rule',
+            enabled: rule.enabled !== false,
+            priority: Number(rule.priority) || 0,
+            metalTypes: Array.isArray(rule.metalTypes)
+                ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
+                : [],
+            requireAny: Array.isArray(rule.requireAny)
+                ? rule.requireAny.map((f) => String(f).trim()).filter(Boolean)
+                : [],
+            requireAll: Array.isArray(rule.requireAll)
+                ? rule.requireAll.map((f) => String(f).trim()).filter(Boolean)
+                : [],
+            requireNone: Array.isArray(rule.requireNone)
+                ? rule.requireNone.map((f) => String(f).trim()).filter(Boolean)
+                : [],
+            template: normalizeLabelTemplate(
+                rule.template || pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL,
+                'zpl',
+            ),
+        }))
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+}
+
+function normalizeLabelTemplate(raw, engine) {
+    const preserved = preservePrnTemplate(raw);
+    if (!preserved.trim()) {
+        return engine === 'zpl' ? DEFAULT_LABEL_ZPL : DEFAULT_LABEL_PRN;
+    }
+    if (engine === 'zpl' || isZplLabelTemplate(preserved)) {
+        return preserveZplTemplate(preserved);
+    }
+    return normalizePrnTemplate(preserved);
+}
+
 function resolveLabelPrnTemplate(piece, printFormats) {
     const pf = printFormats || {};
     const rules = migrateLabelPrnRules(pf);
@@ -296,6 +353,28 @@ function resolveLabelPrnTemplate(piece, printFormats) {
     }
     return {
         template: normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
+        ruleId: null,
+        ruleName: 'Default',
+    };
+}
+
+function resolveLabelZebraPrnTemplate(piece, printFormats) {
+    const pf = printFormats || {};
+    const rules = migrateLabelZebraPrnRules(pf);
+    for (const rule of rules) {
+        if (ruleMatchesPiece(piece, rule)) {
+            return {
+                template: normalizeLabelTemplate(
+                    rule.template || pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL,
+                    'zpl',
+                ),
+                ruleId: rule.id,
+                ruleName: rule.name,
+            };
+        }
+    }
+    return {
+        template: normalizeLabelTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL, 'zpl'),
         ruleId: null,
         ruleName: 'Default',
     };
@@ -573,6 +652,7 @@ function repairCorruptedPrnTemplate(raw) {
 function normalizePrnTemplate(raw) {
     const preserved = preservePrnTemplate(raw);
     if (!preserved.trim()) return DEFAULT_LABEL_PRN;
+    if (isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved);
     if (/mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(preserved) || (preserved.length > 80 && !preserved.includes('\n'))) {
         return repairCorruptedPrnTemplate(preserved);
     }
@@ -580,6 +660,9 @@ function normalizePrnTemplate(raw) {
 }
 
 function formatTsplLineEndings(tspl) {
+    if (isZplLabelTemplate(tspl)) {
+        return `${preserveZplTemplate(tspl)}\r\n`;
+    }
     const body = normalizePrnTemplate(tspl);
     return `${body.split('\n').join('\r\n')}\r\n`;
 }
@@ -591,8 +674,11 @@ function preserveMultilineTemplate(raw) {
 
 function renderTemplate(template, vars, opts) {
     const plainText = opts && opts.plainText;
-    let out = plainText
-        ? preserveMultilineTemplate(template)
+    const zpl = isZplLabelTemplate(template);
+    let out = plainText || zpl
+        ? zpl
+            ? preserveZplTemplate(template)
+            : preserveMultilineTemplate(template)
         : normalizePrnTemplate(String(template || ''));
     const entries = Object.entries(vars || {});
     for (const [key, val] of entries) {
@@ -675,6 +761,7 @@ function buildLabelTemplateVars(piece, hw, profile) {
         rfid_tag: String(piece.rfid_tag || '').trim(),
         tag_no: String(piece.rfid_tag || '').trim(),
         fixed_price: fixedPrice,
+        size: String(piece.size || '').trim(),
     };
 }
 
@@ -705,8 +792,14 @@ function renderPrnLabel(template, piece, hw, profile) {
 }
 
 function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
-    const resolved = resolveLabelPrnTemplate(piece, printFormats);
-    const tspl = renderPrnLabel(resolved.template, piece, hw, profile);
+    const isZebra = profile?.labelFormat === 'zpl';
+    const resolved = isZebra
+        ? resolveLabelZebraPrnTemplate(piece, printFormats)
+        : resolveLabelPrnTemplate(piece, printFormats);
+    const vars = buildLabelTemplateVars(piece, hw, profile);
+    const tspl = renderTemplate(resolved.template, vars, {
+        plainText: isZebra || isZplLabelTemplate(resolved.template),
+    });
     return { tspl, ...resolved };
 }
 
@@ -2227,14 +2320,22 @@ function escPosToBase64(escPos) {
 }
 
 function shouldUsePrnTemplate(profile, printFormats) {
+    const pf = printFormats || {};
     if (profile?.labelFormat === 'tspl') return false;
-    if (profile?.labelFormat === 'zpl') return false;
+    if (profile?.labelFormat === 'zpl') {
+        if (pf.labelUseZebraPrn === false) return false;
+        return !!(
+            String(pf.labelZebraPrnTemplate || '').trim() ||
+            (Array.isArray(pf.labelZebraPrnRules) && pf.labelZebraPrnRules.length)
+        );
+    }
     if (profile?.labelFormat === 'prn') return true;
-    return printFormats?.labelUsePrn !== false;
+    return pf.labelUsePrn !== false;
 }
 
 module.exports = {
     DEFAULT_LABEL_PRN,
+    DEFAULT_LABEL_ZPL,
     DEFAULT_LABEL_PRN_GOLD,
     DEFAULT_LABEL_PRN_SILVER,
     DEFAULT_LABEL_PRN_SILVER_EXTRAS,
@@ -2248,7 +2349,12 @@ module.exports = {
     renderPrnLabel,
     renderPrnLabelForPiece,
     resolveLabelPrnTemplate,
+    resolveLabelZebraPrnTemplate,
     migrateLabelPrnRules,
+    migrateLabelZebraPrnRules,
+    isZplLabelTemplate,
+    preserveZplTemplate,
+    normalizeLabelTemplate,
     buildDefaultLabelPrnRules,
     ruleMatchesPiece,
     pieceFieldHasValue,
