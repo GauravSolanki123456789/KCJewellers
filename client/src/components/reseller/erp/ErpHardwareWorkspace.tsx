@@ -569,7 +569,9 @@ export function ErpHardwareWorkspace() {
                       })
                     }}
                   >
-                    <option value="usb">USB (Windows · USB001)</option>
+                    <option value="usb">
+                      USB (Windows · {p.windowsPrinter?.portHint || 'USB001'})
+                    </option>
                     <option value="network">Network (TCP 9100)</option>
                     <option value="serial">Serial / COM</option>
                   </select>
@@ -585,8 +587,17 @@ export function ErpHardwareWorkspace() {
                   >
                     <option value="tspl">TSPL (TSC / thermal)</option>
                     <option value="zpl">ZPL (Zebra GC420t)</option>
-                    <option value="prn">PRN template (Print formats)</option>
+                    <option value="prn">PRN template (TSC · Print formats)</option>
                   </select>
+                  {p.labelFormat === 'prn' &&
+                  /Zebra|GC420|EPL/i.test(
+                    `${p.name} ${p.windowsPrinter?.name || ''}`,
+                  ) ? (
+                    <p className="mt-1 text-[10px] font-medium text-amber-700">
+                      Zebra printers must use <strong>ZPL (Zebra GC420t)</strong>, not TSC PRN — change this
+                      dropdown and save Hardware.
+                    </p>
+                  ) : null}
                 </label>
               </div>
 

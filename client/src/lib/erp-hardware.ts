@@ -100,6 +100,13 @@ export function serialSettingsLabel(s: ErpSerialSettings): string {
   return `${normalizeComPort(s.port)} · ${s.baudRate} ${s.dataBits}-${parity}-${s.stopBits}`
 }
 
+export function isZebraLabelProfile(profile: ErpPrinterProfile | null | undefined): boolean {
+  if (!profile) return false
+  if (profile.labelFormat === 'zpl') return true
+  const blob = `${profile.name || ''} ${profile.windowsPrinter?.name || ''}`
+  return /Zebra|ZDesigner|GC420|EPL/i.test(blob)
+}
+
 export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefined): ErpHardwareSettings {
   const hw: ErpHardwareSettings = { ...(raw || {}) }
   if (!hw.companyCode) hw.companyCode = 'KC925'
@@ -165,6 +172,12 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
         isDefault: true,
       },
     ]
+  }
+
+  for (const p of hw.printerProfiles || []) {
+    if (isZebraLabelProfile(p) && p.labelFormat !== 'zpl') {
+      p.labelFormat = 'zpl'
+    }
   }
 
   return hw

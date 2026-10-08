@@ -2614,7 +2614,7 @@ function registerStockPieceRoutes(app, deps) {
                     const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, printFormats);
                     tspl = rendered.tspl;
                     labelRuleName = rendered.ruleName;
-                } else if (profile?.labelFormat === 'zpl') {
+                } else if (erpPrint.isZebraLabelProfile(profile)) {
                     const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, {
                         ...printFormats,
                         labelZebraPrnTemplate:
@@ -2715,7 +2715,7 @@ function registerStockPieceRoutes(app, deps) {
             const itemData = buildTestLabelItemData(hw, profile);
             const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
             let tspl;
-            if (usePrn && profile?.labelFormat === 'zpl') {
+            if (usePrn && erpPrint.isZebraLabelProfile(profile)) {
                 const rendered = erpPrint.renderPrnLabelForPiece(
                     { barcode: itemData.barcode, product_name: itemData.productName },
                     hw,
@@ -2736,7 +2736,7 @@ function registerStockPieceRoutes(app, deps) {
                     prnTemplate,
                     erpPrint.buildLabelTemplateVarsFromItemData(itemData),
                 );
-            } else if (profile?.labelFormat === 'zpl') {
+            } else if (erpPrint.isZebraLabelProfile(profile)) {
                 tspl = labelPrinter.generateZPLLabel(itemData);
             } else {
                 tspl = labelPrinter.generateTSPLLabel(itemData);

@@ -34,6 +34,7 @@ import {
   preserveBillTemplate,
   preservePrnTemplate,
   suggestPrnPlaceholders,
+  suggestZplPlaceholders,
   type ErpPrintFormatsSettings,
   type LabelPrnRule,
   type LabelRuleFieldKey,
@@ -272,7 +273,7 @@ export function ErpPrintFormatsWorkspace() {
     const raw = await file.text()
     updateRule(ruleId, {
       template:
-        labelZebra || isZplLabelTemplate(raw) ? preserveZplTemplate(raw) : suggestPrnPlaceholders(raw),
+        labelZebra || isZplLabelTemplate(raw) ? suggestZplPlaceholders(raw) : suggestPrnPlaceholders(raw),
     })
   }
 
@@ -281,7 +282,7 @@ export function ErpPrintFormatsWorkspace() {
     if (labelZebra || isZplLabelTemplate(raw)) {
       setPf((p) => ({
         ...p,
-        labelZebraPrnTemplate: preserveZplTemplate(raw),
+        labelZebraPrnTemplate: suggestZplPlaceholders(raw),
         labelUseZebraPrn: true,
       }))
       setTab('labelZebra')
@@ -403,9 +404,18 @@ export function ErpPrintFormatsWorkspace() {
                 }
               />
               {labelZebra
-                ? 'Use this template for Zebra/USB labels (GC420t — set ZPL format in Hardware)'
+                ? 'Use this template for Zebra/USB labels (GC420t — Hardware label format must be ZPL)'
                 : 'Use this PRN template for barcode labels (TTP-244)'}
             </label>
+            {labelZebra ? (
+              <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
+                Use ERP placeholders like <code className="font-mono">{`{{barcode}}`}</code>,{' '}
+                <code className="font-mono">{`{{product_name}}`}</code>,{' '}
+                <code className="font-mono">{`{{gross_weight}}`}</code>. Uploading Designer .prn with{' '}
+                <code className="font-mono">&lt;TAGNO_ALPHA&gt;</code> tags is converted on upload. Line breaks in
+                the editor are kept when saved (like TSC).
+              </p>
+            ) : null}
             {!labelZebra && isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
               <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                 Line breaks in this PRN look corrupted (commands glued together). TSC needs one command per line.
@@ -425,9 +435,7 @@ export function ErpPrintFormatsWorkspace() {
               </div>
             ) : null}
             <textarea
-              className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed ${
-                labelZebra ? 'whitespace-pre overflow-x-auto' : 'whitespace-pre-wrap'
-              }`}
+              className={`${erpInputCls} min-h-[320px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
               value={labelZebra ? pf.labelZebraPrnTemplate || '' : pf.labelPrnTemplate || ''}
               onChange={(e) =>
                 setPf((p) =>
@@ -440,11 +448,10 @@ export function ErpPrintFormatsWorkspace() {
                 if (!labelZebra) return
                 setPf((p) => ({
                   ...p,
-                  labelZebraPrnTemplate: preserveZplTemplate(p.labelZebraPrnTemplate),
+                  labelZebraPrnTemplate: suggestZplPlaceholders(p.labelZebraPrnTemplate || ''),
                 }))
               }}
               spellCheck={false}
-              wrap={labelZebra ? 'off' : undefined}
             />
           </div>
 
@@ -687,19 +694,16 @@ export function ErpPrintFormatsWorkspace() {
                             </div>
 
                             <textarea
-                              className={`${erpInputCls} min-h-[240px] font-mono text-[11px] leading-relaxed ${
-                                labelZebra ? 'whitespace-pre overflow-x-auto' : 'whitespace-pre-wrap'
-                              }`}
+                              className={`${erpInputCls} min-h-[240px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
                               value={rule.template || ''}
                               onChange={(e) => updateRule(rule.id, { template: e.target.value })}
                               onBlur={() => {
                                 if (!labelZebra) return
                                 updateRule(rule.id, {
-                                  template: preserveZplTemplate(rule.template),
+                                  template: suggestZplPlaceholders(rule.template),
                                 })
                               }}
                               spellCheck={false}
-                              wrap={labelZebra ? 'off' : undefined}
                             />
                           </div>
                         ) : null}

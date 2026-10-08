@@ -93,11 +93,38 @@ function isZplLabelTemplate(raw) {
     return /\^XA|\^XZ|\^FO|\^FT|\^BY|\^BCN|\^FD|\^PQ|\^A0/i.test(String(raw || ''));
 }
 
+function isZebraLabelProfile(profile) {
+    if (profile?.labelFormat === 'zpl') return true;
+    const blob = `${profile?.name || ''} ${profile?.windowsPrinter?.name || ''}`;
+    return /Zebra|ZDesigner|GC420|EPL/i.test(blob);
+}
+
+/** Map Zebra Designer / third-party angle-bracket fields to ERP {{placeholders}}. */
+function migrateZplPlaceholders(raw) {
+    let s = String(raw || '');
+    const pairs = [
+        ['TAGNO_ALPHA', 'barcode'],
+        ['TAGNO', 'barcode'],
+        ['INAME', 'product_name'],
+        ['DESIGN', 'company_code'],
+        ['GROSS', 'gross_weight'],
+        ['QTY', 'pcs_label'],
+        ['SIZENORMAL', 'size'],
+        ['MC', 'net_weight'],
+    ];
+    for (const [tag, key] of pairs) {
+        s = s.replace(new RegExp(`<${tag}>`, 'gi'), `{{${key}}}`);
+    }
+    return s;
+}
+
 function preserveZplTemplate(raw) {
-    return String(raw || '')
-        .replace(/\r\n/g, '')
-        .replace(/\r/g, '')
-        .replace(/\n/g, '')
+    return migrateZplPlaceholders(String(raw || ''))
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .join('\n')
         .trim();
 }
 
@@ -661,7 +688,9 @@ function normalizePrnTemplate(raw) {
 
 function formatTsplLineEndings(tspl) {
     if (isZplLabelTemplate(tspl)) {
-        return `${preserveZplTemplate(tspl)}\r\n`;
+        const body = preserveZplTemplate(tspl);
+        const wire = body.includes('\n') ? body.split('\n').join('\r\n') : body;
+        return `${wire}\r\n`;
     }
     const body = normalizePrnTemplate(tspl);
     return `${body.split('\n').join('\r\n')}\r\n`;
@@ -792,7 +821,7 @@ function renderPrnLabel(template, piece, hw, profile) {
 }
 
 function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
-    const isZebra = profile?.labelFormat === 'zpl';
+    const isZebra = isZebraLabelProfile(profile);
     const resolved = isZebra
         ? resolveLabelZebraPrnTemplate(piece, printFormats)
         : resolveLabelPrnTemplate(piece, printFormats);
@@ -2322,7 +2351,7 @@ function escPosToBase64(escPos) {
 function shouldUsePrnTemplate(profile, printFormats) {
     const pf = printFormats || {};
     if (profile?.labelFormat === 'tspl') return false;
-    if (profile?.labelFormat === 'zpl') {
+    if (isZebraLabelProfile(profile)) {
         if (pf.labelUseZebraPrn === false) return false;
         return !!(
             String(pf.labelZebraPrnTemplate || '').trim() ||
@@ -2353,6 +2382,8 @@ module.exports = {
     migrateLabelPrnRules,
     migrateLabelZebraPrnRules,
     isZplLabelTemplate,
+    isZebraLabelProfile,
+    migrateZplPlaceholders,
     preserveZplTemplate,
     normalizeLabelTemplate,
     buildDefaultLabelPrnRules,

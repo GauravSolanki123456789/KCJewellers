@@ -271,6 +271,8 @@ function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
             $detail = if ($stderr.Trim()) { $stderr.Trim() } else { "Exit code $($p.ExitCode)" }
             throw "Print failed ($resolved). Installed printers: $list. $detail"
         }
+        $byteCount = ([System.Text.Encoding]::UTF8.GetBytes([string]$Tspl)).Length
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Label -> $resolved ($byteCount bytes raw, queue may stay empty)"
         if ($resolved -ne $PrinterName -and $stdout.Trim()) {
             Write-Host $stdout.Trim()
         }

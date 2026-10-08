@@ -130,10 +130,16 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Print failed'
       if (/Raw print failed|Installed Windows printers|OpenPrinter/i.test(msg)) {
+        const winName =
+          res.data.printerProfile?.windowsPrinter?.name ||
+          printerProfile?.windowsPrinter?.name ||
+          ''
+        const zebra = /Zebra|GC420|EPL/i.test(winName)
         return {
           ok: false,
-          message:
-            'TSC printer not installed in Windows. Install TSC TTP-244 driver so it appears in Settings → Printers. Run CHECK-TSC-Printer.bat on this PC.',
+          message: zebra
+            ? `Zebra raw print failed for “${winName}”. Check Settings → Printers, USB002 port, and restart START-KC-Label-Print.bat.`
+            : 'TSC printer not installed in Windows. Install TSC TTP-244 driver so it appears in Settings → Printers. Run CHECK-TSC-Printer.bat on this PC.',
         }
       }
       return { ok: false, message: msg }

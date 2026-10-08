@@ -83,19 +83,54 @@ PRINT 1,1
 /** Standard silver label — also the default fallback template. */
 export const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER
 
-/** Zebra GC420t — keep as one continuous ZPL line (no TSPL line-break repair). */
-export const DEFAULT_LABEL_ZPL =
-  'CT~~CD,~CC^~CT~^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ^XA^MMT^PW280^LL0120^LS0^BY1,3,46^FT9,97^BCN,,N,N^FD{{barcode}}^FS^FT25,33^A0N,14,14^FH^FD{{product_name}}^FS^FT20,50^A0N,17,16^FH^FD{{company_code}}^FS^FT156,40^A0N,23,24^FH^FDWT:{{gross_weight}}^FS^FT158,68^A0N,23,24^FH^FDPCS:{{pcs_label}}^FS^FT150,102^A0N,23,24^FH^FDMY925 {{net_weight}}^FS^FT157,120^A0N,22,21^FH^FDInc:{{size}}^FS^FT20,120^A0N,23,21^FH^FD{{barcode}}^FS^PQ1,0,1,Y^XZ'
+/** Zebra GC420t sample — multiline ZPL (same commands as one-line export). */
+export const DEFAULT_LABEL_ZPL = `CT~~CD,~CC^~CT~
+^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ
+^XA
+^MMT
+^PW280
+^LL0120
+^LS0
+^BY1,3,46^FT9,97^BCN,,N,N
+^FD{{barcode}}^FS
+^FT25,33^A0N,14,14^FH^FD{{product_name}}^FS
+^FT20,50^A0N,17,16^FH^FD{{company_code}}^FS
+^FT156,40^A0N,23,24^FH^FDWT:{{gross_weight}}^FS
+^FT158,68^A0N,23,24^FH^FDPCS:{{pcs_label}}^FS
+^FT150,102^A0N,23,24^FH^FDMY925 {{net_weight}}^FS
+^FT157,120^A0N,22,21^FH^FDInc:{{size}}^FS
+^FT20,120^A0N,23,21^FH^FD{{barcode}}^FS
+^PQ1,0,1,Y^XZ`.trim()
 
 export function isZplLabelTemplate(raw: string | null | undefined): boolean {
   return /\^XA|\^XZ|\^FO|\^FT|\^BY|\^BCN|\^FD|\^PQ|\^A0/i.test(String(raw || ''))
 }
 
+export function migrateZplPlaceholders(raw: string | null | undefined): string {
+  let s = String(raw || '')
+  const pairs: [string, string][] = [
+    ['TAGNO_ALPHA', 'barcode'],
+    ['TAGNO', 'barcode'],
+    ['INAME', 'product_name'],
+    ['DESIGN', 'company_code'],
+    ['GROSS', 'gross_weight'],
+    ['QTY', 'pcs_label'],
+    ['SIZENORMAL', 'size'],
+    ['MC', 'net_weight'],
+  ]
+  for (const [tag, key] of pairs) {
+    s = s.replace(new RegExp(`<${tag}>`, 'gi'), `{{${key}}}`)
+  }
+  return s
+}
+
 export function preserveZplTemplate(raw: string | null | undefined): string {
-  return String(raw || '')
-    .replace(/\r\n/g, '')
-    .replace(/\r/g, '')
-    .replace(/\n/g, '')
+  return migrateZplPlaceholders(String(raw || ''))
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
     .trim()
 }
 
@@ -630,7 +665,9 @@ export function normalizeLabelTemplate(
 
 export function formatRawLabelForPrint(raw: string): string {
   if (isZplLabelTemplate(raw)) {
-    return `${preserveZplTemplate(raw)}\r\n`
+    const body = preserveZplTemplate(raw)
+    const wire = body.includes('\n') ? body.split('\n').join('\r\n') : body
+    return `${wire}\r\n`
   }
   const body = normalizePrnTemplate(raw)
   return `${body.split('\n').join('\r\n')}\r\n`
@@ -707,4 +744,19 @@ export function suggestPrnPlaceholders(raw: string): string {
   out = out.replace(/"PLT-\d+"/gi, '"{{barcode}}"')
   out = out.replace(/"BMS\d*"/gi, '"{{company_code}}"')
   return normalizePrnTemplate(out)
+}
+
+function formatZplForEditor(raw: string): string {
+  const s = preserveZplTemplate(raw)
+  if (s.includes('\n')) return s
+  return s
+    .replace(/\^XA/g, '\n^XA')
+    .replace(/\^PQ/g, '\n^PQ')
+    .replace(/^\n/, '')
+    .trim()
+}
+
+/** Zebra .prn — map Designer tags and normalize line breaks (no TSPL repair). */
+export function suggestZplPlaceholders(raw: string): string {
+  return formatZplForEditor(migrateZplPlaceholders(raw))
 }
