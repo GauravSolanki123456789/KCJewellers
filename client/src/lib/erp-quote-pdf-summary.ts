@@ -9,6 +9,11 @@ import {
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
 import { erpMcBillingWeightGm } from '@/lib/erp-manual-as-line-pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
+import {
+  erpCatalogMcPerUnit,
+  erpEffectiveMcPerUnit,
+} from '@/lib/erp-mc-slab-effective'
+import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 
 /** Group key for summary estimate rows — same SKU/style/product/metal/MC slab. */
 function summaryGroupKey(line: ErpBillLine): string {
@@ -26,7 +31,16 @@ function summaryGroupKey(line: ErpBillLine): string {
     .toLowerCase()
 }
 
-function effectiveMcRatePerUnitForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): number | null {
+function effectiveMcRatePerUnitForPdf(
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab,
+  slabSettings?: ResellerSlabSettings | null,
+): number | null {
+  if (line.displayMcRatePerUnit != null && Number(line.displayMcRatePerUnit) > 0) {
+    return Number(line.displayMcRatePerUnit)
+  }
+  const fromCatalog = erpEffectiveMcPerUnit(line, rateSlab, slabSettings)
+  if (fromCatalog > 0) return fromCatalog
   const slabMc = pieceSlabMcRate(line, rateSlab)
   if (slabMc != null && Number(slabMc) > 0) return Number(slabMc)
   const mcRaw = billingMcDisplay(line, rateSlab)
@@ -35,46 +49,84 @@ function effectiveMcRatePerUnitForPdf(line: ErpBillLine, rateSlab: ErpRateSlab):
   return mc
 }
 
-/** MC column in PDF — catalog MC on slab R; effective slab MC on W/F. */
+function formatMcRate(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100)
+}
+
+/** MC column in PDF — catalog MC on slab R; discounted MC on W/F. */
 export function billingMcPdfCatalogColumn(
   line: ErpBillLine,
   rateSlab: ErpRateSlab,
   goldSlabRShowMc = true,
+  slabSettings?: ResellerSlabSettings | null,
 ): string {
+  if (
+    line.displayMcRatePerUnit != null &&
+    Number(line.displayMcRatePerUnit) > 0 &&
+    rateSlab !== 'R' &&
+    !isGoldSlabRMcPricing(line, rateSlab, goldSlabRShowMc)
+  ) {
+    return formatMcRate(Number(line.displayMcRatePerUnit))
+  }
   if (rateSlab !== 'R') {
+    const eff = erpEffectiveMcPerUnit(line, rateSlab, slabSettings)
+    if (eff > 0) return formatMcRate(eff)
     const slabMc = pieceSlabMcRate(line, rateSlab)
     if (slabMc != null && Number(slabMc) > 0) return String(Math.round(Number(slabMc)))
     return '—'
   }
   if (!isGoldSlabRMcPricing(line, rateSlab, goldSlabRShowMc)) {
-    const catalog = Number(line.mc_rate_catalog ?? line.mc_rate ?? 0)
-    if (catalog > 0) return String(Math.round(catalog))
+    const catalog = erpCatalogMcPerUnit(line)
+    if (catalog > 0) return formatMcRate(catalog)
   }
   return billingMcPdfText(line, rateSlab, goldSlabRShowMc)
 }
 
 /** MC R column in PDF (slab R discounted MC rate only). */
-export function billingMcPdfSlabRColumn(line: ErpBillLine, rateSlab: ErpRateSlab): string {
+export function billingMcPdfSlabRColumn(
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab,
+  slabSettings?: ResellerSlabSettings | null,
+): string {
   if (rateSlab !== 'R') return '—'
+  const catalog = erpCatalogMcPerUnit(line)
+  const eff = erpEffectiveMcPerUnit(line, rateSlab, slabSettings)
+  if (catalog > 0 && eff > 0 && Math.abs(eff - catalog) > 0.009) {
+    return formatMcRate(eff)
+  }
+  if (line.displayMcRatePerUnit != null && Number(line.displayMcRatePerUnit) > 0 && catalog > 0) {
+    const d = Number(line.displayMcRatePerUnit)
+    if (Math.abs(d - catalog) > 0.009) return formatMcRate(d)
+  }
   const slabR = line.mc_rate_slab_r
   if (slabR == null || !Number.isFinite(Number(slabR)) || !(Number(slabR) > 0)) return '—'
-  const catalog = Number(line.mc_rate_catalog ?? line.mc_rate ?? 0)
   const slabRounded = Math.round(Number(slabR))
   if (catalog > 0 && Math.round(catalog) === slabRounded) return '—'
   return String(slabRounded)
 }
 
-export function lineShowsMcRPdfColumn(line: ErpBillLine, rateSlab: ErpRateSlab): boolean {
+export function lineShowsMcRPdfColumn(
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab,
+  slabSettings?: ResellerSlabSettings | null,
+): boolean {
   if (rateSlab !== 'R') return false
-  const text = billingMcPdfSlabRColumn(line, rateSlab)
+  const text = billingMcPdfSlabRColumn(line, rateSlab, slabSettings)
   return text !== '—' && text.trim() !== ''
 }
 
-export function computeMcValueForPdf(line: ErpBillLine, rateSlab: ErpRateSlab): number | null {
+export function computeMcValueForPdf(
+  line: ErpBillLine,
+  rateSlab: ErpRateSlab,
+  slabSettings?: ResellerSlabSettings | null,
+): number | null {
+  if (line.displayMcInr != null && Number(line.displayMcInr) > 0) {
+    return Math.round(Number(line.displayMcInr))
+  }
   if (isGoldSlabRLine(line, rateSlab) && line.displayMcInr != null && line.displayMcInr > 0) {
     return Math.round(line.displayMcInr)
   }
-  const mc = effectiveMcRatePerUnitForPdf(line, rateSlab)
+  const mc = effectiveMcRatePerUnitForPdf(line, rateSlab, slabSettings)
   if (mc == null) return null
   if (!isMcPerGmBillingType(line.mc_type)) {
     const qty = Math.max(1, Number(line.qty) || 1)

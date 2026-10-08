@@ -127,6 +127,7 @@ export function ErpBillingStackedRow({
   tableColSpan = 26,
 }: Props) {
   const oldExchange = line.manualCategory === 'old'
+  const shipping = line.manualCategory === 'shipping'
   const gift = isGiftManualLine(line)
   const giftManual = line.manualCategory === 'gift'
   const skuValue = String(line.sku || '')
@@ -263,6 +264,22 @@ export function ErpBillingStackedRow({
                 subtracts from bill total.
               </p>
             </>
+          ) : shipping ? (
+            <>
+              <div className="flex flex-wrap items-end gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-3">
+                <p className="w-full text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Shipping charges
+                </p>
+                <label className="min-w-[7rem] flex-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Fixed (₹)
+                  {bandInput('fixed_price')}
+                </label>
+                <label className="min-w-[4rem] text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  PCS
+                  {bandInput('qty')}
+                </label>
+              </div>
+            </>
           ) : (
           <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
@@ -380,7 +397,10 @@ export function ErpBillingStackedRow({
                   if (!isManualGridFieldVisible(f.key, line, rateSlab)) return false
                   if (f.key === 'stone_charges') return lineHasFinishPicker(line)
                   if (f.key === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
-                  if (f.key === 'fixed_price_r') return gift || !!line.mrpMode
+                  if (f.key === 'fixed_price_r') {
+                    if (rateSlab === 'W' || rateSlab === 'F') return false
+                    return gift || !!line.mrpMode
+                  }
                   if (f.key === 'mc_rate_slab_r') return billingShowsMcSlabRColumn(rateSlab)
                   if (
                     giftManual &&

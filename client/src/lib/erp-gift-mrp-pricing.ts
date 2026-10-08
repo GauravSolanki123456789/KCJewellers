@@ -66,6 +66,7 @@ export function applyGiftMrpPieceRate(
   slab: ErpRateSlab,
   slabSettings: ResellerSlabSettings,
 ): ErpBillLine {
+  if (line.manualCategory === 'shipping') return line
   if (shouldUseWeightSilverNotMrp(line)) {
     return { ...line, mrpMode: false, mrpListPrice: null, unitInr: null }
   }
@@ -86,6 +87,7 @@ export function applyGiftMrpForSlabChange(
   nextSlab: ErpRateSlab,
   slabSettings: ResellerSlabSettings,
 ): ErpBillLine {
+  if (line.manualCategory === 'shipping') return line
   const list = resolveGiftMrpListPrice(line)
   if (list <= 0) return line
   if (!line.mrpMode && line.manualCategory !== 'gift') {

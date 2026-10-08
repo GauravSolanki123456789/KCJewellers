@@ -27,6 +27,7 @@ import {
   mcSlabFieldForBillingSlab,
 } from '@/lib/erp-billing-pricing'
 import {
+  applyErpLineMcDisplayFromBreakdown,
   billingMcDisplay,
   billingMcDiscountHint,
   billingWastageDisplay,
@@ -34,6 +35,7 @@ import {
   isGoldSlabRLine,
   resolveErpBillTotalInr,
 } from '@/lib/erp-billing-display'
+import { erpCatalogMcPerUnit, erpEffectiveMcPerUnit } from '@/lib/erp-mc-slab-effective'
 import { cachedGet } from '@/lib/api-get-cache'
 import {
   applyRatesUnfixed,
@@ -87,7 +89,9 @@ import {
 } from '@/lib/erp-old-exchange-pricing'
 import {
   createManualBillLine,
+  createShippingBillLine,
   findInvoiceItemForCategory,
+  findShippingInvoiceItem,
   findStyleForSku,
   firstManualEntryField,
   isGiftManualLine,
@@ -597,7 +601,11 @@ export function ErpBillingWorkspace() {
         const slab = opts?.slab ?? rateSlab
         const withMrp = applyGiftMrpPieceRate(baseLine, slab, slabSettings)
         const priced = { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) }
-        if (priced.manualCategory === 'gift' || priced.mrpMode) {
+        if (
+          priced.manualCategory === 'gift' ||
+          priced.manualCategory === 'shipping' ||
+          priced.mrpMode
+        ) {
           return { ...priced, ratePerGram: null, metal_type: null }
         }
         return priced
@@ -667,7 +675,9 @@ export function ErpBillingWorkspace() {
         const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0
         const mcType = String(line.mc_type || '').toUpperCase()
         const perPiece = mcType.includes('/PC') || mcType.includes('PER PC')
-        if (bd.mc_before_discount != null && bd.mc_before_discount > bd.mc) {
+        if (bd.mc > 0) {
+          Object.assign(next, applyErpLineMcDisplayFromBreakdown(line, bd, slab))
+        } else if (bd.mc_before_discount != null && bd.mc_before_discount > bd.mc) {
           next.displayMcBeforeDiscount = Math.round(bd.mc_before_discount)
           next.displayMcInr = Math.round(bd.mc)
           next.displayMcDiscountPct = bd.mc_discount_pct ?? null
@@ -699,9 +709,14 @@ export function ErpBillingWorkspace() {
         next.displayWastagePct = null
       } else {
         next.displayWastagePct = null
-        next.displayMcInr = null
-        next.displayMcBeforeDiscount = null
-        next.displayMcDiscountPct = null
+        if (bd.mc > 0) {
+          Object.assign(next, applyErpLineMcDisplayFromBreakdown(line, bd, slab))
+        } else {
+          next.displayMcInr = null
+          next.displayMcRatePerUnit = null
+          next.displayMcBeforeDiscount = null
+          next.displayMcDiscountPct = null
+        }
       }
       const silverMetal = String(line.metal_type || '').toLowerCase().startsWith('silver')
       const silverOffset =
@@ -1339,12 +1354,19 @@ export function ErpBillingWorkspace() {
       const shortcut = resolveBillingScanShortcut(code)
       if (shortcut) {
       const invoiceItem =
-        shortcut === 'old'
-          ? findInvoiceItemForCategory('jewellery', gstInvoiceItems) ||
-            findInvoiceItemForCategory('articles', gstInvoiceItems)
-          : findInvoiceItemForCategory(shortcut, gstInvoiceItems)
+        shortcut === 'shipping'
+          ? findShippingInvoiceItem(gstInvoiceItems) ||
+            findInvoiceItemForCategory('gift', gstInvoiceItems)
+          : shortcut === 'old'
+            ? findInvoiceItemForCategory('jewellery', gstInvoiceItems) ||
+              findInvoiceItemForCategory('articles', gstInvoiceItems)
+            : findInvoiceItemForCategory(shortcut, gstInvoiceItems)
       if (!invoiceItem) {
-        setScanErrorMsg('Configure invoice item categories in GST settings first (A / S / B / G / O shortcuts).')
+        setScanErrorMsg(
+          shortcut === 'shipping'
+            ? 'Add a “Shipping charge” invoice item in GST settings, then try SH again.'
+            : 'Configure invoice item categories in GST settings first (A / S / B / G / O shortcuts).',
+        )
         setScanCode('')
         scanRef.current?.focus()
         return
@@ -1352,7 +1374,7 @@ export function ErpBillingWorkspace() {
       setScanBusy(true)
       setScanErrorMsg(null)
       try {
-        if (shortcut !== 'old' && !billingCatalogs[invoiceItem.name]) {
+        if (shortcut !== 'old' && shortcut !== 'shipping' && !billingCatalogs[invoiceItem.name]) {
           const catalog = await loadBillingCatalog(invoiceItem.name)
           setBillingCatalogs((prev) => ({ ...prev, [invoiceItem.name]: catalog }))
         }
@@ -1362,7 +1384,11 @@ export function ErpBillingWorkspace() {
             : await loadDisplayRates()
         const pg = displayRatesToPerGram(rates)
         const usedCodes = lines.flatMap((l) => [l.code, l.barcode].filter(Boolean) as string[])
-        const line = recalcLine(createManualBillLine(shortcut, invoiceItem, rateSlab, usedCodes), {
+        const baseLine =
+          shortcut === 'shipping'
+            ? createShippingBillLine(invoiceItem, usedCodes)
+            : createManualBillLine(shortcut, invoiceItem, rateSlab, usedCodes)
+        const line = recalcLine(baseLine, {
           rates,
           goldPerG: pg.gold,
           silverPerG: pg.silver,
@@ -1628,12 +1654,7 @@ export function ErpBillingWorkspace() {
               const n = Number(v)
               return Number.isFinite(n) ? n : null
             }
-            const slabMc =
-              rateSlab === 'W'
-                ? num('mc_rate_slab_w')
-                : rateSlab === 'F'
-                  ? num('mc_rate_slab_f')
-                  : num('mc_rate')
+            const catalogMc = num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate
             return recalcLine({
               ...l,
               style_code: styleCode,
@@ -1645,11 +1666,8 @@ export function ErpBillingWorkspace() {
                   ? null
                   : String(d.metal_type || l.metal_type || 'silver'),
               wastage_pct: num('wastage_pct') ?? l.wastage_pct,
-              mc_rate:
-                rateSlab === 'R' || rateSlab === 'Q'
-                  ? (num('mc_rate') ?? l.mc_rate)
-                  : (slabMc ?? null),
-              mc_rate_catalog: num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate,
+              mc_rate: catalogMc,
+              mc_rate_catalog: catalogMc,
               mc_type: normalizeMcTypeInput(d.mc_type) ?? l.mc_type,
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
               mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,
@@ -2291,6 +2309,11 @@ export function ErpBillingWorkspace() {
       case 'mc_rate':
         return billingMcDisplay(line, rateSlab, goldSlabRShowMc)
       case 'mc_rate_slab_r': {
+        if (rateSlab === 'R') {
+          const catalog = erpCatalogMcPerUnit(line)
+          const eff = erpEffectiveMcPerUnit(line, rateSlab, slabSettings)
+          if (catalog > 0 && eff > 0 && Math.abs(eff - catalog) > 0.009) return eff
+        }
         const k = mcSlabFieldForBillingSlab(rateSlab)
         const v = line[k]
         return v != null && Number.isFinite(Number(v)) ? v : ''
@@ -2319,6 +2342,7 @@ export function ErpBillingWorkspace() {
         }
         return line.fixed_price ?? ''
       case 'fixed_price_r':
+        if (rateSlab === 'W' || rateSlab === 'F') return ''
         return line.fixed_price_r ?? ''
       case 'amount':
         return formatErpInr(line.lineTotalInr ?? 0)
@@ -2382,7 +2406,13 @@ export function ErpBillingWorkspace() {
       patch.weightGm = parsed
     }
     if (k === 'fixed_price') {
-      if (line.mrpMode || line.manualCategory === 'gift') {
+      if (line.manualCategory === 'shipping') {
+        if (parsed != null) {
+          patch.fixed_price = parsed
+          patch.unitInr = parsed
+          patch.mrpListPrice = parsed
+        }
+      } else if (line.mrpMode || line.manualCategory === 'gift') {
         if (parsed != null) {
           patch.mrpListPrice = parsed
           const slabPrice = giftMrpSlabPrice(parsed, rateSlab, slabSettings)
@@ -3303,7 +3333,7 @@ export function ErpBillingWorkspace() {
                 {lines.length === 0 ? (
                   <tr>
                     <td colSpan={collapsedTableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Scan a barcode or press A / S / B / G / O for manual entry
+                      Scan a barcode, SH for shipping, or A / S / B / G / O for manual entry
                     </td>
                   </tr>
                 ) : (
@@ -3731,41 +3761,14 @@ export function ErpBillingWorkspace() {
                           )
                         }
 
-                        if (col.key === 'mc_type' && line.manualEntry && !isGiftManualLine(line)) {
-                          const k = 'mc_type' as ManualBillGridField
-                          const refKey = `${lineKey}-mc_type`
-                          const mcVal = normalizeMcTypeInput(line.mc_type) ?? ''
-                          const selectCls =
-                            `w-full min-w-0 rounded border border-emerald-300 bg-white px-1 py-1 text-[11px] ${scannedProductsInputTextCls} outline-none focus:border-[var(--kc-accent,#c41e3a)]/50`
+                        if (col.key === 'mc_type') {
+                          const mcVal = normalizeMcTypeInput(line.mc_type) ?? String(line.mc_type || '')
                           return (
-                            <td key={col.key} className="px-1 py-1">
-                              <select
-                                ref={(el) => {
-                                  manualCellRefs.current[refKey] = el
-                                }}
-                                autoFocus={
-                                  manualFocus?.lineKey === lineKey && manualFocus.field === 'mc_type'
-                                }
-                                className={selectCls}
-                                value={mcVal}
-                                onChange={(e) => {
-                                  const v = normalizeMcTypeInput(e.target.value)
-                                  updateManualLine(idx, { mc_type: v })
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
-                                    e.preventDefault()
-                                    advanceBillField(lineKey, k, line, idx)
-                                  }
-                                }}
-                              >
-                                <option value="">MC type…</option>
-                                {ERP_MC_TYPE_OPTIONS.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
+                            <td
+                              key={col.key}
+                              className={`px-1 py-1 text-[11px] ${scannedProductsInputTextCls}`}
+                            >
+                              {mcVal || '—'}
                             </td>
                           )
                         }

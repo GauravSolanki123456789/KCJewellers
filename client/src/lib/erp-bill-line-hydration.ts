@@ -1,5 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { normalizeMetalSlabPctForUiStorage } from '@/lib/erp-metal-slab-field'
+import { inferMcRateCatalogPatch } from '@/lib/erp-mc-slab-effective'
 
 const NUMERIC_LINE_KEYS: (keyof ErpBillLine)[] = [
   'weightGm',
@@ -29,6 +30,7 @@ const NUMERIC_LINE_KEYS: (keyof ErpBillLine)[] = [
   'displayMcBeforeDiscount',
   'displayMcDiscountPct',
   'displayWastagePct',
+  'displayMcRatePerUnit',
 ]
 
 function coerceNum(v: unknown): number | null {
@@ -55,6 +57,8 @@ export function normalizeErpBillLineFromStorage(line: ErpBillLine): ErpBillLine 
     const ui = normalizeMetalSlabPctForUiStorage(line[key])
     if (ui != null) next[key] = ui
   }
+  const catalogPatch = inferMcRateCatalogPatch(next)
+  if (catalogPatch) Object.assign(next, catalogPatch)
   return next
 }
 

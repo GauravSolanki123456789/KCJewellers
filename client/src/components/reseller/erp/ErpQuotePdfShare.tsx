@@ -94,6 +94,7 @@ export async function shareErpQuotePdf(params: {
       customerMobile={resolvedMobile || null}
       ratesUnfixed={ratesUnfixed}
       layoutMode={params.layoutMode ?? 'detailed'}
+      slabSettingsRaw={params.slabSettingsRaw}
     />,
   ).toBlob()
 

@@ -30,6 +30,8 @@ export function lineHasPieceSlabFields(line: ErpBillLine): boolean {
 }
 
 export function pieceSlabMcRate(line: ErpBillLine, slab: ErpRateSlab): number | null {
+  /** Manual S/A/B rows bill catalog MC × catalogue slab % — not Excel MCRateSlabW/F. */
+  if (line.manualEntry) return null
   if (slab === 'Q') {
     if (line.mc_rate_slab_r != null && Number.isFinite(Number(line.mc_rate_slab_r))) {
       return Number(line.mc_rate_slab_r)
@@ -40,14 +42,12 @@ export function pieceSlabMcRate(line: ErpBillLine, slab: ErpRateSlab): number | 
     if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
       return Number(line.mc_rate_slab_w)
     }
-    if (line.manualEntry) return null
     return line.mc_rate_slab_r ?? line.mc_rate ?? null
   }
   if (slab === 'F') {
     if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
       return Number(line.mc_rate_slab_f)
     }
-    if (line.manualEntry) return null
     return line.mc_rate_slab_w ?? line.mc_rate ?? null
   }
   return line.mc_rate_slab_r ?? line.mc_rate ?? null
@@ -121,6 +121,7 @@ export function applyPieceSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpB
 export function applyBillingSlabToLine(line: ErpBillLine, slab: ErpRateSlab): ErpBillLine {
   if (!lineHasPieceSlabFields(line)) return line
   let next = applyPieceSlabToLine(line, slab)
+  if (line.manualEntry) return next
   const slabMc = pieceSlabMcRate(line, slab)
   if (slabMc != null && Number.isFinite(slabMc)) {
     next = { ...next, mc_rate: slabMc }
@@ -136,6 +137,7 @@ export function computeErpPieceSlabBreakdown(
   gstPct = 3,
   silverRateOffsetPerG = 0,
   mcDiscountPct = 0,
+  effectiveMcPerUnit?: number | null,
 ): PriceBreakdown {
   const netWt = erpLineNetWeightGm(line, slab)
   const billWt = pieceSlabBillableWeight(line, slab)
@@ -146,8 +148,11 @@ export function computeErpPieceSlabBreakdown(
     wholesaleSilver,
     silverRateOffsetPerG,
   )
-  const mcRate = Number(pieceSlabMcRate(line, slab) ?? 0) || 0
-  const qty = line.qty ?? 1
+  const mcRate =
+    effectiveMcPerUnit != null && Number(effectiveMcPerUnit) > 0
+      ? Number(effectiveMcPerUnit)
+      : Number(pieceSlabMcRate(line, slab) ?? 0) || 0
+  const qty = Math.max(1, Number(line.qty) || 1)
   const stone = Number(line.stone_charges || 0) || 0
   const box = Number(line.box_charges || 0) || 0
   const mcGm = !isMcPerPiece(line.mc_type)
@@ -160,14 +165,15 @@ export function computeErpPieceSlabBreakdown(
     mcGm && wastPct > 0 ? Math.round(netWt * (1 + wastPct / 100) * 1000) / 1000 : netWt
 
   const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0))
+  const skipTierDisc = effectiveMcPerUnit != null && Number(effectiveMcPerUnit) > 0
   if (mcGm) {
-    metalPart = Math.round(metalRate * billWt)
-    mc = Math.round(mcRate * mcWt)
-    if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100))
+    metalPart = Math.round(metalRate * billWt * qty)
+    mc = Math.round(mcRate * mcWt * qty)
+    if (!skipTierDisc && mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100))
   } else {
-    metalPart = Math.round(metalRate * billWt)
+    metalPart = Math.round(metalRate * billWt * qty)
     const mcRaw = Math.round(mcRate * qty)
-    mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw
+    mc = !skipTierDisc && mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw
   }
 
   const taxable = metalPart + mc + stone + box

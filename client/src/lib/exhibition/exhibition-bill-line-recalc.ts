@@ -3,6 +3,7 @@ import {
   applyPiecePricedLineCalc,
   computeLineBreakdown,
   isPiecePricedBillLine,
+  isShippingChargeLine,
   isSilverGiftStockLine,
   isWeightBasedSilverGiftLine,
   lineHasPieceSlabFields,
@@ -32,7 +33,8 @@ export function recalcExhibitionBillLine(
 ): ErpBillLine {
   if (isPiecePricedBillLine(line)) {
     const withMrp = applyGiftMrpPieceRate(line, opts.slab, opts.slabSettings)
-    return { ...withMrp, ...applyPiecePricedLineCalc(withMrp) }
+    const gstOn = !isShippingChargeLine(withMrp)
+    return { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) }
   }
 
   const rates =

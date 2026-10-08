@@ -20,7 +20,8 @@ import {
   groupBillLinesForSummaryPdf,
   lineShowsMcRPdfColumn,
 } from '@/lib/erp-quote-pdf-summary'
-import { isPiecePricedBillLine } from '@/lib/erp-billing-pricing'
+import { isPiecePricedBillLine, parseSlabSettingsFromUser } from '@/lib/erp-billing-pricing'
+import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
@@ -80,6 +81,7 @@ function buildPdfColumns(
   lines: ErpBillLine[],
   rateSlab: ErpRateSlab,
   ratesUnfixed: boolean,
+  slabSettings?: ResellerSlabSettings | null,
 ): PdfCol[] {
   const hasGold = lines.some((l) => !isSilverMetal(l))
   const showSlabPct = lines.some((l) => lineHasMetalSlabPctInput(l, rateSlab))
@@ -94,7 +96,7 @@ function buildPdfColumns(
     )
   })
   const showMcR =
-    rateSlab === 'R' && lines.some((line) => lineShowsMcRPdfColumn(line, rateSlab))
+    rateSlab === 'R' && lines.some((line) => lineShowsMcRPdfColumn(line, rateSlab, slabSettings))
 
   const candidates: PdfCol[] = [
     { key: 'barcode', label: 'Barcode', w: '11%' },
@@ -127,7 +129,7 @@ function buildPdfColumns(
     if (ratesUnfixed && rateUnfixAlways.has(col.key)) return true
     if (col.key === 'rate' && hasMetalRate) return true
     return lines.some((line) => {
-      const val = cell(line, col.key, rateSlab, ratesUnfixed)
+      const val = cell(line, col.key, rateSlab, ratesUnfixed, slabSettings)
       return !isEmptyPdfCell(val, col.key)
     })
   }).map((col, _, arr) => {
@@ -276,6 +278,7 @@ function cell(
   key: string,
   rateSlab: ErpRateSlab,
   ratesUnfixed: boolean,
+  slabSettings?: ResellerSlabSettings | null,
 ): string {
   if (ratesUnfixed && (key === 'amt' || key === 'rate')) return ''
 
@@ -314,9 +317,9 @@ function cell(
       return '—'
     }
     case 'mc':
-      return billingMcPdfCatalogColumn(line, rateSlab)
+      return billingMcPdfCatalogColumn(line, rateSlab, true, slabSettings)
     case 'mcR':
-      return billingMcPdfSlabRColumn(line, rateSlab)
+      return billingMcPdfSlabRColumn(line, rateSlab, slabSettings)
     case 'mct':
       return line.mc_type || '—'
     case 'mcValue': {
@@ -325,7 +328,7 @@ function cell(
       if (groupedMc != null && groupedMc > 0 && String(line.barcode || '').includes(' items')) {
         return String(Math.round(groupedMc))
       }
-      const mv = computeMcValueForPdf(line, rateSlab)
+      const mv = computeMcValueForPdf(line, rateSlab, slabSettings)
       return mv != null ? String(mv) : '—'
     }
     case 'pcs':
@@ -373,6 +376,7 @@ export type ErpQuotePdfDocumentProps = {
   documentKind?: 'quote' | 'invoice'
   gstin?: string | null
   layoutMode?: ErpQuotePdfLayoutMode
+  slabSettingsRaw?: unknown
 }
 
 export function ErpQuotePdfDocument({
@@ -387,18 +391,23 @@ export function ErpQuotePdfDocument({
   documentKind = 'quote',
   gstin,
   layoutMode = 'detailed',
+  slabSettingsRaw,
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
   const rawLines = bill.lines ?? []
   const rateSlab = ((bill.session as { rateSlab?: ErpRateSlab } | null)?.rateSlab ?? 'R') as ErpRateSlab
+  const slabSettings = useMemo(
+    () => parseSlabSettingsFromUser(slabSettingsRaw),
+    [slabSettingsRaw],
+  )
   const lines = useMemo(() => {
     if (layoutMode !== 'summary') return rawLines
     return groupBillLinesForSummaryPdf(rawLines, rateSlab)
   }, [rawLines, layoutMode, rateSlab])
   const cols = useMemo(
-    () => buildPdfColumns(lines, rateSlab, ratesUnfixed),
-    [lines, rateSlab, ratesUnfixed],
+    () => buildPdfColumns(lines, rateSlab, ratesUnfixed, slabSettings),
+    [lines, rateSlab, ratesUnfixed, slabSettings],
   )
   const isInvoice = documentKind === 'invoice'
   const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'
@@ -466,7 +475,7 @@ export function ErpQuotePdfDocument({
           <View key={`row-${i}`} style={[styles.bodyRow, i % 2 === 1 ? styles.bodyRowAlt : {}]}>
             <Text style={[styles.bodyCell, { width: '3%' }]}>{i + 1}</Text>
             {cols.map((c) => {
-              const text = sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed))
+              const text = sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed, slabSettings))
               const dense = c.key === 'barcode' || c.key === 'sku' || c.key === 'style' || c.key === 'name'
               return (
                 <View key={c.key} style={[styles.bodyCellWrap, { width: c.w }]}>

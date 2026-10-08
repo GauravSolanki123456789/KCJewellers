@@ -743,6 +743,7 @@ var KcExhibitionBillingModule = (() => {
       name: product.name,
       imageUrl: product.image_url ?? line.imageUrl ?? null,
       mc_rate: product.mc_rate ?? line.mc_rate,
+      mc_rate_catalog: product.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate,
       mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
       wastage_pct: product.wastage_pct ?? line.wastage_pct,
       purity: product.purity ?? line.purity,
@@ -782,7 +783,10 @@ var KcExhibitionBillingModule = (() => {
       if (shouldKeepCatalogWeights(line, mrpMode) && s.gross_weight != null) {
         patch.gross_weight = s.gross_weight;
       }
-      if (s.mc_rate != null) patch.mc_rate = s.mc_rate;
+      if (s.mc_rate != null) {
+        patch.mc_rate = s.mc_rate;
+        patch.mc_rate_catalog = s.mc_rate;
+      }
       if (s.mc_type) patch.mc_type = s.mc_type;
       if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct;
       if (s.purity != null) patch.purity = s.purity;
@@ -847,6 +851,7 @@ var KcExhibitionBillingModule = (() => {
       originalWeightGm: keepWt ? hit.net_weight ?? line.originalWeightGm : null,
       gross_weight: keepWt ? hit.gross_weight ?? line.gross_weight : null,
       mc_rate: hit.mc_rate ?? line.mc_rate,
+      mc_rate_catalog: hit.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate,
       mc_type: hit.mc_type ?? line.mc_type,
       wastage_pct: hit.wastage_pct ?? line.wastage_pct,
       purity: hit.purity ?? line.purity,
@@ -924,6 +929,9 @@ var KcExhibitionBillingModule = (() => {
     return formatMetalSlabPctForDisplay(line, slab) !== "";
   }
   function isManualGridFieldVisible(field, line, rateSlab = "R") {
+    if (line.manualCategory === "shipping") {
+      return field === "fixed_price" || field === "qty" || field === "name";
+    }
     if (line.manualCategory === "old") {
       const allowed = /* @__PURE__ */ new Set([
         "name",
@@ -944,6 +952,7 @@ var KcExhibitionBillingModule = (() => {
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
     if (field === "stone_charges") return lineHasFinishPicker(line);
     if (field === "fixed_price_r") {
+      if (rateSlab === "W" || rateSlab === "F") return false;
       return line.manualCategory === "gift" || !!line.mrpMode;
     }
     return true;
@@ -971,6 +980,7 @@ var KcExhibitionBillingModule = (() => {
     return line.mc_rate_slab_r != null || line.mc_rate_slab_w != null || line.mc_rate_slab_f != null || line.metal_slab_r_pct != null || line.metal_slab_w_pct != null || line.metal_slab_f_pct != null;
   }
   function pieceSlabMcRate(line, slab) {
+    if (line.manualEntry) return null;
     if (slab === "Q") {
       if (line.mc_rate_slab_r != null && Number.isFinite(Number(line.mc_rate_slab_r))) {
         return Number(line.mc_rate_slab_r);
@@ -981,14 +991,12 @@ var KcExhibitionBillingModule = (() => {
       if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
         return Number(line.mc_rate_slab_w);
       }
-      if (line.manualEntry) return null;
       return line.mc_rate_slab_r ?? line.mc_rate ?? null;
     }
     if (slab === "F") {
       if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
         return Number(line.mc_rate_slab_f);
       }
-      if (line.manualEntry) return null;
       return line.mc_rate_slab_w ?? line.mc_rate ?? null;
     }
     return line.mc_rate_slab_r ?? line.mc_rate ?? null;
@@ -1038,7 +1046,7 @@ var KcExhibitionBillingModule = (() => {
       weightGm: pieceSlabBillableWeight(line, slab)
     };
   }
-  function computeErpPieceSlabBreakdown(line, slab, silverPerG, wholesaleSilver, gstPct = 3, silverRateOffsetPerG = 0, mcDiscountPct = 0) {
+  function computeErpPieceSlabBreakdown(line, slab, silverPerG, wholesaleSilver, gstPct = 3, silverRateOffsetPerG = 0, mcDiscountPct = 0, effectiveMcPerUnit) {
     const netWt = erpLineNetWeightGm(line, slab);
     const billWt = pieceSlabBillableWeight(line, slab);
     const metalRate = resolveErpLineSilverMetalRatePerG(
@@ -1048,8 +1056,8 @@ var KcExhibitionBillingModule = (() => {
       wholesaleSilver,
       silverRateOffsetPerG
     );
-    const mcRate = Number(pieceSlabMcRate(line, slab) ?? 0) || 0;
-    const qty = line.qty ?? 1;
+    const mcRate = effectiveMcPerUnit != null && Number(effectiveMcPerUnit) > 0 ? Number(effectiveMcPerUnit) : Number(pieceSlabMcRate(line, slab) ?? 0) || 0;
+    const qty = Math.max(1, Number(line.qty) || 1);
     const stone2 = Number(line.stone_charges || 0) || 0;
     const box = Number(line.box_charges || 0) || 0;
     const mcGm = !isMcPerPiece(line.mc_type);
@@ -1058,14 +1066,15 @@ var KcExhibitionBillingModule = (() => {
     const wastPct = Number(line.wastage_pct ?? 0) || 0;
     const mcWt = mcGm && wastPct > 0 ? Math.round(netWt * (1 + wastPct / 100) * 1e3) / 1e3 : netWt;
     const mcDisc = Math.max(0, Math.min(100, Number(mcDiscountPct) || 0));
+    const skipTierDisc = effectiveMcPerUnit != null && Number(effectiveMcPerUnit) > 0;
     if (mcGm) {
-      metalPart = Math.round(metalRate * billWt);
-      mc = Math.round(mcRate * mcWt);
-      if (mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100));
+      metalPart = Math.round(metalRate * billWt * qty);
+      mc = Math.round(mcRate * mcWt * qty);
+      if (!skipTierDisc && mcDisc > 0) mc = Math.round(mc * (1 - mcDisc / 100));
     } else {
-      metalPart = Math.round(metalRate * billWt);
+      metalPart = Math.round(metalRate * billWt * qty);
       const mcRaw = Math.round(mcRate * qty);
-      mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw;
+      mc = !skipTierDisc && mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw;
     }
     const taxable = metalPart + mc + stone2 + box;
     const total = Math.round(taxable * (1 + gstPct / 100));
@@ -1116,6 +1125,7 @@ var KcExhibitionBillingModule = (() => {
     return Math.round(m * (1 - disc / 100) * 100) / 100;
   }
   function applyGiftMrpPieceRate(line, slab, slabSettings) {
+    if (line.manualCategory === "shipping") return line;
     if (shouldUseWeightSilverNotMrp(line)) {
       return { ...line, mrpMode: false, mrpListPrice: null, unitInr: null };
     }
@@ -1169,6 +1179,53 @@ var KcExhibitionBillingModule = (() => {
     };
   }
 
+  // src/lib/erp-mc-slab-effective.ts
+  function slabToKind(slab) {
+    if (slab === "W") return "slab_w";
+    if (slab === "F") return "slab_f";
+    if (slab === "Q") return "standard";
+    return "slab_r";
+  }
+  function clampPct3(n) {
+    return Math.max(0, Math.min(100, Number(n) || 0));
+  }
+  function roundMc(n) {
+    return Math.round(n * 100) / 100;
+  }
+  function skipCatalogMcPcDiscount(line) {
+    return line.manualCategory === "gift" || line.manualCategory === "shipping";
+  }
+  function erpCatalogMcPerUnit(line) {
+    const cat = Number(line.mc_rate_catalog ?? 0);
+    if (Number.isFinite(cat) && cat > 0) return cat;
+    const mc = Number(line.mc_rate ?? 0) || 0;
+    const r = Number(line.mc_rate_slab_r ?? 0) || 0;
+    const w = Number(line.mc_rate_slab_w ?? 0) || 0;
+    const f = Number(line.mc_rate_slab_f ?? 0) || 0;
+    const candidates = [mc, r, w, f].filter((n) => n > 0);
+    if (!candidates.length) return 0;
+    return Math.max(...candidates);
+  }
+  function erpTierMcDiscountPct(line, slab, slabSettings) {
+    if (!slabSettings || skipCatalogMcPcDiscount(line)) return 0;
+    const tier = tierSettingsForSlab(slabSettings, slabToKind(slab), line.metal_type || "silver");
+    if (isMcPerGmBillingType(line.mc_type)) {
+      return clampPct3(tier.mc_gm_discount_pct ?? 0);
+    }
+    if (isMcPerPiece(line.mc_type)) {
+      return clampPct3(tier.mc_discount_pct);
+    }
+    return 0;
+  }
+  function erpEffectiveMcPerUnit(line, slab, slabSettings) {
+    const catalog = erpCatalogMcPerUnit(line);
+    if (catalog <= 0) return 0;
+    if (skipCatalogMcPcDiscount(line)) return catalog;
+    const pct = erpTierMcDiscountPct(line, slab, slabSettings);
+    if (pct <= 0) return roundMc(catalog);
+    return roundMc(catalog * (1 - pct / 100));
+  }
+
   // src/lib/erp-manual-as-line-pricing.ts
   var GST_PCT = 3;
   function isManualArticlesOrJewelleryLine(line) {
@@ -1184,9 +1241,13 @@ var KcExhibitionBillingModule = (() => {
     const v = Number(line[field] ?? 0);
     return Number.isFinite(v) && v > 0 ? v : 0;
   }
-  function manualEffectiveMcRatePerUnit(line, slab) {
+  function manualEffectiveMcRatePerUnit(line, slab, slabSettings) {
+    if (!skipCatalogMcPcDiscount(line)) {
+      const eff = erpEffectiveMcPerUnit(line, slab, slabSettings);
+      if (eff > 0) return eff;
+    }
     const slabMc = pieceSlabMcRate(line, slab);
-    if (slabMc != null && Number(slabMc) > 0) return Number(slabMc);
+    if (slabMc != null && Number(slabMc) > 0 && !line.manualEntry) return Number(slabMc);
     const base = Number(line.mc_rate ?? 0) || 0;
     if (base <= 0) return 0;
     const disc = manualMcDiscountPerUnit(line, slab);
@@ -1240,11 +1301,12 @@ var KcExhibitionBillingModule = (() => {
       wholesaleSilver,
       wholesaleGold
     );
-    const metalCost = rate > 0 ? billedWt * rate : 0;
-    const baseMcRate = Number(line.mc_rate ?? 0) || 0;
-    const effMcRate = manualEffectiveMcRatePerUnit(line, slab);
     const pcs = Math.max(1, Number(line.qty) || 1);
+    const metalCost = rate > 0 ? billedWt * rate * pcs : 0;
+    const catalogMc = erpCatalogMcPerUnit(line);
     const perGm = isMcPerGmBillingType(line.mc_type);
+    const baseMcRate = perGm ? Number(line.mc_rate ?? catalogMc) || 0 : catalogMc;
+    const effMcRate = manualEffectiveMcRatePerUnit(line, slab, slabSettings);
     let mcWt = netWt;
     if (perGm) {
       if (metalMult != null && metalMult > 0) {
@@ -1255,17 +1317,8 @@ var KcExhibitionBillingModule = (() => {
         mcWt = netWt;
       }
     }
-    let totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate;
-    let totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate;
-    if (!perGm && slabSettings && isMcPerPiece(line.mc_type)) {
-      const slabMc = pieceSlabMcRate(line, slab);
-      const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);
-      const mcDiscPct = Math.max(0, Math.min(100, Number(tier.mc_discount_pct) || 0));
-      if (mcDiscPct > 0 && (slabMc == null || Number(slabMc) === baseMcRate)) {
-        totalMcBase = pcs * baseMcRate;
-        totalMc = Math.round(pcs * baseMcRate * (1 - mcDiscPct / 100));
-      }
-    }
+    const totalMcBase = perGm ? mcWt * baseMcRate * pcs : pcs * baseMcRate;
+    const totalMc = perGm ? mcWt * effMcRate * pcs : pcs * effMcRate;
     const fixedBase = Number(line.fixed_price ?? 0) || 0;
     const fixedR = Number(line.fixed_price_r ?? 0) || 0;
     let fixedTotal = fixedBase;
@@ -1282,11 +1335,13 @@ var KcExhibitionBillingModule = (() => {
     const taxable = Math.round(netSubtotal);
     const total = gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : taxable;
     const gstRounded = total - taxable;
-    const mcBefore = baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : void 0;
+    const mcBefore = catalogMc > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : void 0;
+    const mcDiscountPct = erpTierMcDiscountPct(line, slab, slabSettings) || void 0;
     return {
       metal: Math.round(metalCost),
-      mc: Math.round(totalMc),
+      mc: Math.round(totalMc * 100) / 100,
       mc_before_discount: mcBefore,
+      mc_discount_pct: mcDiscountPct && mcBefore ? mcDiscountPct : void 0,
       stone: stone2 + box,
       cgst: gstRounded / 2,
       sgst: gstRounded / 2,
@@ -1401,15 +1456,9 @@ var KcExhibitionBillingModule = (() => {
       wholesaleSilver,
       silverOffset
     );
-    const mcBase = Number(line.mc_rate) || 0;
-    const mcDisc = Math.max(
-      0,
-      Math.min(
-        100,
-        Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0
-      )
-    );
-    const mcPerG = mcDisc > 0 ? mcBase * (1 - mcDisc / 100) : mcBase;
+    const mcBase = erpCatalogMcPerUnit(line) || Number(line.mc_rate) || 0;
+    const mcPerG = erpEffectiveMcPerUnit(line, slab, slabSettings) || mcBase;
+    const mcDisc = mcBase > mcPerG && mcBase > 0 ? Math.round((1 - mcPerG / mcBase) * 100) : 0;
     const combinedPerG = metalRate + mcPerG;
     const metalPart = Math.round(metalRate * netWt * qty);
     const mc = Math.round(mcPerG * netWt * qty);
@@ -1441,7 +1490,11 @@ var KcExhibitionBillingModule = (() => {
     const wt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     return wt > 0;
   }
+  function isShippingChargeLine(line) {
+    return line.manualCategory === "shipping";
+  }
   function isPiecePricedBillLine(line) {
+    if (isShippingChargeLine(line)) return true;
     if (shouldUseWeightSilverNotMrp(line)) return false;
     if (line.mrpMode) {
       const list = Number(line.mrpListPrice ?? 0);
@@ -1533,7 +1586,8 @@ var KcExhibitionBillingModule = (() => {
     const parsed = Number(line.qty);
     const slabPer = Number(line.unitInr ?? line.fixed_price ?? 0) || 0;
     const customPer = Number(line.fixed_price_r ?? 0) || 0;
-    const pieceRate = customPer > 0 ? customPer : slabPer > 0 ? slabPer : Number(line.ratePerGram ?? line.mc_rate) || 0;
+    const shipping = isShippingChargeLine(line);
+    const pieceRate = shipping ? Number(line.fixed_price ?? line.unitInr ?? 0) || 0 : customPer > 0 ? customPer : slabPer > 0 ? slabPer : Number(line.ratePerGram ?? line.mc_rate) || 0;
     const isGift = line.manualCategory === "gift" || !!line.mrpMode;
     let qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1;
     if (pieceRate > 0 && qty <= 0 && (line.mrpMode || isFixedPriceCatalogItem(lineToItem(line)))) {
@@ -1541,7 +1595,7 @@ var KcExhibitionBillingModule = (() => {
     }
     const box = Number(line.box_charges || 0) || 0;
     const taxable = Math.round((qty * pieceRate + box) * 100) / 100;
-    const gstPct = erpBillGstPct(gstEnabled);
+    const gstPct = shipping ? 0 : erpBillGstPct(gstEnabled);
     const total = gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : Math.round(taxable);
     return {
       ...line,
@@ -1582,7 +1636,7 @@ var KcExhibitionBillingModule = (() => {
       );
       return finalizeWeightBasedBreakdown(line, bd2, gstPct);
     }
-    if (isManualArticlesOrJewelleryLine(line)) {
+    if (isManualArticlesOrJewelleryLine(line) || isWeightBasedSilverGiftLine(line) && isMcPerPiece(line.mc_type)) {
       const manualLine = erpManualLineWithSlabRetailSilverRate(
         line,
         slab,
@@ -1640,7 +1694,9 @@ var KcExhibitionBillingModule = (() => {
       const adjusted = applyPieceSlabToLine(slabLine, slab);
       const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);
       const silverOffset = opts?.literalCustomMetalRate ? 0 : slab === "R" ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0;
-      const mcDisc = isRetailQuoteSlab(slab) ? 0 : isMcPerPiece(adjusted.mc_type) ? Math.max(0, Number(tier.mc_discount_pct) || 0) : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0);
+      const perPc = isMcPerPiece(adjusted.mc_type);
+      const mcDisc = perPc ? 0 : Math.max(0, Number(tier.mc_gm_discount_pct ?? 0) || 0);
+      const effMc = perPc ? erpEffectiveMcPerUnit(adjusted, slab, slabSettings) : null;
       let bd2 = computeErpPieceSlabBreakdown(
         adjusted,
         slab,
@@ -1648,7 +1704,8 @@ var KcExhibitionBillingModule = (() => {
         wholesaleSilver,
         gstPct,
         silverOffset,
-        mcDisc
+        mcDisc,
+        effMc
       );
       bd2 = finalizeSilverBillLineBreakdown(line, bd2, silverPerG, slab, gstPct);
       const box2 = Number(line.box_charges || 0) || 0;
@@ -1753,9 +1810,11 @@ var KcExhibitionBillingModule = (() => {
   };
   function resolveBillingScanShortcut(code) {
     const key = code.trim().toUpperCase();
+    if (key === "SH") return "shipping";
     if (key.length !== 1) return null;
     return BILLING_SCAN_SHORTCUTS[key] ?? null;
   }
+  var SHIPPING_ENTRY_FIELD_ORDER = ["fixed_price", "qty"];
   function findInvoiceItemForCategory(category, items) {
     const labels = CATEGORY_LABELS[category].map((x) => x.toUpperCase());
     for (const label of labels) {
@@ -1941,6 +2000,7 @@ var KcExhibitionBillingModule = (() => {
   ];
   function entryFieldOrderForLine(line) {
     if (line.manualCategory === "old") return OLD_EXCHANGE_FIELD_ORDER;
+    if (isShippingChargeLine(line)) return SHIPPING_ENTRY_FIELD_ORDER;
     return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER;
   }
   function nextManualEntryField(current, line, rateSlab = "R") {
@@ -1958,7 +2018,8 @@ var KcExhibitionBillingModule = (() => {
   function recalcExhibitionBillLine(line, opts) {
     if (isPiecePricedBillLine(line)) {
       const withMrp = applyGiftMrpPieceRate(line, opts.slab, opts.slabSettings);
-      return { ...withMrp, ...applyPiecePricedLineCalc(withMrp) };
+      const gstOn = !isShippingChargeLine(withMrp);
+      return { ...withMrp, ...applyPiecePricedLineCalc(withMrp, gstOn) };
     }
     const rates = opts.displayRates ?? perGramToDisplayRates(opts.goldPerG, opts.silverPerG);
     const mcMode = opts.goldSlabRShowMc !== false;

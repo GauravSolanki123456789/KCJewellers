@@ -162,6 +162,8 @@ export type ErpBillLine = {
   displayMcBeforeDiscount?: number | null
   /** Slab R gold — catalog MC discount % applied. */
   displayMcDiscountPct?: number | null
+  /** Effective ₹/pc or ₹/gm after catalogue MC/PC disc (grid + PDF). */
+  displayMcRatePerUnit?: number | null
   availability?: string | null
   /** Invoice line label e.g. SILVER JEWELLERY */
   invoice_item_name?: string | null
@@ -171,7 +173,7 @@ export type ErpBillLine = {
   manualEntry?: boolean
   /** True while A/S/B/G stacked editor is open; collapses to the normal table row when done */
   manualEntryOpen?: boolean
-  manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift' | 'old'
+  manualCategory?: 'articles' | 'jewellery' | 'bullion' | 'gift' | 'old' | 'shipping'
   /** Old silver exchange — dust/stone deduction (g). */
   oldDustStoneGm?: number | null
   /** Old silver exchange — payout % of gross weight (e.g. 92). */

@@ -1,13 +1,17 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import {
-  erpSlabToKind,
   isRetailQuoteSlab,
   mcSlabFieldForBillingSlab,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
-import { tierSettingsForSlab, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
-import { isMcPerPiece } from '@/lib/pricing'
+import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
+import {
+  erpCatalogMcPerUnit,
+  erpEffectiveMcPerUnit,
+  erpTierMcDiscountPct,
+  skipCatalogMcPcDiscount,
+} from '@/lib/erp-mc-slab-effective'
 import {
   erpLineNetWeightGm,
   lineHasMetalSlabPctInput,
@@ -55,10 +59,18 @@ export function manualMcDiscountPerUnit(line: ErpBillLine, slab: ErpRateSlab): n
   return Number.isFinite(v) && v > 0 ? v : 0
 }
 
-/** Billable MC ₹/gm (or ₹/pc) — MC R/W/F matches stock piece slab when set. */
-export function manualEffectiveMcRatePerUnit(line: ErpBillLine, slab: ErpRateSlab): number {
+/** Billable MC ₹/gm (or ₹/pc) — catalogue MC × slab % (S/A/B silver). G-enter skips. */
+export function manualEffectiveMcRatePerUnit(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  slabSettings?: ResellerSlabSettings,
+): number {
+  if (!skipCatalogMcPcDiscount(line)) {
+    const eff = erpEffectiveMcPerUnit(line, slab, slabSettings)
+    if (eff > 0) return eff
+  }
   const slabMc = pieceSlabMcRate(line, slab)
-  if (slabMc != null && Number(slabMc) > 0) return Number(slabMc)
+  if (slabMc != null && Number(slabMc) > 0 && !line.manualEntry) return Number(slabMc)
   const base = Number(line.mc_rate ?? 0) || 0
   if (base <= 0) return 0
   const disc = manualMcDiscountPerUnit(line, slab)
@@ -170,12 +182,13 @@ export function computeManualAsLineBreakdown(
     wholesaleSilver,
     wholesaleGold,
   )
-  const metalCost = rate > 0 ? billedWt * rate : 0
-
-  const baseMcRate = Number(line.mc_rate ?? 0) || 0
-  const effMcRate = manualEffectiveMcRatePerUnit(line, slab)
   const pcs = Math.max(1, Number(line.qty) || 1)
+  const metalCost = rate > 0 ? billedWt * rate * pcs : 0
+
+  const catalogMc = erpCatalogMcPerUnit(line)
   const perGm = isMcPerGmBillingType(line.mc_type)
+  const baseMcRate = perGm ? Number(line.mc_rate ?? catalogMc) || 0 : catalogMc
+  const effMcRate = manualEffectiveMcRatePerUnit(line, slab, slabSettings)
   let mcWt = netWt
   if (perGm) {
     if (metalMult != null && metalMult > 0) {
@@ -186,17 +199,8 @@ export function computeManualAsLineBreakdown(
       mcWt = netWt
     }
   }
-  let totalMcBase = perGm ? mcWt * baseMcRate : pcs * baseMcRate
-  let totalMc = perGm ? mcWt * effMcRate : pcs * effMcRate
-  if (!perGm && slabSettings && isMcPerPiece(line.mc_type)) {
-    const slabMc = pieceSlabMcRate(line, slab)
-    const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
-    const mcDiscPct = Math.max(0, Math.min(100, Number(tier.mc_discount_pct) || 0))
-    if (mcDiscPct > 0 && (slabMc == null || Number(slabMc) === baseMcRate)) {
-      totalMcBase = pcs * baseMcRate
-      totalMc = Math.round(pcs * baseMcRate * (1 - mcDiscPct / 100))
-    }
-  }
+  const totalMcBase = perGm ? mcWt * baseMcRate * pcs : pcs * baseMcRate
+  const totalMc = perGm ? mcWt * effMcRate * pcs : pcs * effMcRate
 
   const fixedBase = Number(line.fixed_price ?? 0) || 0
   const fixedR = Number(line.fixed_price_r ?? 0) || 0
@@ -218,12 +222,14 @@ export function computeManualAsLineBreakdown(
   const gstRounded = total - taxable
 
   const mcBefore =
-    baseMcRate > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : undefined
+    catalogMc > effMcRate && totalMcBase > totalMc ? Math.round(totalMcBase) : undefined
+  const mcDiscountPct = erpTierMcDiscountPct(line, slab, slabSettings) || undefined
 
   return {
     metal: Math.round(metalCost),
-    mc: Math.round(totalMc),
+    mc: Math.round(totalMc * 100) / 100,
     mc_before_discount: mcBefore,
+    mc_discount_pct: mcDiscountPct && mcBefore ? mcDiscountPct : undefined,
     stone: stone + box,
     cgst: gstRounded / 2,
     sgst: gstRounded / 2,

@@ -97,6 +97,9 @@ export function isManualGridFieldVisible(
   line: ErpBillLine,
   rateSlab: ErpRateSlab = 'R',
 ): boolean {
+  if (line.manualCategory === 'shipping') {
+    return field === 'fixed_price' || field === 'qty' || field === 'name'
+  }
   if (line.manualCategory === 'old') {
     const allowed = new Set<ManualBillGridField>([
       'name',
@@ -117,6 +120,7 @@ export function isManualGridFieldVisible(
   if (field === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
   if (field === 'stone_charges') return lineHasFinishPicker(line)
   if (field === 'fixed_price_r') {
+    if (rateSlab === 'W' || rateSlab === 'F') return false
     return line.manualCategory === 'gift' || !!line.mrpMode
   }
   return true

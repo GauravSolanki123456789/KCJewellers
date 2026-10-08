@@ -24,6 +24,7 @@ import {
   computeManualAsLineBreakdown,
   isManualArticlesOrJewelleryLine,
 } from '@/lib/erp-manual-as-line-pricing'
+import { erpCatalogMcPerUnit, erpEffectiveMcPerUnit } from '@/lib/erp-mc-slab-effective'
 import {
   isFixedPriceCatalogItem,
   isGiftingItem,
@@ -228,15 +229,10 @@ function computeSilverGiftMcGmBreakdown(
     wholesaleSilver,
     silverOffset,
   )
-  const mcBase = Number(line.mc_rate) || 0
-  const mcDisc = Math.max(
-    0,
-    Math.min(
-      100,
-      Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0,
-    ),
-  )
-  const mcPerG = mcDisc > 0 ? mcBase * (1 - mcDisc / 100) : mcBase
+  const mcBase = erpCatalogMcPerUnit(line) || Number(line.mc_rate) || 0
+  const mcPerG = erpEffectiveMcPerUnit(line, slab, slabSettings) || mcBase
+  const mcDisc =
+    mcBase > mcPerG && mcBase > 0 ? Math.round((1 - mcPerG / mcBase) * 100) : 0
   const combinedPerG = metalRate + mcPerG
   const metalPart = Math.round(metalRate * netWt * qty)
   const mc = Math.round(mcPerG * netWt * qty)
@@ -294,7 +290,12 @@ export function applyInvoiceItemMrpMode(line: ErpBillLine, mrpNames: Set<string>
 }
 
 /** Gift / MRP / fixed piece-rate rows (qty × fixed price, no weight-based metal math). */
+export function isShippingChargeLine(line: ErpBillLine): boolean {
+  return line.manualCategory === 'shipping'
+}
+
 export function isPiecePricedBillLine(line: ErpBillLine): boolean {
+  if (isShippingChargeLine(line)) return true
   if (shouldUseWeightSilverNotMrp(line)) return false
   if (line.mrpMode) {
     const list = Number(line.mrpListPrice ?? 0)
@@ -414,8 +415,10 @@ export function applyPiecePricedLineCalc(line: ErpBillLine, gstEnabled = true): 
   const parsed = Number(line.qty)
   const slabPer = Number(line.unitInr ?? line.fixed_price ?? 0) || 0
   const customPer = Number(line.fixed_price_r ?? 0) || 0
-  const pieceRate =
-    customPer > 0
+  const shipping = isShippingChargeLine(line)
+  const pieceRate = shipping
+    ? Number(line.fixed_price ?? line.unitInr ?? 0) || 0
+    : customPer > 0
       ? customPer
       : slabPer > 0
         ? slabPer
@@ -427,7 +430,7 @@ export function applyPiecePricedLineCalc(line: ErpBillLine, gstEnabled = true): 
   }
   const box = Number(line.box_charges || 0) || 0
   const taxable = Math.round((qty * pieceRate + box) * 100) / 100
-  const gstPct = erpBillGstPct(gstEnabled)
+  const gstPct = shipping ? 0 : erpBillGstPct(gstEnabled)
   const total =
     gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : Math.round(taxable)
   return {
@@ -499,7 +502,10 @@ export function computeLineBreakdown(
     return finalizeWeightBasedBreakdown(line, bd, gstPct)
   }
 
-  if (isManualArticlesOrJewelleryLine(line)) {
+  if (
+    isManualArticlesOrJewelleryLine(line) ||
+    (isWeightBasedSilverGiftLine(line) && isMcPerPiece(line.mc_type))
+  ) {
     const manualLine = erpManualLineWithSlabRetailSilverRate(
       line,
       slab,
@@ -567,11 +573,11 @@ export function computeLineBreakdown(
       : slab === 'R'
         ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0)
         : 0
-    const mcDisc = isRetailQuoteSlab(slab)
+    const perPc = isMcPerPiece(adjusted.mc_type)
+    const mcDisc = perPc
       ? 0
-      : isMcPerPiece(adjusted.mc_type)
-        ? Math.max(0, Number(tier.mc_discount_pct) || 0)
-        : Math.max(0, Number(tier.mc_gm_discount_pct ?? tier.mc_discount_pct) || 0)
+      : Math.max(0, Number(tier.mc_gm_discount_pct ?? 0) || 0)
+    const effMc = perPc ? erpEffectiveMcPerUnit(adjusted, slab, slabSettings) : null
     let bd = computeErpPieceSlabBreakdown(
       adjusted,
       slab,
@@ -580,6 +586,7 @@ export function computeLineBreakdown(
       gstPct,
       silverOffset,
       mcDisc,
+      effMc,
     )
     bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab, gstPct)
     const box = Number(line.box_charges || 0) || 0

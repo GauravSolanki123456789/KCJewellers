@@ -16,7 +16,9 @@ import {
   resolveLineDisplayRates,
 } from '@/lib/erp-billing-pricing'
 import {
+  applyErpLineMcDisplayFromBreakdown,
   isGoldSlabRLine,
+  isGoldSlabRMcPricing,
   computeBillingDiscountSummary,
   erpSettledTotalInr,
 } from '@/lib/erp-billing-display'
@@ -92,6 +94,9 @@ export function enrichErpBillLinesForDisplay(
       next.displayMcInr = null
       next.displayMcBeforeDiscount = null
       next.displayMcDiscountPct = null
+    }
+    if (!isGoldSlabRMcPricing(line, slab, mcMode !== false) && bd.mc > 0) {
+      Object.assign(next, applyErpLineMcDisplayFromBreakdown(line, bd, slab))
     }
     return next
   })

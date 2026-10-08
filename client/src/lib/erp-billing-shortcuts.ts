@@ -2,6 +2,7 @@ import type { GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItem
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import {
   applyPieceSlabToLine,
+  isShippingChargeLine,
   shouldUseWeightSilverNotMrp,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
@@ -32,10 +33,72 @@ export const BILLING_SCAN_SHORTCUTS: Record<string, BillingManualCategory> = {
   O: 'old',
 }
 
-export function resolveBillingScanShortcut(code: string): BillingManualCategory | null {
+export type BillingScanToken = BillingManualCategory | 'shipping'
+
+export function resolveBillingScanShortcut(code: string): BillingScanToken | null {
   const key = code.trim().toUpperCase()
+  if (key === 'SH') return 'shipping'
   if (key.length !== 1) return null
   return BILLING_SCAN_SHORTCUTS[key] ?? null
+}
+
+export { isShippingChargeLine }
+
+const SHIPPING_INVOICE_LABELS = ['SHIPPING CHARGE', 'SHIPPING', 'DELIVERY CHARGE', 'COURIER']
+
+export function findShippingInvoiceItem(items: GstInvoiceItem[]): GstInvoiceItem | null {
+  const upper = SHIPPING_INVOICE_LABELS.map((x) => x.toUpperCase())
+  for (const label of upper) {
+    const hit = items.find((it) => it.name.trim().toUpperCase() === label)
+    if (hit) return hit
+  }
+  for (const label of upper) {
+    const hit = items.find((it) => it.name.trim().toUpperCase().includes(label.split(' ')[0]!))
+    if (hit) return hit
+  }
+  return null
+}
+
+export const SHIPPING_ENTRY_FIELD_ORDER: ManualBillGridField[] = ['fixed_price', 'qty']
+
+export function createShippingBillLine(
+  invoiceItem: GstInvoiceItem,
+  usedCodes: Iterable<string> = [],
+): ErpBillLine {
+  const lineId = generateManualBarcode(usedCodes)
+  return {
+    name: 'SHIPPING CHARGE',
+    code: lineId,
+    barcode: lineId,
+    sku: 'SHIPPING CHARGE',
+    style_code: undefined,
+    size: null,
+    qty: 1,
+    originalWeightGm: null,
+    weightGm: null,
+    gross_weight: null,
+    bag_wt: null,
+    bags: null,
+    purity: null,
+    wastage_pct: null,
+    ratePerGram: null,
+    mc_rate: null,
+    mc_type: null,
+    box_charges: 0,
+    stone_charges: 0,
+    metal_type: null,
+    fixed_price: null,
+    unitInr: null,
+    mrpListPrice: null,
+    mrpMode: false,
+    stock_piece_id: null,
+    lineTotalInr: null,
+    invoice_item_name: invoiceItem.name,
+    hsn_code: invoiceItem.hsn,
+    manualEntry: true,
+    manualEntryOpen: true,
+    manualCategory: 'shipping',
+  }
 }
 
 export function findInvoiceItemForCategory(
@@ -313,6 +376,7 @@ export const OLD_EXCHANGE_FIELD_ORDER: ManualBillGridField[] = [
 
 export function entryFieldOrderForLine(line: ErpBillLine): ManualBillGridField[] {
   if (line.manualCategory === 'old') return OLD_EXCHANGE_FIELD_ORDER
+  if (isShippingChargeLine(line)) return SHIPPING_ENTRY_FIELD_ORDER
   return isGiftManualLine(line) ? GIFT_ENTRY_FIELD_ORDER : MANUAL_ENTRY_FIELD_ORDER
 }
 
@@ -339,6 +403,7 @@ export const STACKED_MANUAL_TAIL_ORDER: ManualBillGridField[] = [
 
 export function stackedManualFieldOrder(line: ErpBillLine): ManualBillGridField[] {
   if (line.manualCategory === 'old') return OLD_EXCHANGE_FIELD_ORDER
+  if (isShippingChargeLine(line)) return SHIPPING_ENTRY_FIELD_ORDER
   if (isGiftManualLine(line)) {
     return GIFT_ENTRY_FIELD_ORDER as ManualBillGridField[]
   }
@@ -353,6 +418,9 @@ export function isStackedManualFieldVisible(
   line: ErpBillLine,
   rateSlab: ErpRateSlab = 'R',
 ): boolean {
+  if (isShippingChargeLine(line)) {
+    return field === 'fixed_price' || field === 'qty'
+  }
   if (!isManualGridFieldVisible(field, line, rateSlab)) return false
   if (field === 'size') return (line.designSizeOptions?.length ?? 0) > 0
   if (field === 'stone_charges') return lineHasFinishPicker(line)
