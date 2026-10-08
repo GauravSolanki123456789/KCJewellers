@@ -124,8 +124,12 @@ export function migrateZplPlaceholders(raw: string | null | undefined): string {
   return s
 }
 
+export function sanitizeZplControlChars(raw: string): string {
+  return String(raw || '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+}
+
 export function preserveZplTemplate(raw: string | null | undefined): string {
-  return migrateZplPlaceholders(String(raw || ''))
+  return sanitizeZplControlChars(migrateZplPlaceholders(String(raw || '')))
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
@@ -532,12 +536,16 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
   pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
   pf.labelPrnRules = migrateLabelPrnRules(pf)
-  pf.labelZebraPrnTemplate = normalizeLabelTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL, 'zpl')
+  pf.labelZebraPrnTemplate = formatZplForEditor(
+    normalizeLabelTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL, 'zpl'),
+  )
   if (pf.labelUseZebraPrn == null) pf.labelUseZebraPrn = true
   if (Array.isArray(pf.labelZebraPrnRules) && pf.labelZebraPrnRules.length) {
     pf.labelZebraPrnRules = pf.labelZebraPrnRules.map((rule) => ({
       ...rule,
-      template: normalizeLabelTemplate(rule.template || pf.labelZebraPrnTemplate, 'zpl'),
+      template: formatZplForEditor(
+        normalizeLabelTemplate(rule.template || pf.labelZebraPrnTemplate, 'zpl'),
+      ),
     }))
   }
   if (pf.billTemplate?.trim()) {
@@ -663,11 +671,23 @@ export function normalizeLabelTemplate(
   return normalizePrnTemplate(preserved)
 }
 
-export function formatRawLabelForPrint(raw: string): string {
+/** GC420t with an "EPL" Windows driver often ignores raw ZPL until language is set. */
+export function zebraEplDriverNeedsZplWake(windowsPrinterName: string | null | undefined): boolean {
+  return /EPL/i.test(String(windowsPrinterName || ''))
+}
+
+export function formatRawLabelForPrint(
+  raw: string,
+  windowsPrinterName?: string | null,
+): string {
   if (isZplLabelTemplate(raw)) {
-    const body = preserveZplTemplate(raw)
+    const body = sanitizeZplControlChars(preserveZplTemplate(raw))
     const wire = body.includes('\n') ? body.split('\n').join('\r\n') : body
-    return `${wire}\r\n`
+    let out = `${wire}\r\n`
+    if (zebraEplDriverNeedsZplWake(windowsPrinterName)) {
+      out = `! U1 setvar "device.languages" "zpl"\r\n${out}`
+    }
+    return out
   }
   const body = normalizePrnTemplate(raw)
   return `${body.split('\n').join('\r\n')}\r\n`
@@ -746,13 +766,24 @@ export function suggestPrnPlaceholders(raw: string): string {
   return normalizePrnTemplate(out)
 }
 
-function formatZplForEditor(raw: string): string {
+export function formatZplForEditor(raw: string): string {
   const s = preserveZplTemplate(raw)
-  if (s.includes('\n')) return s
+  const logicalLines = s.split('\n').filter((l) => l.trim()).length
+  if (logicalLines >= 4) return s
   return s
+    .replace(/~\^CT~\^XA/g, '~^CT~\n^XA')
+    .replace(/\^XZ\^XA/g, '^XZ\n^XA')
     .replace(/\^XA/g, '\n^XA')
+    .replace(/\^MMT/g, '\n^MMT')
+    .replace(/\^PW(\d+)/g, '\n^PW$1')
+    .replace(/\^LL(\d+)/g, '\n^LL$1')
+    .replace(/\^LS(\d+)/g, '\n^LS$1')
+    .replace(/\^BY/g, '\n^BY')
+    .replace(/\^FT/g, '\n^FT')
     .replace(/\^PQ/g, '\n^PQ')
-    .replace(/^\n/, '')
+    .replace(/\^XZ/g, '\n^XZ')
+    .replace(/^\n+/, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 

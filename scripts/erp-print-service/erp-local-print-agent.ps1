@@ -251,8 +251,9 @@ function Invoke-RawPrint([string]$PrinterName, [string]$Tspl) {
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $tmp = Join-Path $env:TEMP "kc-erp-label-$(Get-Date -Format 'yyyyMMddHHmmss')-$suffix.prn"
     # No UTF-8 BOM — Zebra/TSC raw jobs fail silently if the stream starts with EF BB BF.
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($tmp, [string]$Tspl, $utf8NoBom)
+    $ascii = [System.Text.Encoding]::ASCII
+    $bytes = $ascii.GetBytes([string]$Tspl)
+    [System.IO.File]::WriteAllBytes($tmp, $bytes)
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = 'powershell.exe'

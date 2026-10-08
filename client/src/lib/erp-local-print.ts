@@ -60,7 +60,7 @@ export async function printViaLocalAgent(
   tsplList: string[],
   printerName: string,
 ): Promise<number> {
-  const formatted = tsplList.map((t) => formatTsplForSerial(t))
+  const formatted = tsplList.map((t) => formatTsplForSerial(t, printerName))
   const r = await fetch(`${LOCAL_PRINT_AGENT_URL}/print`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

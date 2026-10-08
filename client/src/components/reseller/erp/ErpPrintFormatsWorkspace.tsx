@@ -35,6 +35,7 @@ import {
   preservePrnTemplate,
   suggestPrnPlaceholders,
   suggestZplPlaceholders,
+  formatZplForEditor,
   type ErpPrintFormatsSettings,
   type LabelPrnRule,
   type LabelRuleFieldKey,
@@ -136,10 +137,10 @@ export function ErpPrintFormatsWorkspace() {
           ...rule,
           template: preservePrnTemplate(rule.template),
         })),
-        labelZebraPrnTemplate: preserveZplTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL),
+        labelZebraPrnTemplate: formatZplForEditor(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL),
         labelZebraPrnRules: (pf.labelZebraPrnRules || []).map((rule) => ({
           ...rule,
-          template: preserveZplTemplate(rule.template),
+          template: formatZplForEditor(rule.template || ''),
         })),
         billTemplate: preserveBillTemplate(pf.billTemplate),
         estimateTemplateGold: preserveBillTemplate(pf.estimateTemplateGold),
@@ -411,9 +412,9 @@ export function ErpPrintFormatsWorkspace() {
               <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
                 Use ERP placeholders like <code className="font-mono">{`{{barcode}}`}</code>,{' '}
                 <code className="font-mono">{`{{product_name}}`}</code>,{' '}
-                <code className="font-mono">{`{{gross_weight}}`}</code>. Uploading Designer .prn with{' '}
-                <code className="font-mono">&lt;TAGNO_ALPHA&gt;</code> tags is converted on upload. Line breaks in
-                the editor are kept when saved (like TSC).
+                <code className="font-mono">{`{{gross_weight}}`}</code>.                 Uploading Designer .prn with{' '}
+                <code className="font-mono">&lt;TAGNO_ALPHA&gt;</code> tags is converted on upload. Lines scroll
+                horizontally (no soft-wrap). Blank lines between commands are kept when you save.
               </p>
             ) : null}
             {!labelZebra && isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
@@ -435,7 +436,11 @@ export function ErpPrintFormatsWorkspace() {
               </div>
             ) : null}
             <textarea
-              className={`${erpInputCls} min-h-[320px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
+              className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed ${
+                labelZebra
+                  ? 'whitespace-pre overflow-x-auto [overflow-wrap:normal] [word-break:normal]'
+                  : 'whitespace-pre-wrap'
+              }`}
               value={labelZebra ? pf.labelZebraPrnTemplate || '' : pf.labelPrnTemplate || ''}
               onChange={(e) =>
                 setPf((p) =>
@@ -448,10 +453,11 @@ export function ErpPrintFormatsWorkspace() {
                 if (!labelZebra) return
                 setPf((p) => ({
                   ...p,
-                  labelZebraPrnTemplate: suggestZplPlaceholders(p.labelZebraPrnTemplate || ''),
+                  labelZebraPrnTemplate: formatZplForEditor(p.labelZebraPrnTemplate || ''),
                 }))
               }}
               spellCheck={false}
+              wrap={labelZebra ? 'off' : undefined}
             />
           </div>
 
@@ -694,16 +700,21 @@ export function ErpPrintFormatsWorkspace() {
                             </div>
 
                             <textarea
-                              className={`${erpInputCls} min-h-[240px] whitespace-pre-wrap font-mono text-[11px] leading-relaxed`}
+                              className={`${erpInputCls} min-h-[240px] font-mono text-[11px] leading-relaxed ${
+                                labelZebra
+                                  ? 'whitespace-pre overflow-x-auto [overflow-wrap:normal] [word-break:normal]'
+                                  : 'whitespace-pre-wrap'
+                              }`}
                               value={rule.template || ''}
                               onChange={(e) => updateRule(rule.id, { template: e.target.value })}
                               onBlur={() => {
                                 if (!labelZebra) return
                                 updateRule(rule.id, {
-                                  template: suggestZplPlaceholders(rule.template),
+                                  template: formatZplForEditor(rule.template || ''),
                                 })
                               }}
                               spellCheck={false}
+                              wrap={labelZebra ? 'off' : undefined}
                             />
                           </div>
                         ) : null}

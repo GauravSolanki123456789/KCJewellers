@@ -118,14 +118,22 @@ function migrateZplPlaceholders(raw) {
     return s;
 }
 
+function sanitizeZplControlChars(raw) {
+    return String(raw || '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
 function preserveZplTemplate(raw) {
-    return migrateZplPlaceholders(String(raw || ''))
+    return sanitizeZplControlChars(migrateZplPlaceholders(String(raw || '')))
         .replace(/\r\n/g, '\n')
         .replace(/\r/g, '\n')
         .split('\n')
         .map((line) => line.trimEnd())
         .join('\n')
         .trim();
+}
+
+function zebraEplDriverNeedsZplWake(windowsPrinterName) {
+    return /EPL/i.test(String(windowsPrinterName || ''));
 }
 
 const DEFAULT_LABEL_PRN_MRP = `
@@ -686,11 +694,15 @@ function normalizePrnTemplate(raw) {
     return preserved;
 }
 
-function formatTsplLineEndings(tspl) {
+function formatTsplLineEndings(tspl, windowsPrinterName) {
     if (isZplLabelTemplate(tspl)) {
         const body = preserveZplTemplate(tspl);
         const wire = body.includes('\n') ? body.split('\n').join('\r\n') : body;
-        return `${wire}\r\n`;
+        let out = `${wire}\r\n`;
+        if (zebraEplDriverNeedsZplWake(windowsPrinterName)) {
+            out = `! U1 setvar "device.languages" "zpl"\r\n${out}`;
+        }
+        return out;
     }
     const body = normalizePrnTemplate(tspl);
     return `${body.split('\n').join('\r\n')}\r\n`;

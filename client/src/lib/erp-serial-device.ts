@@ -123,8 +123,8 @@ export async function disconnectLabelPrinter() {
 }
 
 /** Raw label payload for USB agent or serial (TSPL multi-line or ZPL single-line). */
-export function formatTsplForSerial(tspl: string): string {
-  return formatRawLabelForPrint(tspl)
+export function formatTsplForSerial(tspl: string, windowsPrinterName?: string | null): string {
+  return formatRawLabelForPrint(tspl, windowsPrinterName)
 }
 
 export async function sendTsplOverSerial(port: SerialPortLike, tspl: string) {
