@@ -470,6 +470,7 @@ export function CustomersWorkspace() {
               onChange={(e) => setForm({ ...form, rate_slab: e.target.value as ErpRateSlabCode })}
             >
               <option value="R">Slab R (Retail)</option>
+              <option value="R1">Slab R1 (Wholesale metal)</option>
               <option value="W">Slab W (Wholesale)</option>
               <option value="F">Slab F</option>
               <option value="Q">Slab RQUOTE (full retail)</option>

@@ -41,6 +41,7 @@ export type ErpProductHit = {
   mc_rate?: number | null
   mc_type?: string | null
   mc_rate_slab_r?: number | null
+  mc_rate_slab_r1?: number | null
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
@@ -74,6 +75,7 @@ export type ErpStockPiece = {
   mc_rate?: number | null
   mc_type?: string | null
   mc_rate_slab_r?: number | null
+  mc_rate_slab_r1?: number | null
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
@@ -136,6 +138,7 @@ export type ErpBillLine = {
   mc_rate_catalog?: number | null
   mc_type?: string | null
   mc_rate_slab_r?: number | null
+  mc_rate_slab_r1?: number | null
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
@@ -258,11 +261,12 @@ export type ErpCustomer = {
   rate_slab?: string | null
 }
 
-export type ErpRateSlabCode = 'R' | 'W' | 'F' | 'Q'
+export type ErpRateSlabCode = 'R' | 'R1' | 'W' | 'F' | 'Q'
 
 export function normalizeErpCustomerSlab(raw?: string | null): ErpRateSlabCode {
   const s = String(raw || '').trim().toUpperCase().replace(/^SLAB\s*/, '')
   if (s === 'Q' || s === 'RQUOTE' || s === 'RQ') return 'Q'
+  if (s === 'R1') return 'R1'
   if (s === 'W' || s === 'WHOLESALE') return 'W'
   if (s === 'F') return 'F'
   return 'R'

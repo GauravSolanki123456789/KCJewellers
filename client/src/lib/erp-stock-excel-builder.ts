@@ -17,6 +17,7 @@ export type StockExcelBuilderDefaults = {
   wastage_pct?: string | number
   mc_rate?: string | number
   mc_rate_slab_r?: string | number
+  mc_rate_slab_r1?: string | number
   mc_rate_slab_w?: string | number
   mc_rate_slab_f?: string | number
   metal_slab_r_pct?: string | number

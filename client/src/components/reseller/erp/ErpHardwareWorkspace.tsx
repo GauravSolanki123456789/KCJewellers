@@ -13,7 +13,7 @@ import {
   type ErpSerialSettings,
 } from '@/lib/erp-hardware'
 import { ErpWorkstationPanel, useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
-import { erpBtnPrimary, erpCardCls, erpInputCls, erpErr, erpMonoUrl } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpErr, erpMonoUrl } from '@/components/reseller/erp/erp-ui'
 import type { ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
@@ -181,6 +181,18 @@ export function ErpHardwareWorkspace() {
       connection: 'usb',
       windowsPrinter: { name: 'TSC TTP-244 Pro', portHint: 'USB001' },
       labelFormat: 'prn',
+      isDefault: !(hw.printerProfiles?.length || 0),
+    }
+    setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
+  }
+
+  const addZebraGc420t = () => {
+    const p: ErpPrinterProfile = {
+      id: newProfileId(),
+      name: 'Zebra GC420t',
+      connection: 'usb',
+      windowsPrinter: { name: 'ZDesigner GC420t', portHint: 'USB001' },
+      labelFormat: 'zpl',
       isDefault: !(hw.printerProfiles?.length || 0),
     }
     setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
@@ -482,6 +494,9 @@ export function ErpHardwareWorkspace() {
             <Printer className="size-4 text-[var(--kc-accent,#c41e3a)]" />
             Barcode / label printers
           </div>
+          <button type="button" className={erpBtnGhost} onClick={addZebraGc420t}>
+            + Zebra GC420t
+          </button>
           <button type="button" className={erpBtnPrimary} onClick={addPrinter}>
             <Plus className="size-4" />
             Add printer
@@ -565,10 +580,11 @@ export function ErpHardwareWorkspace() {
                     className={`${erpInputCls} mt-1`}
                     value={p.labelFormat || 'tspl'}
                     onChange={(e) =>
-                      updatePrinter(p.id, { labelFormat: e.target.value as 'tspl' | 'prn' })
+                      updatePrinter(p.id, { labelFormat: e.target.value as 'tspl' | 'prn' | 'zpl' })
                     }
                   >
                     <option value="tspl">TSPL (TSC / thermal)</option>
+                    <option value="zpl">ZPL (Zebra GC420t)</option>
                     <option value="prn">PRN template (Print formats)</option>
                   </select>
                 </label>

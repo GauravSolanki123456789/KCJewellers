@@ -53,6 +53,7 @@ type DesignSku = {
   wastage_pct?: number | null
   mc_rate?: number | null
   mc_rate_slab_r?: number | null
+  mc_rate_slab_r1?: number | null
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
@@ -77,6 +78,7 @@ const NUM_FIELDS: { key: string; label: string }[] = [
   { key: 'wastage_pct', label: 'Wast %' },
   { key: 'mc_rate', label: 'MC' },
   { key: 'mc_rate_slab_r', label: 'MC R' },
+  { key: 'mc_rate_slab_r1', label: 'MC R1' },
   { key: 'mc_rate_slab_w', label: 'MC W' },
   { key: 'mc_rate_slab_f', label: 'MC F' },
   { key: 'metal_slab_r_pct', label: 'Met R%' },
@@ -185,6 +187,7 @@ export function ErpDesignMasterWorkspace() {
         wastage_pct: selectedSku.wastage_pct != null ? String(selectedSku.wastage_pct) : '',
         mc_rate: selectedSku.mc_rate != null ? String(selectedSku.mc_rate) : '',
         mc_rate_slab_r: selectedSku.mc_rate_slab_r != null ? String(selectedSku.mc_rate_slab_r) : '',
+        mc_rate_slab_r1: selectedSku.mc_rate_slab_r1 != null ? String(selectedSku.mc_rate_slab_r1) : '',
         mc_rate_slab_w: selectedSku.mc_rate_slab_w != null ? String(selectedSku.mc_rate_slab_w) : '',
         mc_rate_slab_f: selectedSku.mc_rate_slab_f != null ? String(selectedSku.mc_rate_slab_f) : '',
         metal_slab_r_pct: selectedSku.metal_slab_r_pct != null ? String(selectedSku.metal_slab_r_pct) : '',

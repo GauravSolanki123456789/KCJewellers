@@ -20,7 +20,7 @@ export type ErpPrinterProfile = {
   windowsPrinter?: { name: string; portHint?: string }
   companyCode?: string
   /** TSPL (default) or PRN template when you upload formats later */
-  labelFormat?: 'tspl' | 'prn'
+  labelFormat?: 'tspl' | 'prn' | 'zpl'
   prnTemplateName?: string
   isDefault?: boolean
 }

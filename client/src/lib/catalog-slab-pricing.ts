@@ -24,7 +24,7 @@ import {
   type WholesalePricingInput,
 } from '@/lib/pricing'
 
-export type CatalogSlabKind = 'standard' | 'slab_r' | 'slab_w' | 'slab_f'
+export type CatalogSlabKind = 'standard' | 'slab_r' | 'slab_r1' | 'slab_w' | 'slab_f'
 
 export type ResellerSlabTierSettings = {
   /** MC/PC — % off making charges when mc_type is per-piece. */
@@ -45,10 +45,12 @@ export type ResellerSlabTierSettings = {
 
 export type ResellerSlabSettings = {
   slab_r?: ResellerSlabTierSettings
+  slab_r1?: ResellerSlabTierSettings
   slab_w?: ResellerSlabTierSettings
   slab_f?: ResellerSlabTierSettings
   /** Separate slab defaults for gold metal type (ERP billing + shared catalog). */
   gold_slab_r?: ResellerSlabTierSettings
+  gold_slab_r1?: ResellerSlabTierSettings
   gold_slab_w?: ResellerSlabTierSettings
   gold_slab_f?: ResellerSlabTierSettings
 }
@@ -127,9 +129,11 @@ export function parseResellerSlabSettings(raw: unknown): ResellerSlabSettings {
   }
   return {
     slab_r: tier('slab_r'),
+    slab_r1: tier('slab_r1'),
     slab_w: tier('slab_w'),
     slab_f: tier('slab_f'),
     gold_slab_r: tier('gold_slab_r'),
+    gold_slab_r1: tier('gold_slab_r1'),
     gold_slab_w: tier('gold_slab_w'),
     gold_slab_f: tier('gold_slab_f'),
   }
@@ -146,6 +150,7 @@ export function tierSettingsForSlab(
 ): ResellerSlabTierSettings {
   const gold = isGoldMetalType(metalType)
   if (kind === 'slab_r') return (gold ? settings.gold_slab_r : settings.slab_r) ?? {}
+  if (kind === 'slab_r1') return (gold ? settings.gold_slab_r1 : settings.slab_r1) ?? {}
   if (kind === 'slab_w') return (gold ? settings.gold_slab_w : settings.slab_w) ?? {}
   if (kind === 'slab_f') return (gold ? settings.gold_slab_f : settings.slab_f) ?? {}
   return {}
@@ -262,7 +267,7 @@ export function formatSlabDiscountLines(
       lines.push(`Gold rate −₹${goldOffset}/g vs today`)
     }
   }
-  if (slab.kind === 'slab_w' || slab.kind === 'slab_f') {
+  if (slab.kind === 'slab_r1' || slab.kind === 'slab_w' || slab.kind === 'slab_f') {
     if (metal.startsWith('silver')) {
       const wr = Number(slab.wholesaleSilverRatePerG)
       if (Number.isFinite(wr) && wr > 0) lines.push(`Wholesale silver ₹${wr}/g`)
@@ -352,7 +357,7 @@ function resolveFineMetalRatePerG(
     return Math.max(0, live - offset)
   }
 
-  if (slab.kind === 'slab_w' || slab.kind === 'slab_f') {
+  if (slab.kind === 'slab_r1' || slab.kind === 'slab_w' || slab.kind === 'slab_f') {
     if (isSilver) {
       const wr = Number(slab.wholesaleSilverRatePerG)
       if (Number.isFinite(wr) && wr > 0) return wr
@@ -515,6 +520,8 @@ export function slabLabel(kind: CatalogSlabKind): string {
   switch (kind) {
     case 'slab_r':
       return 'Slab R (Retail)'
+    case 'slab_r1':
+      return 'Slab R1 (Wholesale metal)'
     case 'slab_w':
       return 'Slab W (Wholesale)'
     case 'slab_f':

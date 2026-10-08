@@ -22,6 +22,7 @@ const FIELD_ROWS: { key: keyof StockExcelBuilderDefaults; label: string; placeho
   { key: 'wastage_pct', label: 'Wast %' },
   { key: 'mc_rate', label: 'MC' },
   { key: 'mc_rate_slab_r', label: 'MC R' },
+  { key: 'mc_rate_slab_r1', label: 'MC R1' },
   { key: 'mc_rate_slab_w', label: 'MC W' },
   { key: 'mc_rate_slab_f', label: 'MC F' },
   { key: 'metal_slab_r_pct', label: 'Met R%', placeholder: '100' },

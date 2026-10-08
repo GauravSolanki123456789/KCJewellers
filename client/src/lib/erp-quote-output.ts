@@ -36,7 +36,7 @@ export function resolveQuoteOutputMode(
 
 /** Default output by slab: R → Epson, W/F → PDF. Billing UI can override. */
 export function resolveQuoteOutputModeForSlab(
-  rateSlab: 'R' | 'W' | 'F' | 'Q',
+  rateSlab: 'R' | 'R1' | 'W' | 'F' | 'Q',
   workstationMode?: ErpQuoteOutputMode | null,
   resellerDefault?: ErpQuoteOutputMode | null,
   override?: ErpQuoteOutputMode | null,

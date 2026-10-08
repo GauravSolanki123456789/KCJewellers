@@ -1,6 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
-import { isRetailQuoteSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
+import { erpSlabUsesWholesaleMetal, isRetailQuoteSlab, type ErpRateSlab } from '@/lib/erp-billing-pricing'
 
 export function billingShowsMcSlabRColumn(slab: ErpRateSlab): boolean {
   return slab === 'R' || isRetailQuoteSlab(slab)
@@ -10,7 +10,7 @@ import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 export type ManualBillGridField = keyof ErpBillLine | 'metal_slab_pct'
 
 export function metalSlabPctStorageKey(slab: ErpRateSlab): keyof ErpBillLine {
-  if (slab === 'W') return 'metal_slab_w_pct'
+  if (slab === 'R1' || slab === 'W') return 'metal_slab_w_pct'
   if (slab === 'F') return 'metal_slab_f_pct'
   return 'metal_slab_r_pct'
 }
@@ -120,7 +120,7 @@ export function isManualGridFieldVisible(
   if (field === 'box_charges') return (line.designBoxOptions?.length ?? 0) >= 2
   if (field === 'stone_charges') return lineHasFinishPicker(line)
   if (field === 'fixed_price_r') {
-    if (rateSlab === 'W' || rateSlab === 'F') return false
+    if (erpSlabUsesWholesaleMetal(rateSlab)) return false
     return line.manualCategory === 'gift' || !!line.mrpMode
   }
   return true

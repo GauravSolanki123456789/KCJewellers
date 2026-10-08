@@ -12,9 +12,11 @@ export type SlabTierForm = {
 
 export type ResellerSlabFormState = {
   slab_r: SlabTierForm
+  slab_r1: SlabTierForm
   slab_w: SlabTierForm
   slab_f: SlabTierForm
   gold_slab_r: SlabTierForm
+  gold_slab_r1: SlabTierForm
   gold_slab_w: SlabTierForm
   gold_slab_f: SlabTierForm
 }
@@ -31,9 +33,11 @@ export const emptySlabTierForm = (): SlabTierForm => ({
 
 export const emptyResellerSlabForm = (): ResellerSlabFormState => ({
   slab_r: emptySlabTierForm(),
+  slab_r1: emptySlabTierForm(),
   slab_w: emptySlabTierForm(),
   slab_f: emptySlabTierForm(),
   gold_slab_r: emptySlabTierForm(),
+  gold_slab_r1: emptySlabTierForm(),
   gold_slab_w: emptySlabTierForm(),
   gold_slab_f: emptySlabTierForm(),
 })
@@ -54,9 +58,11 @@ export function resellerSlabFormFromSettings(settings?: ResellerSlabSettings | n
   const parsed = settings || {}
   return {
     slab_r: slabTierFormFromSettings(parsed.slab_r),
+    slab_r1: slabTierFormFromSettings(parsed.slab_r1),
     slab_w: slabTierFormFromSettings(parsed.slab_w),
     slab_f: slabTierFormFromSettings(parsed.slab_f),
     gold_slab_r: slabTierFormFromSettings(parsed.gold_slab_r),
+    gold_slab_r1: slabTierFormFromSettings(parsed.gold_slab_r1),
     gold_slab_w: slabTierFormFromSettings(parsed.gold_slab_w),
     gold_slab_f: slabTierFormFromSettings(parsed.gold_slab_f),
   }
@@ -77,9 +83,11 @@ function tierFromForm(t: SlabTierForm): ResellerSlabTierSettings {
 export function resellerSlabSettingsFromForm(form: ResellerSlabFormState): ResellerSlabSettings {
   return {
     slab_r: tierFromForm(form.slab_r),
+    slab_r1: tierFromForm(form.slab_r1),
     slab_w: tierFromForm(form.slab_w),
     slab_f: tierFromForm(form.slab_f),
     gold_slab_r: tierFromForm(form.gold_slab_r),
+    gold_slab_r1: tierFromForm(form.gold_slab_r1),
     gold_slab_w: tierFromForm(form.gold_slab_w),
     gold_slab_f: tierFromForm(form.gold_slab_f),
   }

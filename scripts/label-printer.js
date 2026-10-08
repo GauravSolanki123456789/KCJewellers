@@ -289,6 +289,60 @@ async function printLabel(itemData, printerConfig) {
  * @param {Object} itemData - Product data
  * @returns {Promise<Buffer>} Image buffer
  */
+function zplEscape(text) {
+    return String(text || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\^/g, '_')
+        .replace(/~/g, '_');
+}
+
+/**
+ * ZPL label for Zebra GC420t / ZPL II (203 dpi, ~100×50 mm).
+ * Same fields as TSPL default label.
+ */
+function generateZPLLabel(itemData) {
+    const {
+        barcodeNumber = '',
+        styleCode = '',
+        weight = '0.000',
+        pcs = 1,
+        companyCode = 'MY925',
+        material = 'STERLING SILVER',
+        grossWeight = '',
+    } = itemData;
+
+    const bc = zplEscape(barcodeNumber);
+    const style = zplEscape(styleCode).slice(0, 40);
+    const mat = zplEscape(material).slice(0, 32);
+    const co = zplEscape(companyCode);
+    const wt = zplEscape(weight);
+    const gw = zplEscape(grossWeight || weight);
+    const pc = zplEscape(String(pcs));
+
+    return [
+        '^XA',
+        '^PW800',
+        '^LL400',
+        '^FO30,20^BQN,2,4^FDMA,${bc}^FS',
+        '^FO120,25^A0N,28,28^FD${bc}^FS',
+        '^FO120,55^A0N,22,22^FD${mat}^FS',
+        '^FO120,85^A0N,22,22^FD${co}^FS',
+        '^FO30,180^A0N,26,26^FD${style}^FS',
+        '^FO30,215^A0N,22,22^FDWt ${wt} g  Gross ${gw} g^FS',
+        '^FO30,245^A0N,22,22^FDPcs ${pc}^FS',
+        '^FO120,280^BCN,60,Y,N,N^FD${bc}^FS',
+        '^XZ',
+    ]
+        .join('\n')
+        .replace(/\$\{bc\}/g, bc)
+        .replace(/\$\{mat\}/g, mat)
+        .replace(/\$\{co\}/g, co)
+        .replace(/\$\{style\}/g, style)
+        .replace(/\$\{wt\}/g, wt)
+        .replace(/\$\{gw\}/g, gw)
+        .replace(/\$\{pc\}/g, pc);
+}
+
 async function generateLabelPreview(itemData) {
     // This would use a canvas library to render the label
     // For now, return a placeholder
@@ -298,6 +352,7 @@ async function generateLabelPreview(itemData) {
 
 module.exports = {
     generateTSPLLabel,
+    generateZPLLabel,
     printLabel,
     sendRawToPrinter,
     sendToNetworkPrinter,

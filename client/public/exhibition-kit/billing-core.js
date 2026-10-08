@@ -440,9 +440,11 @@ var KcExhibitionBillingModule = (() => {
     };
     return {
       slab_r: tier("slab_r"),
+      slab_r1: tier("slab_r1"),
       slab_w: tier("slab_w"),
       slab_f: tier("slab_f"),
       gold_slab_r: tier("gold_slab_r"),
+      gold_slab_r1: tier("gold_slab_r1"),
       gold_slab_w: tier("gold_slab_w"),
       gold_slab_f: tier("gold_slab_f")
     };
@@ -453,6 +455,7 @@ var KcExhibitionBillingModule = (() => {
   function tierSettingsForSlab(settings, kind, metalType) {
     const gold = isGoldMetalType(metalType);
     if (kind === "slab_r") return (gold ? settings.gold_slab_r : settings.slab_r) ?? {};
+    if (kind === "slab_r1") return (gold ? settings.gold_slab_r1 : settings.slab_r1) ?? {};
     if (kind === "slab_w") return (gold ? settings.gold_slab_w : settings.slab_w) ?? {};
     if (kind === "slab_f") return (gold ? settings.gold_slab_f : settings.slab_f) ?? {};
     return {};
@@ -557,7 +560,7 @@ var KcExhibitionBillingModule = (() => {
       const offset = Math.max(0, Number(slab.settings.gold_rate_offset_per_g) || 0);
       return Math.max(0, live - offset);
     }
-    if (slab.kind === "slab_w" || slab.kind === "slab_f") {
+    if (slab.kind === "slab_r1" || slab.kind === "slab_w" || slab.kind === "slab_f") {
       if (isSilver) {
         const wr = Number(slab.wholesaleSilverRatePerG);
         if (Number.isFinite(wr) && wr > 0) return wr;
@@ -800,6 +803,7 @@ var KcExhibitionBillingModule = (() => {
         }
       }
       if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r;
+      if (s.mc_rate_slab_r1 != null) patch.mc_rate_slab_r1 = s.mc_rate_slab_r1;
       if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w;
       if (s.mc_rate_slab_f != null) patch.mc_rate_slab_f = s.mc_rate_slab_f;
     }
@@ -858,6 +862,7 @@ var KcExhibitionBillingModule = (() => {
       fixed_price: hit.fixed_price ?? line.fixed_price,
       box_charges: hit.box_charges ?? line.box_charges,
       mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
+      mc_rate_slab_r1: hit.mc_rate_slab_r1 ?? line.mc_rate_slab_r1,
       mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
       mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
       ...mrp && hit.fixed_price != null ? {
@@ -874,7 +879,7 @@ var KcExhibitionBillingModule = (() => {
     return slab === "R" || isRetailQuoteSlab(slab);
   }
   function metalSlabPctStorageKey(slab) {
-    if (slab === "W") return "metal_slab_w_pct";
+    if (slab === "R1" || slab === "W") return "metal_slab_w_pct";
     if (slab === "F") return "metal_slab_f_pct";
     return "metal_slab_r_pct";
   }
@@ -952,7 +957,7 @@ var KcExhibitionBillingModule = (() => {
     if (field === "box_charges") return (line.designBoxOptions?.length ?? 0) >= 2;
     if (field === "stone_charges") return lineHasFinishPicker(line);
     if (field === "fixed_price_r") {
-      if (rateSlab === "W" || rateSlab === "F") return false;
+      if (erpSlabUsesWholesaleMetal(rateSlab)) return false;
       return line.manualCategory === "gift" || !!line.mrpMode;
     }
     return true;
@@ -977,7 +982,7 @@ var KcExhibitionBillingModule = (() => {
     return 1;
   }
   function lineHasPieceSlabFields(line) {
-    return line.mc_rate_slab_r != null || line.mc_rate_slab_w != null || line.mc_rate_slab_f != null || line.metal_slab_r_pct != null || line.metal_slab_w_pct != null || line.metal_slab_f_pct != null;
+    return line.mc_rate_slab_r != null || line.mc_rate_slab_r1 != null || line.mc_rate_slab_w != null || line.mc_rate_slab_f != null || line.metal_slab_r_pct != null || line.metal_slab_w_pct != null || line.metal_slab_f_pct != null;
   }
   function pieceSlabMcRate(line, slab) {
     if (line.manualEntry) return null;
@@ -987,11 +992,17 @@ var KcExhibitionBillingModule = (() => {
       }
       return line.mc_rate ?? null;
     }
+    if (slab === "R1") {
+      if (line.mc_rate_slab_r1 != null && Number.isFinite(Number(line.mc_rate_slab_r1))) {
+        return Number(line.mc_rate_slab_r1);
+      }
+      return line.mc_rate_slab_r ?? line.mc_rate ?? null;
+    }
     if (slab === "W") {
       if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
         return Number(line.mc_rate_slab_w);
       }
-      return line.mc_rate_slab_r ?? line.mc_rate ?? null;
+      return line.mc_rate_slab_r1 ?? line.mc_rate_slab_r ?? line.mc_rate ?? null;
     }
     if (slab === "F") {
       if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
@@ -1005,7 +1016,7 @@ var KcExhibitionBillingModule = (() => {
     if (slab === "Q") {
       return parseMetalSlabFraction(line.metal_slab_r_pct ?? 1);
     }
-    if (slab === "W") {
+    if (slab === "R1" || slab === "W") {
       return parseMetalSlabFraction(line.metal_slab_w_pct ?? line.metal_slab_r_pct ?? 1);
     }
     if (slab === "F") {
@@ -1181,6 +1192,7 @@ var KcExhibitionBillingModule = (() => {
 
   // src/lib/erp-mc-slab-effective.ts
   function slabToKind(slab) {
+    if (slab === "R1") return "slab_r1";
     if (slab === "W") return "slab_w";
     if (slab === "F") return "slab_f";
     if (slab === "Q") return "standard";
@@ -1200,9 +1212,10 @@ var KcExhibitionBillingModule = (() => {
     if (Number.isFinite(cat) && cat > 0) return cat;
     const mc = Number(line.mc_rate ?? 0) || 0;
     const r = Number(line.mc_rate_slab_r ?? 0) || 0;
+    const r1 = Number(line.mc_rate_slab_r1 ?? 0) || 0;
     const w = Number(line.mc_rate_slab_w ?? 0) || 0;
     const f = Number(line.mc_rate_slab_f ?? 0) || 0;
-    const candidates = [mc, r, w, f].filter((n) => n > 0);
+    const candidates = [mc, r, r1, w, f].filter((n) => n > 0);
     if (!candidates.length) return 0;
     return Math.max(...candidates);
   }
@@ -1355,15 +1368,20 @@ var KcExhibitionBillingModule = (() => {
   }
 
   // src/lib/erp-billing-pricing.ts
+  function erpSlabUsesWholesaleMetal(slab) {
+    return slab === "R1" || slab === "W" || slab === "F";
+  }
   function isRetailQuoteSlab(slab) {
     return slab === "Q";
   }
   function mcSlabFieldForBillingSlab(slab) {
+    if (slab === "R1") return "mc_rate_slab_r1";
     if (slab === "W") return "mc_rate_slab_w";
     if (slab === "F") return "mc_rate_slab_f";
     return "mc_rate_slab_r";
   }
   function erpSlabToKind(slab) {
+    if (slab === "R1") return "slab_r1";
     if (slab === "W") return "slab_w";
     if (slab === "F") return "slab_f";
     if (isRetailQuoteSlab(slab)) return "standard";

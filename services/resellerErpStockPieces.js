@@ -136,6 +136,7 @@ const EXCEL_ALIASES = {
     pendant_wt_only: ['PendantWtOnly', 'pendant_wt_only', 'Pendant Wt'],
     earring_wt_only: ['EarringWtOnly', 'earring_wt_only', 'Earring Wt'],
     mc_rate_slab_r: ['MCRateSlabR', 'mc_rate_slab_r', 'MC Rate Slab R'],
+    mc_rate_slab_r1: ['MCRateSlabR1', 'mc_rate_slab_r1', 'MC Rate Slab R1'],
     mc_rate_slab_w: ['MCRateSlabW', 'mc_rate_slab_w', 'MC Rate Slab W'],
     mc_rate_slab_f: ['MCRateSlabF', 'mc_rate_slab_f', 'MC Rate Slab F'],
     metal_slab_r_pct: ['MetalSlabR%', 'MetalSlabR', 'metal_slab_r_pct', 'Metal Slab R %'],
@@ -355,6 +356,7 @@ function parseExcelRowToPiece(row) {
         pendant_wt_only: num(EXCEL_ALIASES.pendant_wt_only),
         earring_wt_only: num(EXCEL_ALIASES.earring_wt_only),
         mc_rate_slab_r: num(EXCEL_ALIASES.mc_rate_slab_r),
+        mc_rate_slab_r1: num(EXCEL_ALIASES.mc_rate_slab_r1),
         mc_rate_slab_w: num(EXCEL_ALIASES.mc_rate_slab_w),
         mc_rate_slab_f: num(EXCEL_ALIASES.mc_rate_slab_f),
         metal_slab_r_pct: parseMetalSlabFraction(pickRowVal(row, EXCEL_ALIASES.metal_slab_r_pct)),
@@ -418,6 +420,7 @@ function mapPiece(row) {
         bags: row.bags,
         bag_wt: row.bag_wt != null ? Number(row.bag_wt) : null,
         mc_rate_slab_r: row.mc_rate_slab_r != null ? Number(row.mc_rate_slab_r) : null,
+        mc_rate_slab_r1: row.mc_rate_slab_r1 != null ? Number(row.mc_rate_slab_r1) : null,
         mc_rate_slab_w: row.mc_rate_slab_w != null ? Number(row.mc_rate_slab_w) : null,
         mc_rate_slab_f: row.mc_rate_slab_f != null ? Number(row.mc_rate_slab_f) : null,
         metal_slab_r_pct: row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
@@ -524,6 +527,7 @@ async function ensureStockPiecesSchema(pool) {
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS stone_wt NUMERIC(12, 3);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS rfid_tag VARCHAR(64);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_r NUMERIC(12, 2);
+        ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_r1 NUMERIC(12, 2);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_w NUMERIC(12, 2);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS mc_rate_slab_f NUMERIC(12, 2);
         ALTER TABLE reseller_erp_stock_pieces ADD COLUMN IF NOT EXISTS metal_slab_r_pct NUMERIC(8, 4);
@@ -2610,6 +2614,8 @@ function registerStockPieceRoutes(app, deps) {
                     const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, printFormats);
                     tspl = rendered.tspl;
                     labelRuleName = rendered.ruleName;
+                } else if (profile?.labelFormat === 'zpl') {
+                    tspl = labelPrinter.generateZPLLabel(itemData);
                 } else {
                     tspl = labelPrinter.generateTSPLLabel(itemData);
                 }
@@ -2706,7 +2712,9 @@ function registerStockPieceRoutes(app, deps) {
             );
             const tspl = usePrn
                 ? erpPrint.renderTemplate(prnTemplate, erpPrint.buildLabelTemplateVarsFromItemData(itemData))
-                : labelPrinter.generateTSPLLabel(itemData);
+                : profile?.labelFormat === 'zpl'
+                  ? labelPrinter.generateZPLLabel(itemData)
+                  : labelPrinter.generateTSPLLabel(itemData);
 
             if (req.body.send_to_printer && printerConfig?.type === 'network' && printerConfig.address) {
                 await labelPrinter.sendRawToPrinter(tspl, printerConfig);

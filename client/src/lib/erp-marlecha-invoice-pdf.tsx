@@ -41,8 +41,8 @@ const UNIFIED_COLS = [
   'Description of\nGoods',
   'HSN\nCode',
   'Qty',
-  'Gross Wt\n(Kgs)',
-  'Net Wt\n(Kgs)',
+  'Gross Wt\n(g)',
+  'Net Wt\n(g)',
   'Rate',
   'Amount\n(in Rs.)',
 ] as const
@@ -258,19 +258,28 @@ function formatBillDate(bill: ErpBill): string {
   return formatErpDateDdMmYyyy(bill.bill_date || bill.created_at)
 }
 
-function gmToKg(gm: number): number {
-  return (Number(gm) || 0) / 1000
-}
-
 function lineNetGm(line: ErpBillLine): number {
   return Number(line.originalWeightGm ?? line.weightGm) || 0
 }
 
-function lineRatePerKg(line: ErpBillLine): number {
-  const wtKg = gmToKg(lineNetGm(line))
-  const amt = Number(line.lineTotalInr) || 0
-  if (wtKg <= 0) return 0
-  return amt / wtKg
+function lineGrossGm(line: ErpBillLine): number {
+  const gross = Number(line.gross_weight)
+  if (Number.isFinite(gross) && gross > 0) return gross
+  return lineNetGm(line)
+}
+
+/** Pre-GST taxable for weight rows (lineTotalInr includes 3% GST on standard jewellery). */
+function lineTaxableInr(line: ErpBillLine, gstOffOnBill: boolean): number {
+  const total = Number(line.lineTotalInr) || 0
+  if (total <= 0) return 0
+  if (gstOffOnBill || line.manualCategory === 'shipping') return total
+  return Math.round((total / 1.03) * 100) / 100
+}
+
+function lineRatePerGram(line: ErpBillLine, taxableInr: number): number {
+  const netGm = lineNetGm(line)
+  if (netGm <= 0) return 0
+  return taxableInr / netGm
 }
 
 function linePieceRate(line: ErpBillLine): number {
@@ -425,10 +434,10 @@ function InvoicePage({
     const slNo = `${idx + 1}.`
     const desc = line.invoice_item_name || line.name || 'JEWELLERY'
     const hsn = line.hsn_code || '711311'
-    const amt = Number(line.lineTotalInr) || 0
     const mrp = isMrpInvoiceLine(line, mrpItemNames)
     if (mrp) {
       const qty = Math.max(1, Number(line.qty) || 1)
+      const amt = Number(line.lineTotalInr) || 0
       const rate = linePieceRate(line)
       return [
         slNo,
@@ -441,18 +450,19 @@ function InvoicePage({
         amt.toFixed(2),
       ]
     }
-    const grossKg = gmToKg(Number(line.gross_weight) || lineNetGm(line))
-    const netKg = gmToKg(lineNetGm(line))
-    const rate = lineRatePerKg(line)
+    const taxable = lineTaxableInr(line, !!gstOffOnBill)
+    const grossGm = lineGrossGm(line)
+    const netGm = lineNetGm(line)
+    const rate = lineRatePerGram(line, taxable)
     return [
       slNo,
       desc,
       hsn,
       '—',
-      grossKg > 0 ? grossKg.toFixed(4) : '—',
-      netKg > 0 ? netKg.toFixed(4) : '—',
+      grossGm > 0 ? grossGm.toFixed(2) : '—',
+      netGm > 0 ? netGm.toFixed(2) : '—',
       rate > 0 ? rate.toFixed(2) : '—',
-      amt.toFixed(2),
+      taxable.toFixed(2),
     ]
   })
 

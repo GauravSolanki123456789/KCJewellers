@@ -2228,6 +2228,7 @@ function escPosToBase64(escPos) {
 
 function shouldUsePrnTemplate(profile, printFormats) {
     if (profile?.labelFormat === 'tspl') return false;
+    if (profile?.labelFormat === 'zpl') return false;
     if (profile?.labelFormat === 'prn') return true;
     return printFormats?.labelUsePrn !== false;
 }

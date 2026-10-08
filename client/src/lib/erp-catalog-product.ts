@@ -14,6 +14,7 @@ export type DesignCatalogSize = {
   box_charges?: number | null
   stone_charges?: number | null
   mc_rate_slab_r?: number | null
+  mc_rate_slab_r1?: number | null
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
 }
@@ -257,6 +258,7 @@ export function patchLineFromCatalogProduct(
       }
     }
     if (s.mc_rate_slab_r != null) patch.mc_rate_slab_r = s.mc_rate_slab_r
+    if (s.mc_rate_slab_r1 != null) patch.mc_rate_slab_r1 = s.mc_rate_slab_r1
     if (s.mc_rate_slab_w != null) patch.mc_rate_slab_w = s.mc_rate_slab_w
     if (s.mc_rate_slab_f != null) patch.mc_rate_slab_f = s.mc_rate_slab_f
   }
@@ -331,6 +333,7 @@ export function patchLineFromCatalogSize(
     fixed_price: hit.fixed_price ?? line.fixed_price,
     box_charges: hit.box_charges ?? line.box_charges,
     mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
+    mc_rate_slab_r1: hit.mc_rate_slab_r1 ?? line.mc_rate_slab_r1,
     mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
     mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
     ...(mrp && hit.fixed_price != null

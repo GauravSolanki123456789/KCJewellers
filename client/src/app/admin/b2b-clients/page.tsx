@@ -402,9 +402,11 @@ function B2BAdminContent() {
           : null,
         reseller_slab_settings: resellerSlabSettingsFromForm({
           slab_r: resellerForm.slab_r,
+          slab_r1: resellerForm.slab_r1,
           slab_w: resellerForm.slab_w,
           slab_f: resellerForm.slab_f,
           gold_slab_r: resellerForm.gold_slab_r,
+          gold_slab_r1: resellerForm.gold_slab_r1,
           gold_slab_w: resellerForm.gold_slab_w,
           gold_slab_f: resellerForm.gold_slab_f,
         }),
@@ -1363,9 +1365,11 @@ function B2BAdminContent() {
                     variant="admin"
                     form={{
                       slab_r: resellerForm.slab_r,
+                      slab_r1: resellerForm.slab_r1,
                       slab_w: resellerForm.slab_w,
                       slab_f: resellerForm.slab_f,
                       gold_slab_r: resellerForm.gold_slab_r,
+                      gold_slab_r1: resellerForm.gold_slab_r1,
                       gold_slab_w: resellerForm.gold_slab_w,
                       gold_slab_f: resellerForm.gold_slab_f,
                     }}

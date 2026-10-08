@@ -48,6 +48,7 @@ async function ensureDesignMasterSchema(pool) {
         ALTER TABLE reseller_erp_design_styles ADD COLUMN IF NOT EXISTS metal_type VARCHAR(64);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS invoice_item_name VARCHAR(255);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(32);
+        ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS mc_rate_slab_r1 NUMERIC(12, 2);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12, 2);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS product_names JSONB;
         CREATE TABLE IF NOT EXISTS reseller_erp_design_sku_sizes (
@@ -411,6 +412,7 @@ function mapDesignSku(row) {
         wastage_pct: row.wastage_pct != null ? Number(row.wastage_pct) : null,
         mc_rate: row.mc_rate != null ? Number(row.mc_rate) : null,
         mc_rate_slab_r: row.mc_rate_slab_r != null ? Number(row.mc_rate_slab_r) : null,
+        mc_rate_slab_r1: row.mc_rate_slab_r1 != null ? Number(row.mc_rate_slab_r1) : null,
         mc_rate_slab_w: row.mc_rate_slab_w != null ? Number(row.mc_rate_slab_w) : null,
         mc_rate_slab_f: row.mc_rate_slab_f != null ? Number(row.mc_rate_slab_f) : null,
         metal_slab_r_pct: row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
@@ -518,7 +520,7 @@ async function loadDesignMasterTreeForOffline(query, resellerUserId) {
     const skus = await query(
         `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.product_names,
                 sk.purity, sk.metal_type, sk.wastage_pct, sk.mc_rate,
-                sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
+                sk.mc_rate_slab_r, sk.mc_rate_slab_r1, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                 sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct,
                 sk.mc_type, sk.invoice_item_name, sk.hsn_code, sk.fixed_price,
                 ds.style_code
@@ -605,7 +607,7 @@ async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
     const rows = await query(
         `SELECT ds.id AS style_id, ds.style_code, ds.style_name,
                 sk.id, sk.sku, sk.product_name, sk.product_names, sk.purity, sk.metal_type,
-                sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
+                sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_r1, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                 sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
                 sk.invoice_item_name, sk.hsn_code, sk.fixed_price
          FROM reseller_erp_design_styles ds
@@ -634,6 +636,7 @@ function applyDesignDefaultsToPiece(piece, defaults) {
     fill('wastage_pct', defaults.wastage_pct);
     fill('mc_rate', defaults.mc_rate);
     fill('mc_rate_slab_r', defaults.mc_rate_slab_r);
+    fill('mc_rate_slab_r1', defaults.mc_rate_slab_r1);
     fill('mc_rate_slab_w', defaults.mc_rate_slab_w);
     fill('mc_rate_slab_f', defaults.mc_rate_slab_f);
     fill('metal_slab_r_pct', defaults.metal_slab_r_pct);
@@ -834,7 +837,7 @@ function registerDesignMasterRoutes(app, deps) {
             );
             const skus = await query(
                 `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.product_names, sk.purity, sk.metal_type,
-                        sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
+                        sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_r1, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
                         sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
                         sk.invoice_item_name, sk.hsn_code, sk.fixed_price
                  FROM reseller_erp_design_skus sk
@@ -1070,15 +1073,15 @@ function registerDesignMasterRoutes(app, deps) {
                     sku = COALESCE($1, sku),
                     product_name = COALESCE($2, product_name),
                     purity = $3, metal_type = $4, wastage_pct = $5,
-                    mc_rate = $6, mc_rate_slab_r = $7, mc_rate_slab_w = $8, mc_rate_slab_f = $9,
-                    metal_slab_r_pct = $10, metal_slab_w_pct = $11, metal_slab_f_pct = $12,
-                    mc_type = $13,
-                    invoice_item_name = COALESCE($14, invoice_item_name),
-                    hsn_code = COALESCE($15, hsn_code),
-                    fixed_price = $16,
-                    product_names = COALESCE($17::jsonb, product_names),
+                    mc_rate = $6, mc_rate_slab_r = $7, mc_rate_slab_r1 = $8, mc_rate_slab_w = $9, mc_rate_slab_f = $10,
+                    metal_slab_r_pct = $11, metal_slab_w_pct = $12, metal_slab_f_pct = $13,
+                    mc_type = $14,
+                    invoice_item_name = COALESCE($15, invoice_item_name),
+                    hsn_code = COALESCE($16, hsn_code),
+                    fixed_price = $17,
+                    product_names = COALESCE($18::jsonb, product_names),
                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $18 AND reseller_user_id = $19
+                 WHERE id = $19 AND reseller_user_id = $20
                  RETURNING *`,
                 [
                     newSku,
@@ -1088,6 +1091,7 @@ function registerDesignMasterRoutes(app, deps) {
                     num('wastage_pct'),
                     num('mc_rate'),
                     num('mc_rate_slab_r'),
+                    num('mc_rate_slab_r1'),
                     num('mc_rate_slab_w'),
                     num('mc_rate_slab_f'),
                     num('metal_slab_r_pct'),

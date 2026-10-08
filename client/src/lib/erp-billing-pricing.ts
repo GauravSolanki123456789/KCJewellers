@@ -34,7 +34,20 @@ import {
 } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
-export type ErpRateSlab = 'R' | 'W' | 'F' | 'Q'
+export type ErpRateSlab = 'R' | 'R1' | 'W' | 'F' | 'Q'
+
+/** Slabs that use session wholesale gold/silver ₹/g (modal on switch). */
+export function erpSlabUsesWholesaleMetal(slab: ErpRateSlab): boolean {
+  return slab === 'R1' || slab === 'W' || slab === 'F'
+}
+
+export const ERP_BILLING_SLAB_OPTIONS: { value: ErpRateSlab; label: string }[] = [
+  { value: 'R', label: 'R' },
+  { value: 'R1', label: 'R1' },
+  { value: 'W', label: 'W' },
+  { value: 'F', label: 'F' },
+  { value: 'Q', label: 'RQUOTE' },
+]
 
 /** Slab R quote — full retail silver/MC/MRP, no Slab R catalogue discounts. */
 export function isRetailQuoteSlab(slab: ErpRateSlab): boolean {
@@ -44,6 +57,7 @@ export function isRetailQuoteSlab(slab: ErpRateSlab): boolean {
 export function normalizeErpRateSlab(raw: unknown): ErpRateSlab {
   const s = String(raw || 'R').trim().toUpperCase().replace(/^SLAB\s*/, '')
   if (s === 'Q' || s === 'RQUOTE' || s === 'RQ') return 'Q'
+  if (s === 'R1') return 'R1'
   if (s === 'W' || s === 'WHOLESALE') return 'W'
   if (s === 'F') return 'F'
   return 'R'
@@ -56,13 +70,15 @@ export function rateSlabDisplayLabel(slab: ErpRateSlab): string {
 
 export function mcSlabFieldForBillingSlab(
   slab: ErpRateSlab,
-): 'mc_rate_slab_r' | 'mc_rate_slab_w' | 'mc_rate_slab_f' {
+): 'mc_rate_slab_r' | 'mc_rate_slab_r1' | 'mc_rate_slab_w' | 'mc_rate_slab_f' {
+  if (slab === 'R1') return 'mc_rate_slab_r1'
   if (slab === 'W') return 'mc_rate_slab_w'
   if (slab === 'F') return 'mc_rate_slab_f'
   return 'mc_rate_slab_r'
 }
 
 export function erpSlabToKind(slab: ErpRateSlab): CatalogSlabKind {
+  if (slab === 'R1') return 'slab_r1'
   if (slab === 'W') return 'slab_w'
   if (slab === 'F') return 'slab_f'
   if (isRetailQuoteSlab(slab)) return 'standard'
@@ -71,7 +87,7 @@ export function erpSlabToKind(slab: ErpRateSlab): CatalogSlabKind {
 
 /** Parse rate slab from legacy bill notes (`Rate slab W · address`). */
 export function parseRateSlabFromNotes(notes?: string | null): ErpRateSlab | null {
-  const m = String(notes || '').match(/Rate slab\s+(RQUOTE|RQ|[RWFQ])\b/i)
+  const m = String(notes || '').match(/Rate slab\s+(RQUOTE|RQ|R1|[RWFQ])\b/i)
   if (!m) return null
   return normalizeErpRateSlab(m[1])
 }
@@ -642,7 +658,7 @@ export function erpLiveMetalRatePerGram(
 ): number | null {
   const metal = String(line.metal_type || 'silver').toLowerCase()
   if (metal.startsWith('gold')) {
-    if (slab === 'W' || slab === 'F') {
+    if (erpSlabUsesWholesaleMetal(slab)) {
       const wh = wholesaleGold ?? goldPerG
       return wh > 0 ? wh : null
     }

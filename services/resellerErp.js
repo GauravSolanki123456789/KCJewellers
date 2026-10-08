@@ -87,6 +87,8 @@ async function ensureResellerErpSchema(pool) {
             ADD COLUMN IF NOT EXISTS state VARCHAR(64);
         ALTER TABLE reseller_erp_customers
             ADD COLUMN IF NOT EXISTS rate_slab VARCHAR(1);
+        ALTER TABLE reseller_erp_customers
+            ALTER COLUMN rate_slab TYPE VARCHAR(8);
         UPDATE reseller_erp_customers
             SET rate_slab = 'R'
             WHERE rate_slab IS NULL OR TRIM(rate_slab) = '';
@@ -552,6 +554,7 @@ async function rememberManualBillPrefix(query, userId, billNumber) {
 function normalizeCustomerRateSlab(raw) {
     const s = String(raw || '').trim().toUpperCase().replace(/^SLAB\s*/, '');
     if (s === 'Q' || s === 'RQUOTE' || s === 'RQ') return 'Q';
+    if (s === 'R1') return 'R1';
     if (s === 'W' || s === 'WHOLESALE') return 'W';
     if (s === 'F') return 'F';
     return 'R';

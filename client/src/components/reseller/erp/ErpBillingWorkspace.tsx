@@ -24,6 +24,8 @@ import {
   perGramToDisplayRates,
   resolveErpSilverMetalRatePerG,
   type ErpRateSlab,
+  ERP_BILLING_SLAB_OPTIONS,
+  erpSlabUsesWholesaleMetal,
   mcSlabFieldForBillingSlab,
 } from '@/lib/erp-billing-pricing'
 import {
@@ -323,6 +325,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     mc_rate_catalog: p.mc_rate ?? null,
     mc_type: p.mc_type ?? null,
     mc_rate_slab_r: p.mc_rate_slab_r ?? null,
+    mc_rate_slab_r1: p.mc_rate_slab_r1 ?? null,
     mc_rate_slab_w: p.mc_rate_slab_w ?? null,
     mc_rate_slab_f: p.mc_rate_slab_f ?? null,
     metal_slab_r_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_r_pct) ?? null,
@@ -642,6 +645,7 @@ export function ErpBillingWorkspace() {
         ...slabLine,
         mc_rate: withOriginal.mc_rate,
         mc_rate_slab_r: withOriginal.mc_rate_slab_r,
+        mc_rate_slab_r1: withOriginal.mc_rate_slab_r1,
         mc_rate_slab_w: withOriginal.mc_rate_slab_w,
         mc_rate_slab_f: withOriginal.mc_rate_slab_f,
         lineTotalInr: bd.total,
@@ -1670,6 +1674,7 @@ export function ErpBillingWorkspace() {
               mc_rate_catalog: catalogMc,
               mc_type: normalizeMcTypeInput(d.mc_type) ?? l.mc_type,
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
+              mc_rate_slab_r1: num('mc_rate_slab_r1') ?? l.mc_rate_slab_r1,
               mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,
               mc_rate_slab_f: num('mc_rate_slab_f') ?? l.mc_rate_slab_f,
               metal_slab_r_pct:
@@ -1725,7 +1730,7 @@ export function ErpBillingWorkspace() {
         setLines((prev) => (prev.length ? transitionLinesForSlab(prev, next) : prev))
         return
       }
-      if (next === 'W' || next === 'F') {
+      if (erpSlabUsesWholesaleMetal(next)) {
         const hasWh =
           (wholesaleGold != null && wholesaleGold > 0) ||
           (wholesaleSilver != null && wholesaleSilver > 0)
@@ -2342,7 +2347,7 @@ export function ErpBillingWorkspace() {
         }
         return line.fixed_price ?? ''
       case 'fixed_price_r':
-        if (rateSlab === 'W' || rateSlab === 'F') return ''
+        if (erpSlabUsesWholesaleMetal(rateSlab)) return ''
         return line.fixed_price_r ?? ''
       case 'amount':
         return formatErpInr(line.lineTotalInr ?? 0)
@@ -2384,13 +2389,13 @@ export function ErpBillingWorkspace() {
     }
     let storageKey: keyof ErpBillLine | 'metal_slab_pct' =
       k === 'mc_rate_slab_r' ? mcSlabFieldForBillingSlab(rateSlab) : k
-    if (k === 'mc_rate' && (rateSlab === 'W' || rateSlab === 'F')) {
+    if (k === 'mc_rate' && erpSlabUsesWholesaleMetal(rateSlab)) {
       storageKey = mcSlabFieldForBillingSlab(rateSlab)
     }
     const patch: Partial<ErpBillLine> = {
       [storageKey]: parsed,
     } as Partial<ErpBillLine>
-    if (k === 'mc_rate' && (rateSlab === 'W' || rateSlab === 'F')) {
+    if (k === 'mc_rate' && erpSlabUsesWholesaleMetal(rateSlab)) {
       patch.mc_rate = parsed
     }
     if (k === 'weightGm') {
@@ -2760,10 +2765,11 @@ export function ErpBillingWorkspace() {
               Slab
             </label>
             <select className={`${erpInputCls} py-2 text-sm`} value={rateSlab} onChange={(e) => onSlabChange(e.target.value as ErpRateSlab)}>
-              <option value="R">R</option>
-              <option value="W">W</option>
-              <option value="F">F</option>
-              <option value="Q">RQUOTE</option>
+              {ERP_BILLING_SLAB_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </div>
           <div className="flex flex-col justify-end">
@@ -3263,7 +3269,7 @@ export function ErpBillingWorkspace() {
                 <span className="font-semibold tabular-nums">{formatErpInr(silverPerG)}/gm</span>
               </li>
             </ul>
-            {(rateSlab === 'W' || rateSlab === 'F') && (wholesaleGold || wholesaleSilver) ? (
+            {erpSlabUsesWholesaleMetal(rateSlab) && (wholesaleGold || wholesaleSilver) ? (
               <div className="mt-2 space-y-1">
                 <p className="text-[10px] text-emerald-700">
                 Wholesale:
@@ -3279,7 +3285,7 @@ export function ErpBillingWorkspace() {
                   Edit wholesale rates
                 </button>
               </div>
-            ) : (rateSlab === 'W' || rateSlab === 'F') ? (
+            ) : erpSlabUsesWholesaleMetal(rateSlab) ? (
               <button
                 type="button"
                 className="mt-2 text-[10px] font-semibold text-[var(--kc-accent,#c41e3a)] underline"

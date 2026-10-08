@@ -22,4 +22,10 @@ Printer must be on port USB001 in Windows (not Print to File).
 ERP Hardware → Connection: USB (Windows · USB001)
 Windows printer name: TSC TTP-244 Pro (exact name from Windows Printers)
 
+Zebra GC420t:
+  ERP Hardware → + Zebra GC420t (or add printer manually)
+  Label format: ZPL (Zebra GC420t)
+  Windows printer name: exact name from Settings → Printers (e.g. ZDesigner GC420t)
+  Run START-KC-Label-Print.bat on the shop PC, then Test print.
+
 If start fails: right-click START-KC-Label-Print.bat → Run as administrator (once).

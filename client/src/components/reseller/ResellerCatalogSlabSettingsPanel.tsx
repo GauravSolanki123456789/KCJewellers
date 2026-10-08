@@ -2,16 +2,26 @@
 
 import type { ResellerSlabFormState, SlabTierForm } from '@/lib/reseller-catalog-slab-form'
 
-type SlabKey = 'slab_r' | 'slab_w' | 'slab_f' | 'gold_slab_r' | 'gold_slab_w' | 'gold_slab_f'
+type SlabKey =
+  | 'slab_r'
+  | 'slab_r1'
+  | 'slab_w'
+  | 'slab_f'
+  | 'gold_slab_r'
+  | 'gold_slab_r1'
+  | 'gold_slab_w'
+  | 'gold_slab_f'
 
 const SILVER_BLOCKS: { key: SlabKey; label: string; showSilverOffset: boolean; showWastage: boolean }[] = [
   { key: 'slab_r', label: 'Slab R (Retail)', showSilverOffset: true, showWastage: false },
+  { key: 'slab_r1', label: 'Slab R1 (Wholesale metal)', showSilverOffset: false, showWastage: false },
   { key: 'slab_w', label: 'Slab W (Wholesale MC)', showSilverOffset: false, showWastage: false },
   { key: 'slab_f', label: 'Slab F (Wholesale + wastage)', showSilverOffset: false, showWastage: true },
 ]
 
 const GOLD_BLOCKS: { key: SlabKey; label: string; showGoldOffset: boolean; showWastage: boolean; discountField: 'wastage_disc' | 'none' }[] = [
   { key: 'gold_slab_r', label: 'Gold Slab R (Retail)', showGoldOffset: true, showWastage: false, discountField: 'wastage_disc' },
+  { key: 'gold_slab_r1', label: 'Gold Slab R1 (Wholesale metal)', showGoldOffset: false, showWastage: false, discountField: 'wastage_disc' },
   { key: 'gold_slab_w', label: 'Gold Slab W (Wholesale MC)', showGoldOffset: false, showWastage: false, discountField: 'wastage_disc' },
   { key: 'gold_slab_f', label: 'Gold Slab F (Wholesale + wastage)', showGoldOffset: false, showWastage: true, discountField: 'none' },
 ]

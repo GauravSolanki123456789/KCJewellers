@@ -9,6 +9,7 @@ import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
 import { isMcPerPiece } from '@/lib/pricing'
 
 function slabToKind(slab: ErpRateSlab): CatalogSlabKind {
+  if (slab === 'R1') return 'slab_r1'
   if (slab === 'W') return 'slab_w'
   if (slab === 'F') return 'slab_f'
   if (slab === 'Q') return 'standard'
@@ -34,9 +35,10 @@ export function erpCatalogMcPerUnit(line: ErpBillLine): number {
   if (Number.isFinite(cat) && cat > 0) return cat
   const mc = Number(line.mc_rate ?? 0) || 0
   const r = Number(line.mc_rate_slab_r ?? 0) || 0
+  const r1 = Number(line.mc_rate_slab_r1 ?? 0) || 0
   const w = Number(line.mc_rate_slab_w ?? 0) || 0
   const f = Number(line.mc_rate_slab_f ?? 0) || 0
-  const candidates = [mc, r, w, f].filter((n) => n > 0)
+  const candidates = [mc, r, r1, w, f].filter((n) => n > 0)
   if (!candidates.length) return 0
   return Math.max(...candidates)
 }
