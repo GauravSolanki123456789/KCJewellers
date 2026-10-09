@@ -6,6 +6,12 @@ import { Loader2, Lock, LogOut, UserCircle2 } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { erpBtnPrimary, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
+import {
+  DEFAULT_SHADOW_SEQUENCE,
+  isBrowserReservedFnKey,
+  normalizeShadowSecretSequence,
+  SHADOW_UNLOCK_MIN_LENGTH,
+} from '@/lib/erp-shadow-sequence'
 
 export function ErpOperatorLogin() {
   const { login } = useErpOperator()
@@ -110,8 +116,6 @@ export function ErpOperatorBar() {
   )
 }
 
-const DEFAULT_SEQUENCE = 'F9Rs*'
-
 /** Listens for secret key sequence when admin is signed in. */
 export function useShadowKeyUnlock(enabled: boolean) {
   const router = useRouter()
@@ -129,10 +133,22 @@ export function useShadowKeyUnlock(enabled: boolean) {
       const t = e.target as HTMLElement | null
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return
 
+      if (/^F\d{1,2}$/i.test(e.key)) {
+        const fk = e.key.toUpperCase()
+        if (isBrowserReservedFnKey(fk)) {
+          bufferRef.current = ''
+          return
+        }
+        bufferRef.current = fk
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+
       if (e.key === 'Enter') {
-        const seq = bufferRef.current
+        const seq = normalizeShadowSecretSequence(bufferRef.current)
         bufferRef.current = ''
-        if (seq.startsWith('F9') && seq.length >= 5 && !unlockingRef.current) {
+        if (seq.length >= SHADOW_UNLOCK_MIN_LENGTH && !unlockingRef.current) {
           unlockingRef.current = true
           void unlockShadow(seq)
             .then(() => router.push(RESELLER_ERP_PATH))
@@ -144,12 +160,6 @@ export function useShadowKeyUnlock(enabled: boolean) {
         return
       }
 
-      if (e.key === 'F9') {
-        bufferRef.current = 'F9'
-        e.preventDefault()
-        return
-      }
-
       if (e.key.length === 1) {
         bufferRef.current += e.key
         if (bufferRef.current.length > 32) {
@@ -158,8 +168,8 @@ export function useShadowKeyUnlock(enabled: boolean) {
       }
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [enabled, operator, shadowUnlocked, unlockShadow, router])
 }
 
@@ -179,4 +189,4 @@ export function ErpOperatorGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-export { DEFAULT_SEQUENCE as DEFAULT_SHADOW_SEQUENCE }
+export { DEFAULT_SHADOW_SEQUENCE }

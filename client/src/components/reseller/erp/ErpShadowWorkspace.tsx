@@ -13,6 +13,7 @@ import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/res
 import { ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 import { ErpNavVisibilityPanel } from '@/components/reseller/erp/ErpNavVisibilityPanel'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
+import { normalizeShadowSecretSequence, validateShadowSecretSequence } from '@/lib/erp-shadow-sequence'
 
 type ShadowBill = {
   id: number | string
@@ -195,13 +196,15 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
   }
 
   const saveNewKey = async () => {
-    if (newKey.length < 3) {
-      setMsg('Secret sequence must be at least 3 characters.')
+    const normalized = normalizeShadowSecretSequence(newKey)
+    const seqErr = validateShadowSecretSequence(normalized)
+    if (seqErr) {
+      setMsg(seqErr)
       return
     }
     setBusy(true)
     try {
-      await axios.put('/api/reseller/erp/shadow/settings', { secretSequence: newKey })
+      await axios.put('/api/reseller/erp/shadow/settings', { secretSequence: normalized })
       setMsg('Secret key updated.')
       setNewKey('')
     } catch (e) {

@@ -18,6 +18,14 @@ const {
     ensureSessionNetTotalInr,
 } = require('./erpBillTotalResolve');
 const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
+const {
+    normalizeShadowSecretSequence,
+    validateShadowSecretSequence,
+    shadowSequencesEqual,
+    checkShadowUnlockRateLimit,
+    recordShadowUnlockFailure,
+    clearShadowUnlockFailures,
+} = require('./erpShadowSequence');
 
 async function ensureShadowSchema(pool) {
     await pool.query(`
@@ -423,7 +431,7 @@ async function loadShadowSettings(query, resellerUserId) {
     }
     const shadow = settings.shadow && typeof settings.shadow === 'object' ? settings.shadow : {};
     return {
-        secretSequence: String(shadow.secretSequence || DEFAULT_SHADOW_SEQUENCE),
+        secretSequence: normalizeShadowSecretSequence(shadow.secretSequence || DEFAULT_SHADOW_SEQUENCE),
         companies: {
             hitesh: { label: shadow?.companies?.hitesh?.label || 'Hitesh', note: shadow?.companies?.hitesh?.note || 'GST & online payments' },
             jainav: { label: shadow?.companies?.jainav?.label || 'Jainav', note: shadow?.companies?.jainav?.note || 'Cash / no GST' },
@@ -870,11 +878,20 @@ function registerShadowRoutes(app, deps) {
             if (!op || op.role !== 'admin' || !op.shadowAccess) {
                 return res.status(403).json({ error: 'Access denied' });
             }
-            const sequence = String(req.body.sequence || '').trim();
+            const rate = checkShadowUnlockRateLimit(req.user.id);
+            if (!rate.allowed) {
+                return res.status(429).json({
+                    success: false,
+                    error: 'Too many attempts. Try again later.',
+                });
+            }
+            const sequence = normalizeShadowSecretSequence(req.body.sequence);
             const settings = await loadShadowSettings(query, req.user.id);
-            if (sequence !== settings.secretSequence) {
+            if (!shadowSequencesEqual(settings.secretSequence, sequence)) {
+                recordShadowUnlockFailure(req.user.id);
                 return res.json({ success: false, error: 'Invalid sequence' });
             }
+            clearShadowUnlockFailures(req.user.id);
             req.session.shadowUnlocked = true;
             res.json({ success: true, shadowUnlocked: true, companies: settings.companies });
         } catch (e) {
@@ -899,9 +916,11 @@ function registerShadowRoutes(app, deps) {
 
     app.put('/api/reseller/erp/shadow/settings', checkAuth, erpGate, shadowGate, requireJson, async (req, res) => {
         try {
-            const newSeq = req.body.secretSequence != null ? String(req.body.secretSequence).trim() : null;
-            if (newSeq != null && newSeq.length < 3) {
-                return res.status(400).json({ error: 'Secret sequence must be at least 3 characters' });
+            const newSeqRaw = req.body.secretSequence != null ? String(req.body.secretSequence).trim() : null;
+            const newSeq = newSeqRaw != null ? normalizeShadowSecretSequence(newSeqRaw) : null;
+            if (newSeq != null) {
+                const seqErr = validateShadowSecretSequence(newSeq);
+                if (seqErr) return res.status(400).json({ error: seqErr });
             }
             const rows = await query(
                 `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1 LIMIT 1`,
