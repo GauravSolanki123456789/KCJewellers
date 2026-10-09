@@ -286,6 +286,7 @@ const RETURN_LINE_COMPARE_KEYS = [
   'mc_type',
   'ratePerGram',
   'metal_slab_r_pct',
+  'metal_slab_r1_pct',
   'metal_slab_w_pct',
   'metal_slab_f_pct',
   'invoice_item_name',

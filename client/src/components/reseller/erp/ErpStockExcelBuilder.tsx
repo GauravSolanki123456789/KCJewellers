@@ -26,6 +26,7 @@ const FIELD_ROWS: { key: keyof StockExcelBuilderDefaults; label: string; placeho
   { key: 'mc_rate_slab_w', label: 'MC W' },
   { key: 'mc_rate_slab_f', label: 'MC F' },
   { key: 'metal_slab_r_pct', label: 'Met R%', placeholder: '100' },
+  { key: 'metal_slab_r1_pct', label: 'Met R1%', placeholder: '91' },
   { key: 'metal_slab_w_pct', label: 'Met W%', placeholder: '94' },
   { key: 'metal_slab_f_pct', label: 'Met F%', placeholder: '92' },
   { key: 'mc_type', label: 'MCType', placeholder: 'MC/GM' },

@@ -1216,19 +1216,25 @@ function isMcPerPieceType(mcType) {
 function lineHasPieceSlabFields(line) {
     return (
         line?.mc_rate_slab_r != null ||
+        line?.mc_rate_slab_r1 != null ||
         line?.mc_rate_slab_w != null ||
         line?.mc_rate_slab_f != null ||
         line?.metal_slab_r_pct != null ||
+        line?.metal_slab_r1_pct != null ||
         line?.metal_slab_w_pct != null ||
         line?.metal_slab_f_pct != null
     );
 }
 
 function printPieceSlabMcRatePerUnit(line, rateSlab) {
-    if (rateSlab === 'W') {
-        return line?.mc_rate_slab_w ?? line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+    const slab = String(rateSlab || 'R').toUpperCase();
+    if (slab === 'R1') {
+        return line?.mc_rate_slab_r1 ?? line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
     }
-    if (rateSlab === 'F') {
+    if (slab === 'W') {
+        return line?.mc_rate_slab_w ?? line?.mc_rate_slab_r1 ?? line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+    }
+    if (slab === 'F') {
         return line?.mc_rate_slab_f ?? line?.mc_rate_slab_w ?? line?.mc_rate ?? null;
     }
     return line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
@@ -1250,6 +1256,7 @@ function roughCatalogMcRatePerUnit(line) {
     }
     const slabRates = [
         Number(line?.mc_rate_slab_r),
+        Number(line?.mc_rate_slab_r1),
         Number(line?.mc_rate_slab_w),
         Number(line?.mc_rate_slab_f),
     ].filter((n) => Number.isFinite(n) && n > 0);
@@ -1270,7 +1277,13 @@ function manualMcDiscountPerUnitForPrint(line, rateSlab) {
     if (!line?.manualEntry) return 0;
     const slab = String(rateSlab || 'R').toUpperCase();
     const field =
-        slab === 'W' ? 'mc_rate_slab_w' : slab === 'F' ? 'mc_rate_slab_f' : 'mc_rate_slab_r';
+        slab === 'R1'
+            ? 'mc_rate_slab_r1'
+            : slab === 'W'
+              ? 'mc_rate_slab_w'
+              : slab === 'F'
+                ? 'mc_rate_slab_f'
+                : 'mc_rate_slab_r';
     const v = Number(line[field]);
     return Number.isFinite(v) && v > 0 ? v : 0;
 }

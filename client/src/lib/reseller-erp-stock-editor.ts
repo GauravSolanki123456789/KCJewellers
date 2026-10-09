@@ -31,9 +31,11 @@ export type StockEditableField =
   | 'bags'
   | 'bag_wt'
   | 'mc_rate_slab_r'
+  | 'mc_rate_slab_r1'
   | 'mc_rate_slab_w'
   | 'mc_rate_slab_f'
   | 'metal_slab_r_pct'
+  | 'metal_slab_r1_pct'
   | 'metal_slab_w_pct'
   | 'metal_slab_f_pct'
 
@@ -74,9 +76,11 @@ export const STOCK_EDITOR_COLUMNS: {
   { key: 'wastage_pct', label: 'Wastage(%)', shortLabel: 'Wast %', type: 'number' },
   { key: 'mc_rate', label: 'MCRate', shortLabel: 'MC', type: 'number' },
   { key: 'mc_rate_slab_r', label: 'MCRateSlabR', shortLabel: 'MC R', type: 'number' },
+  { key: 'mc_rate_slab_r1', label: 'MCRateSlabR1', shortLabel: 'MC R1', type: 'number' },
   { key: 'mc_rate_slab_w', label: 'MCRateSlabW', shortLabel: 'MC W', type: 'number' },
   { key: 'mc_rate_slab_f', label: 'MCRateSlabF', shortLabel: 'MC F', type: 'number' },
   { key: 'metal_slab_r_pct', label: 'MetalSlabR%', shortLabel: 'Met R%', type: 'number' },
+  { key: 'metal_slab_r1_pct', label: 'MetalSlabR1%', shortLabel: 'Met R1%', type: 'number' },
   { key: 'metal_slab_w_pct', label: 'MetalSlabW%', shortLabel: 'Met W%', type: 'number' },
   { key: 'metal_slab_f_pct', label: 'MetalSlabF%', shortLabel: 'Met F%', type: 'number' },
   { key: 'mc_type', label: 'MCType', type: 'text' },
@@ -99,9 +103,11 @@ export const STOCK_EDITOR_COLUMNS: {
 /** Numeric 0 is still meaningful for these columns (slab MC / metal %). */
 const STOCK_ZERO_IS_DATA: ReadonlySet<StockEditableField> = new Set([
   'mc_rate_slab_r',
+  'mc_rate_slab_r1',
   'mc_rate_slab_w',
   'mc_rate_slab_f',
   'metal_slab_r_pct',
+  'metal_slab_r1_pct',
   'metal_slab_w_pct',
   'metal_slab_f_pct',
   'pcs',
@@ -151,9 +157,11 @@ export function pieceToRowDraft(p: ErpStockPiece): StockRowDraft {
       wastage_pct: fieldToString(p.wastage_pct),
       mc_rate: fieldToString(p.mc_rate),
       mc_rate_slab_r: fieldToString(p.mc_rate_slab_r),
+      mc_rate_slab_r1: fieldToString(p.mc_rate_slab_r1),
       mc_rate_slab_w: fieldToString(p.mc_rate_slab_w),
       mc_rate_slab_f: fieldToString(p.mc_rate_slab_f),
       metal_slab_r_pct: fieldToString(p.metal_slab_r_pct),
+      metal_slab_r1_pct: fieldToString(p.metal_slab_r1_pct),
       metal_slab_w_pct: fieldToString(p.metal_slab_w_pct),
       metal_slab_f_pct: fieldToString(p.metal_slab_f_pct),
       mc_type: fieldToString(p.mc_type),
@@ -194,9 +202,11 @@ export function rowDraftToApiPayload(d: StockRowDraft): Record<string, unknown> 
     wastage_pct: num('wastage_pct'),
     mc_rate: num('mc_rate'),
     mc_rate_slab_r: num('mc_rate_slab_r'),
+    mc_rate_slab_r1: num('mc_rate_slab_r1'),
     mc_rate_slab_w: num('mc_rate_slab_w'),
     mc_rate_slab_f: num('mc_rate_slab_f'),
     metal_slab_r_pct: num('metal_slab_r_pct'),
+    metal_slab_r1_pct: num('metal_slab_r1_pct'),
     metal_slab_w_pct: num('metal_slab_w_pct'),
     metal_slab_f_pct: num('metal_slab_f_pct'),
     mc_type: v.mc_type.trim() || null,
@@ -371,6 +381,9 @@ export function downloadStockPiecesExcel(
         case 'mc_rate_slab_r':
           row[label] = p.mc_rate_slab_r ?? null
           break
+        case 'mc_rate_slab_r1':
+          row[label] = p.mc_rate_slab_r1 ?? null
+          break
         case 'mc_rate_slab_w':
           row[label] = p.mc_rate_slab_w ?? null
           break
@@ -379,6 +392,9 @@ export function downloadStockPiecesExcel(
           break
         case 'metal_slab_r_pct':
           row[label] = p.metal_slab_r_pct ?? null
+          break
+        case 'metal_slab_r1_pct':
+          row[label] = p.metal_slab_r1_pct ?? null
           break
         case 'metal_slab_w_pct':
           row[label] = p.metal_slab_w_pct ?? null

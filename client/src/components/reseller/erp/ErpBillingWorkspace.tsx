@@ -329,6 +329,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     mc_rate_slab_w: p.mc_rate_slab_w ?? null,
     mc_rate_slab_f: p.mc_rate_slab_f ?? null,
     metal_slab_r_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_r_pct) ?? null,
+    metal_slab_r1_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_r1_pct) ?? null,
     metal_slab_w_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_w_pct) ?? null,
     metal_slab_f_pct: normalizeMetalSlabPctForUiStorage(p.metal_slab_f_pct) ?? null,
     box_charges: p.box_charges ?? 0,
@@ -1679,6 +1680,8 @@ export function ErpBillingWorkspace() {
               mc_rate_slab_f: num('mc_rate_slab_f') ?? l.mc_rate_slab_f,
               metal_slab_r_pct:
                 normalizeMetalSlabPctForUiStorage(num('metal_slab_r_pct')) ?? l.metal_slab_r_pct,
+              metal_slab_r1_pct:
+                normalizeMetalSlabPctForUiStorage(num('metal_slab_r1_pct')) ?? l.metal_slab_r1_pct,
               metal_slab_w_pct:
                 normalizeMetalSlabPctForUiStorage(num('metal_slab_w_pct')) ?? l.metal_slab_w_pct,
               metal_slab_f_pct:

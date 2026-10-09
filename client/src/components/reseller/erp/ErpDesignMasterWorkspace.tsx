@@ -57,6 +57,7 @@ type DesignSku = {
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
+  metal_slab_r1_pct?: number | null
   metal_slab_w_pct?: number | null
   metal_slab_f_pct?: number | null
   mc_type?: string | null
@@ -82,6 +83,7 @@ const NUM_FIELDS: { key: string; label: string }[] = [
   { key: 'mc_rate_slab_w', label: 'MC W' },
   { key: 'mc_rate_slab_f', label: 'MC F' },
   { key: 'metal_slab_r_pct', label: 'Met R%' },
+  { key: 'metal_slab_r1_pct', label: 'Met R1%' },
   { key: 'metal_slab_w_pct', label: 'Met W%' },
   { key: 'metal_slab_f_pct', label: 'Met F%' },
 ]
@@ -191,6 +193,8 @@ export function ErpDesignMasterWorkspace() {
         mc_rate_slab_w: selectedSku.mc_rate_slab_w != null ? String(selectedSku.mc_rate_slab_w) : '',
         mc_rate_slab_f: selectedSku.mc_rate_slab_f != null ? String(selectedSku.mc_rate_slab_f) : '',
         metal_slab_r_pct: selectedSku.metal_slab_r_pct != null ? String(selectedSku.metal_slab_r_pct) : '',
+        metal_slab_r1_pct:
+          selectedSku.metal_slab_r1_pct != null ? String(selectedSku.metal_slab_r1_pct) : '',
         metal_slab_w_pct: selectedSku.metal_slab_w_pct != null ? String(selectedSku.metal_slab_w_pct) : '',
         metal_slab_f_pct: selectedSku.metal_slab_f_pct != null ? String(selectedSku.metal_slab_f_pct) : '',
         mc_type: selectedSku.mc_type ?? '',

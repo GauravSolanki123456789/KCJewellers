@@ -21,6 +21,7 @@ export type StockExcelBuilderDefaults = {
   mc_rate_slab_w?: string | number
   mc_rate_slab_f?: string | number
   metal_slab_r_pct?: string | number
+  metal_slab_r1_pct?: string | number
   metal_slab_w_pct?: string | number
   metal_slab_f_pct?: string | number
   mc_type?: string
@@ -57,6 +58,8 @@ const HEADERS = [
   'MCRate',
   'MetalSlabR%',
   'MCRateSlabR',
+  'MetalSlabR1%',
+  'MCRateSlabR1',
   'MetalSlabW%',
   'MCRateSlabW',
   'MetalSlabF%',
@@ -99,6 +102,8 @@ function rowFromDefaults(defaults: StockExcelBuilderDefaults): Record<string, st
     MCRate: cell(defaults.mc_rate),
     'MetalSlabR%': cell(defaults.metal_slab_r_pct),
     MCRateSlabR: cell(defaults.mc_rate_slab_r),
+    'MetalSlabR1%': cell(defaults.metal_slab_r1_pct),
+    MCRateSlabR1: cell(defaults.mc_rate_slab_r1),
     'MetalSlabW%': cell(defaults.metal_slab_w_pct),
     MCRateSlabW: cell(defaults.mc_rate_slab_w),
     'MetalSlabF%': cell(defaults.metal_slab_f_pct),

@@ -47,9 +47,11 @@ function mapOfflinePiece(row) {
         mc_rate: row.mc_rate != null ? Number(row.mc_rate) : null,
         mc_type: row.mc_type || '',
         mc_rate_slab_r: row.mc_rate_slab_r != null ? Number(row.mc_rate_slab_r) : null,
+        mc_rate_slab_r1: row.mc_rate_slab_r1 != null ? Number(row.mc_rate_slab_r1) : null,
         mc_rate_slab_w: row.mc_rate_slab_w != null ? Number(row.mc_rate_slab_w) : null,
         mc_rate_slab_f: row.mc_rate_slab_f != null ? Number(row.mc_rate_slab_f) : null,
         metal_slab_r_pct: row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
+        metal_slab_r1_pct: row.metal_slab_r1_pct != null ? Number(row.metal_slab_r1_pct) : null,
         metal_slab_w_pct: row.metal_slab_w_pct != null ? Number(row.metal_slab_w_pct) : null,
         metal_slab_f_pct: row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
         pcs: row.pcs != null ? Number(row.pcs) : 1,
@@ -96,8 +98,8 @@ async function loadOfflineSnapshot(query, resellerUserId) {
     const pieces = await query(
         `SELECT id, barcode, sku, style_code, product_name, size, avg_weight,
                 gross_weight, bag_wt, bags, purity, wastage_pct, mc_rate, mc_type,
-                mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
-                metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct,
+                mc_rate_slab_r, mc_rate_slab_r1, mc_rate_slab_w, mc_rate_slab_f,
+                metal_slab_r_pct, metal_slab_r1_pct, metal_slab_w_pct, metal_slab_f_pct,
                 pcs, box_charges, stone_charges, stone_wt, metal_type, item_code,
                 image_url, attr_color, attr_stone, fixed_price
          FROM reseller_erp_stock_pieces

@@ -10,7 +10,8 @@ import { lineHasFinishPicker } from '@/lib/erp-catalog-product'
 export type ManualBillGridField = keyof ErpBillLine | 'metal_slab_pct'
 
 export function metalSlabPctStorageKey(slab: ErpRateSlab): keyof ErpBillLine {
-  if (slab === 'R1' || slab === 'W') return 'metal_slab_w_pct'
+  if (slab === 'R1') return 'metal_slab_r1_pct'
+  if (slab === 'W') return 'metal_slab_w_pct'
   if (slab === 'F') return 'metal_slab_f_pct'
   return 'metal_slab_r_pct'
 }

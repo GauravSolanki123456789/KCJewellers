@@ -49,6 +49,7 @@ async function ensureDesignMasterSchema(pool) {
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS invoice_item_name VARCHAR(255);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(32);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS mc_rate_slab_r1 NUMERIC(12, 2);
+        ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS metal_slab_r1_pct NUMERIC(8, 4);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS fixed_price NUMERIC(12, 2);
         ALTER TABLE reseller_erp_design_skus ADD COLUMN IF NOT EXISTS product_names JSONB;
         CREATE TABLE IF NOT EXISTS reseller_erp_design_sku_sizes (
@@ -416,6 +417,7 @@ function mapDesignSku(row) {
         mc_rate_slab_w: row.mc_rate_slab_w != null ? Number(row.mc_rate_slab_w) : null,
         mc_rate_slab_f: row.mc_rate_slab_f != null ? Number(row.mc_rate_slab_f) : null,
         metal_slab_r_pct: row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
+        metal_slab_r1_pct: row.metal_slab_r1_pct != null ? Number(row.metal_slab_r1_pct) : null,
         metal_slab_w_pct: row.metal_slab_w_pct != null ? Number(row.metal_slab_w_pct) : null,
         metal_slab_f_pct: row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
         mc_type: row.mc_type,
@@ -521,7 +523,7 @@ async function loadDesignMasterTreeForOffline(query, resellerUserId) {
         `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.product_names,
                 sk.purity, sk.metal_type, sk.wastage_pct, sk.mc_rate,
                 sk.mc_rate_slab_r, sk.mc_rate_slab_r1, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
-                sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct,
+                sk.metal_slab_r_pct, sk.metal_slab_r1_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct,
                 sk.mc_type, sk.invoice_item_name, sk.hsn_code, sk.fixed_price,
                 ds.style_code
          FROM reseller_erp_design_skus sk
@@ -608,7 +610,7 @@ async function lookupDesignDefaults(query, resellerUserId, styleCode, sku) {
         `SELECT ds.id AS style_id, ds.style_code, ds.style_name,
                 sk.id, sk.sku, sk.product_name, sk.product_names, sk.purity, sk.metal_type,
                 sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_r1, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
-                sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
+                sk.metal_slab_r_pct, sk.metal_slab_r1_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
                 sk.invoice_item_name, sk.hsn_code, sk.fixed_price
          FROM reseller_erp_design_styles ds
          JOIN reseller_erp_design_skus sk ON sk.style_id = ds.id AND sk.reseller_user_id = ds.reseller_user_id
@@ -640,6 +642,7 @@ function applyDesignDefaultsToPiece(piece, defaults) {
     fill('mc_rate_slab_w', defaults.mc_rate_slab_w);
     fill('mc_rate_slab_f', defaults.mc_rate_slab_f);
     fill('metal_slab_r_pct', defaults.metal_slab_r_pct);
+    fill('metal_slab_r1_pct', defaults.metal_slab_r1_pct);
     fill('metal_slab_w_pct', defaults.metal_slab_w_pct);
     fill('metal_slab_f_pct', defaults.metal_slab_f_pct);
     fill('mc_type', defaults.mc_type);
@@ -663,25 +666,29 @@ async function propagateDesignSkuToStock(query, resellerUserId, designSkuId) {
             wastage_pct = COALESCE($1, wastage_pct),
             mc_rate = COALESCE($2, mc_rate),
             mc_rate_slab_r = COALESCE($3, mc_rate_slab_r),
-            mc_rate_slab_w = COALESCE($4, mc_rate_slab_w),
-            mc_rate_slab_f = COALESCE($5, mc_rate_slab_f),
-            metal_slab_r_pct = COALESCE($6, metal_slab_r_pct),
-            metal_slab_w_pct = COALESCE($7, metal_slab_w_pct),
-            metal_slab_f_pct = COALESCE($8, metal_slab_f_pct),
-            mc_type = COALESCE($9, mc_type),
-            purity = COALESCE($10, purity),
-            metal_type = COALESCE($11, metal_type),
+            mc_rate_slab_r1 = COALESCE($4, mc_rate_slab_r1),
+            mc_rate_slab_w = COALESCE($5, mc_rate_slab_w),
+            mc_rate_slab_f = COALESCE($6, mc_rate_slab_f),
+            metal_slab_r_pct = COALESCE($7, metal_slab_r_pct),
+            metal_slab_r1_pct = COALESCE($8, metal_slab_r1_pct),
+            metal_slab_w_pct = COALESCE($9, metal_slab_w_pct),
+            metal_slab_f_pct = COALESCE($10, metal_slab_f_pct),
+            mc_type = COALESCE($11, mc_type),
+            purity = COALESCE($12, purity),
+            metal_type = COALESCE($13, metal_type),
             updated_at = NOW()
-         WHERE reseller_user_id = $12 AND status = 'in_stock'
-           AND upper(trim(style_code)) = upper(trim($13))
-           AND upper(trim(sku)) = upper(trim($14))`,
+         WHERE reseller_user_id = $14 AND status = 'in_stock'
+           AND upper(trim(style_code)) = upper(trim($15))
+           AND upper(trim(sku)) = upper(trim($16))`,
         [
             d.wastage_pct,
             d.mc_rate,
             d.mc_rate_slab_r,
+            d.mc_rate_slab_r1,
             d.mc_rate_slab_w,
             d.mc_rate_slab_f,
             d.metal_slab_r_pct,
+            d.metal_slab_r1_pct,
             d.metal_slab_w_pct,
             d.metal_slab_f_pct,
             d.mc_type,
@@ -707,8 +714,8 @@ async function seedDesignMasterFromStock(query, resellerUserId, opts = {}) {
     const rows = await query(
         `SELECT DISTINCT ON (upper(trim(style_code)), upper(trim(sku)))
             style_code, sku, product_name, purity, metal_type,
-            wastage_pct, mc_rate, mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
-            metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct, mc_type
+            wastage_pct, mc_rate, mc_rate_slab_r, mc_rate_slab_r1, mc_rate_slab_w, mc_rate_slab_f,
+            metal_slab_r_pct, metal_slab_r1_pct, metal_slab_w_pct, metal_slab_f_pct, mc_type
          FROM reseller_erp_stock_pieces
          WHERE reseller_user_id = $1
            AND style_code IS NOT NULL AND trim(style_code) <> ''
@@ -760,9 +767,11 @@ async function seedDesignMasterFromStock(query, resellerUserId, opts = {}) {
             row.wastage_pct != null ? Number(row.wastage_pct) : null,
             row.mc_rate != null ? Number(row.mc_rate) : null,
             row.mc_rate_slab_r != null ? Number(row.mc_rate_slab_r) : null,
+            row.mc_rate_slab_r1 != null ? Number(row.mc_rate_slab_r1) : null,
             row.mc_rate_slab_w != null ? Number(row.mc_rate_slab_w) : null,
             row.mc_rate_slab_f != null ? Number(row.mc_rate_slab_f) : null,
             row.metal_slab_r_pct != null ? Number(row.metal_slab_r_pct) : null,
+            row.metal_slab_r1_pct != null ? Number(row.metal_slab_r1_pct) : null,
             row.metal_slab_w_pct != null ? Number(row.metal_slab_w_pct) : null,
             row.metal_slab_f_pct != null ? Number(row.metal_slab_f_pct) : null,
             row.mc_type ? String(row.mc_type).slice(0, 32) : null,
@@ -772,9 +781,9 @@ async function seedDesignMasterFromStock(query, resellerUserId, opts = {}) {
             await query(
                 `INSERT INTO reseller_erp_design_skus (
                     reseller_user_id, style_id, sku, product_name, purity, metal_type,
-                    wastage_pct, mc_rate, mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
-                    metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct, mc_type
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+                    wastage_pct, mc_rate, mc_rate_slab_r, mc_rate_slab_r1, mc_rate_slab_w, mc_rate_slab_f,
+                    metal_slab_r_pct, metal_slab_r1_pct, metal_slab_w_pct, metal_slab_f_pct, mc_type
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
                 [resellerUserId, styleId, sku, ...vals],
             );
             skusCreated += 1;
@@ -782,10 +791,10 @@ async function seedDesignMasterFromStock(query, resellerUserId, opts = {}) {
             await query(
                 `UPDATE reseller_erp_design_skus SET
                     product_name = $1, purity = $2, metal_type = $3, wastage_pct = $4,
-                    mc_rate = $5, mc_rate_slab_r = $6, mc_rate_slab_w = $7, mc_rate_slab_f = $8,
-                    metal_slab_r_pct = $9, metal_slab_w_pct = $10, metal_slab_f_pct = $11,
-                    mc_type = $12, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $13`,
+                    mc_rate = $5, mc_rate_slab_r = $6, mc_rate_slab_r1 = $7, mc_rate_slab_w = $8, mc_rate_slab_f = $9,
+                    metal_slab_r_pct = $10, metal_slab_r1_pct = $11, metal_slab_w_pct = $12, metal_slab_f_pct = $13,
+                    mc_type = $14, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $15`,
                 [...vals, existingSku[0].id],
             );
             skusUpdated += 1;
@@ -798,14 +807,16 @@ async function seedDesignMasterFromStock(query, resellerUserId, opts = {}) {
                     wastage_pct = COALESCE(wastage_pct, $4),
                     mc_rate = COALESCE(mc_rate, $5),
                     mc_rate_slab_r = COALESCE(mc_rate_slab_r, $6),
-                    mc_rate_slab_w = COALESCE(mc_rate_slab_w, $7),
-                    mc_rate_slab_f = COALESCE(mc_rate_slab_f, $8),
-                    metal_slab_r_pct = COALESCE(metal_slab_r_pct, $9),
-                    metal_slab_w_pct = COALESCE(metal_slab_w_pct, $10),
-                    metal_slab_f_pct = COALESCE(metal_slab_f_pct, $11),
-                    mc_type = COALESCE(mc_type, $12),
+                    mc_rate_slab_r1 = COALESCE(mc_rate_slab_r1, $7),
+                    mc_rate_slab_w = COALESCE(mc_rate_slab_w, $8),
+                    mc_rate_slab_f = COALESCE(mc_rate_slab_f, $9),
+                    metal_slab_r_pct = COALESCE(metal_slab_r_pct, $10),
+                    metal_slab_r1_pct = COALESCE(metal_slab_r1_pct, $11),
+                    metal_slab_w_pct = COALESCE(metal_slab_w_pct, $12),
+                    metal_slab_f_pct = COALESCE(metal_slab_f_pct, $13),
+                    mc_type = COALESCE(mc_type, $14),
                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $13`,
+                 WHERE id = $15`,
                 [...vals, existingSku[0].id],
             );
             skusUpdated += 1;
@@ -838,7 +849,7 @@ function registerDesignMasterRoutes(app, deps) {
             const skus = await query(
                 `SELECT sk.id, sk.style_id, sk.sku, sk.product_name, sk.product_names, sk.purity, sk.metal_type,
                         sk.wastage_pct, sk.mc_rate, sk.mc_rate_slab_r, sk.mc_rate_slab_r1, sk.mc_rate_slab_w, sk.mc_rate_slab_f,
-                        sk.metal_slab_r_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
+                        sk.metal_slab_r_pct, sk.metal_slab_r1_pct, sk.metal_slab_w_pct, sk.metal_slab_f_pct, sk.mc_type,
                         sk.invoice_item_name, sk.hsn_code, sk.fixed_price
                  FROM reseller_erp_design_skus sk
                  WHERE sk.reseller_user_id = $1
@@ -1074,14 +1085,14 @@ function registerDesignMasterRoutes(app, deps) {
                     product_name = COALESCE($2, product_name),
                     purity = $3, metal_type = $4, wastage_pct = $5,
                     mc_rate = $6, mc_rate_slab_r = $7, mc_rate_slab_r1 = $8, mc_rate_slab_w = $9, mc_rate_slab_f = $10,
-                    metal_slab_r_pct = $11, metal_slab_w_pct = $12, metal_slab_f_pct = $13,
-                    mc_type = $14,
-                    invoice_item_name = COALESCE($15, invoice_item_name),
-                    hsn_code = COALESCE($16, hsn_code),
-                    fixed_price = $17,
-                    product_names = COALESCE($18::jsonb, product_names),
+                    metal_slab_r_pct = $11, metal_slab_r1_pct = $12, metal_slab_w_pct = $13, metal_slab_f_pct = $14,
+                    mc_type = $15,
+                    invoice_item_name = COALESCE($16, invoice_item_name),
+                    hsn_code = COALESCE($17, hsn_code),
+                    fixed_price = $18,
+                    product_names = COALESCE($19::jsonb, product_names),
                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $19 AND reseller_user_id = $20
+                 WHERE id = $20 AND reseller_user_id = $21
                  RETURNING *`,
                 [
                     newSku,
@@ -1095,6 +1106,7 @@ function registerDesignMasterRoutes(app, deps) {
                     num('mc_rate_slab_w'),
                     num('mc_rate_slab_f'),
                     num('metal_slab_r_pct'),
+                    num('metal_slab_r1_pct'),
                     num('metal_slab_w_pct'),
                     num('metal_slab_f_pct'),
                     body.mc_type != null ? String(body.mc_type).slice(0, 32) : null,
@@ -1159,9 +1171,9 @@ function registerDesignMasterRoutes(app, deps) {
             const rows = await query(
                 `INSERT INTO reseller_erp_design_skus (
                     reseller_user_id, style_id, sku, product_name, purity, metal_type,
-                    wastage_pct, mc_rate, mc_rate_slab_r, mc_rate_slab_w, mc_rate_slab_f,
-                    metal_slab_r_pct, metal_slab_w_pct, metal_slab_f_pct, mc_type
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                    wastage_pct, mc_rate, mc_rate_slab_r, mc_rate_slab_r1, mc_rate_slab_w, mc_rate_slab_f,
+                    metal_slab_r_pct, metal_slab_r1_pct, metal_slab_w_pct, metal_slab_f_pct, mc_type
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
                  ON CONFLICT (reseller_user_id, style_id, sku) DO UPDATE SET
                     product_name = EXCLUDED.product_name,
                     purity = EXCLUDED.purity,
@@ -1169,9 +1181,11 @@ function registerDesignMasterRoutes(app, deps) {
                     wastage_pct = EXCLUDED.wastage_pct,
                     mc_rate = EXCLUDED.mc_rate,
                     mc_rate_slab_r = EXCLUDED.mc_rate_slab_r,
+                    mc_rate_slab_r1 = EXCLUDED.mc_rate_slab_r1,
                     mc_rate_slab_w = EXCLUDED.mc_rate_slab_w,
                     mc_rate_slab_f = EXCLUDED.mc_rate_slab_f,
                     metal_slab_r_pct = EXCLUDED.metal_slab_r_pct,
+                    metal_slab_r1_pct = EXCLUDED.metal_slab_r1_pct,
                     metal_slab_w_pct = EXCLUDED.metal_slab_w_pct,
                     metal_slab_f_pct = EXCLUDED.metal_slab_f_pct,
                     mc_type = EXCLUDED.mc_type,
@@ -1187,9 +1201,11 @@ function registerDesignMasterRoutes(app, deps) {
                     num('wastage_pct'),
                     num('mc_rate'),
                     num('mc_rate_slab_r'),
+                    num('mc_rate_slab_r1'),
                     num('mc_rate_slab_w'),
                     num('mc_rate_slab_f'),
                     num('metal_slab_r_pct'),
+                    num('metal_slab_r1_pct'),
                     num('metal_slab_w_pct'),
                     num('metal_slab_f_pct'),
                     req.body.mc_type ? String(req.body.mc_type).slice(0, 32) : null,

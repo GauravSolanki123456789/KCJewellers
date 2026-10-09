@@ -36,6 +36,7 @@ type DesignDefaults = {
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
+  metal_slab_r1_pct?: number | null
   metal_slab_w_pct?: number | null
   metal_slab_f_pct?: number | null
   mc_type?: string | null
@@ -506,8 +507,9 @@ export function ErpManualAddProduct({
               {def ? (
                 <p className="text-[10px] text-[var(--color-jewelry-black,#1a1814)]/55">
                   MC {def.mc_rate ?? '—'} · MC R {def.mc_rate_slab_r ?? '—'} · MC W {def.mc_rate_slab_w ?? '—'} ·
-                  MC F {def.mc_rate_slab_f ?? '—'} · Met R% {def.metal_slab_r_pct ?? '—'} · Met W%{' '}
-                  {def.metal_slab_w_pct ?? '—'} · {def.mc_type || 'MCType —'}
+                  MC F {def.mc_rate_slab_f ?? '—'} · Met R% {def.metal_slab_r_pct ?? '—'} · Met R1%{' '}
+                  {def.metal_slab_r1_pct ?? '—'} · Met W% {def.metal_slab_w_pct ?? '—'} ·{' '}
+                  {def.mc_type || 'MCType —'}
                 </p>
               ) : null}
             </div>

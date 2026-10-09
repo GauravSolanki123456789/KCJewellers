@@ -2218,6 +2218,7 @@ function registerResellerErpRoutes(app, deps) {
                         mc_rate_slab_w: p.mc_rate_slab_w != null ? Number(p.mc_rate_slab_w) : null,
                         mc_rate_slab_f: p.mc_rate_slab_f != null ? Number(p.mc_rate_slab_f) : null,
                         metal_slab_r_pct: p.metal_slab_r_pct != null ? Number(p.metal_slab_r_pct) : null,
+                        metal_slab_r1_pct: p.metal_slab_r1_pct != null ? Number(p.metal_slab_r1_pct) : null,
                         metal_slab_w_pct: p.metal_slab_w_pct != null ? Number(p.metal_slab_w_pct) : null,
                         metal_slab_f_pct: p.metal_slab_f_pct != null ? Number(p.metal_slab_f_pct) : null,
                         floor_id: p.floor_id || null,

@@ -189,9 +189,11 @@ export function ErpStockExcelEditor({
     wastage_pct?: number | null
     mc_rate?: number | null
     mc_rate_slab_r?: number | null
+    mc_rate_slab_r1?: number | null
     mc_rate_slab_w?: number | null
     mc_rate_slab_f?: number | null
     metal_slab_r_pct?: number | null
+    metal_slab_r1_pct?: number | null
     metal_slab_w_pct?: number | null
     metal_slab_f_pct?: number | null
     mc_type?: string | null
@@ -206,9 +208,11 @@ export function ErpStockExcelEditor({
       { key: 'wastage_pct', val: defaults.wastage_pct },
       { key: 'mc_rate', val: defaults.mc_rate },
       { key: 'mc_rate_slab_r', val: defaults.mc_rate_slab_r },
+      { key: 'mc_rate_slab_r1', val: defaults.mc_rate_slab_r1 },
       { key: 'mc_rate_slab_w', val: defaults.mc_rate_slab_w },
       { key: 'mc_rate_slab_f', val: defaults.mc_rate_slab_f },
       { key: 'metal_slab_r_pct', val: defaults.metal_slab_r_pct },
+      { key: 'metal_slab_r1_pct', val: defaults.metal_slab_r1_pct },
       { key: 'metal_slab_w_pct', val: defaults.metal_slab_w_pct },
       { key: 'metal_slab_f_pct', val: defaults.metal_slab_f_pct },
       { key: 'mc_type', val: defaults.mc_type },

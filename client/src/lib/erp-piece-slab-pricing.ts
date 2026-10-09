@@ -25,6 +25,7 @@ export function lineHasPieceSlabFields(line: ErpBillLine): boolean {
     line.mc_rate_slab_w != null ||
     line.mc_rate_slab_f != null ||
     line.metal_slab_r_pct != null ||
+    line.metal_slab_r1_pct != null ||
     line.metal_slab_w_pct != null ||
     line.metal_slab_f_pct != null
   )
@@ -64,8 +65,11 @@ export function pieceSlabMetalFraction(line: ErpBillLine, slab: ErpRateSlab): nu
   if (slab === 'Q') {
     return parseMetalSlabFraction(line.metal_slab_r_pct ?? 1)
   }
-  if (slab === 'R1' || slab === 'W') {
-    return parseMetalSlabFraction(line.metal_slab_w_pct ?? line.metal_slab_r_pct ?? 1)
+  if (slab === 'R1') {
+    return parseMetalSlabFraction(line.metal_slab_r1_pct ?? line.metal_slab_r_pct ?? 1)
+  }
+  if (slab === 'W') {
+    return parseMetalSlabFraction(line.metal_slab_w_pct ?? line.metal_slab_r1_pct ?? line.metal_slab_r_pct ?? 1)
   }
   if (slab === 'F') {
     return parseMetalSlabFraction(line.metal_slab_f_pct ?? line.metal_slab_w_pct ?? 1)

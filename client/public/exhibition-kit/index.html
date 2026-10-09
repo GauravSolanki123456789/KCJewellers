@@ -456,9 +456,11 @@
         stock_piece_id: piece.id ?? null,
         mc_rate_catalog: piece.mc_rate ?? null,
         mc_rate_slab_r: piece.mc_rate_slab_r ?? null,
+        mc_rate_slab_r1: piece.mc_rate_slab_r1 ?? null,
         mc_rate_slab_w: piece.mc_rate_slab_w ?? null,
         mc_rate_slab_f: piece.mc_rate_slab_f ?? null,
         metal_slab_r_pct: piece.metal_slab_r_pct ?? null,
+        metal_slab_r1_pct: piece.metal_slab_r1_pct ?? null,
         metal_slab_w_pct: piece.metal_slab_w_pct ?? null,
         metal_slab_f_pct: piece.metal_slab_f_pct ?? null,
         manualEntryOpen: false,
@@ -544,9 +546,16 @@
         patch[field] = Number(val) || 0;
       } else if (field === 'metal_slab_pct') {
         const n = Number(val);
-        const key = rateSlab === 'W' ? 'metal_slab_w_pct' : rateSlab === 'F' ? 'metal_slab_f_pct' : 'metal_slab_r_pct';
+        const key =
+          rateSlab === 'R1'
+            ? 'metal_slab_r1_pct'
+            : rateSlab === 'W'
+              ? 'metal_slab_w_pct'
+              : rateSlab === 'F'
+                ? 'metal_slab_f_pct'
+                : 'metal_slab_r_pct';
         patch[key] = val === '' ? null : (Number.isFinite(n) ? n : null);
-      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','mc_rate_slab_r','mc_rate_slab_w','mc_rate_slab_f','fixed_price','ratePerGram'].includes(field)) {
+      } else if (['gross_weight','bag_wt','bags','purity','wastage_pct','mc_rate','mc_rate_slab_r','mc_rate_slab_r1','mc_rate_slab_w','mc_rate_slab_f','fixed_price','ratePerGram'].includes(field)) {
         const n = Number(val);
         patch[field] = val === '' ? null : (Number.isFinite(n) ? n : line[field]);
         if (field === 'ratePerGram' && val !== '') patch.rateLocked = true;
@@ -671,7 +680,14 @@
             return fieldBlock(lbl, cellInput(idx, key, val, null, editable, !editable));
           }).join('');
 
-          const mcSlabKey = rateSlab === 'W' ? 'mc_rate_slab_w' : rateSlab === 'F' ? 'mc_rate_slab_f' : 'mc_rate_slab_r';
+          const mcSlabKey =
+            rateSlab === 'R1'
+              ? 'mc_rate_slab_r1'
+              : rateSlab === 'W'
+                ? 'mc_rate_slab_w'
+                : rateSlab === 'F'
+                  ? 'mc_rate_slab_f'
+                  : 'mc_rate_slab_r';
           const chargeBand = [
             fieldBlock('MC', cellInput(idx, 'mc_rate', l.mc_rate, null, manual, !manual)),
             KB.billingShowsMcSlabRColumn(rateSlab)

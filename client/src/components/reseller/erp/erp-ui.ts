@@ -45,6 +45,7 @@ export type ErpProductHit = {
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
+  metal_slab_r1_pct?: number | null
   metal_slab_w_pct?: number | null
   metal_slab_f_pct?: number | null
   floor_id?: string | null
@@ -79,6 +80,7 @@ export type ErpStockPiece = {
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
+  metal_slab_r1_pct?: number | null
   metal_slab_w_pct?: number | null
   metal_slab_f_pct?: number | null
   floor_id?: string | null
@@ -142,6 +144,7 @@ export type ErpBillLine = {
   mc_rate_slab_w?: number | null
   mc_rate_slab_f?: number | null
   metal_slab_r_pct?: number | null
+  metal_slab_r1_pct?: number | null
   metal_slab_w_pct?: number | null
   metal_slab_f_pct?: number | null
   box_charges?: number | null

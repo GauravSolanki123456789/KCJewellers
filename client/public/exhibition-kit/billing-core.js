@@ -879,7 +879,8 @@ var KcExhibitionBillingModule = (() => {
     return slab === "R" || isRetailQuoteSlab(slab);
   }
   function metalSlabPctStorageKey(slab) {
-    if (slab === "R1" || slab === "W") return "metal_slab_w_pct";
+    if (slab === "R1") return "metal_slab_r1_pct";
+    if (slab === "W") return "metal_slab_w_pct";
     if (slab === "F") return "metal_slab_f_pct";
     return "metal_slab_r_pct";
   }
@@ -982,7 +983,7 @@ var KcExhibitionBillingModule = (() => {
     return 1;
   }
   function lineHasPieceSlabFields(line) {
-    return line.mc_rate_slab_r != null || line.mc_rate_slab_r1 != null || line.mc_rate_slab_w != null || line.mc_rate_slab_f != null || line.metal_slab_r_pct != null || line.metal_slab_w_pct != null || line.metal_slab_f_pct != null;
+    return line.mc_rate_slab_r != null || line.mc_rate_slab_r1 != null || line.mc_rate_slab_w != null || line.mc_rate_slab_f != null || line.metal_slab_r_pct != null || line.metal_slab_r1_pct != null || line.metal_slab_w_pct != null || line.metal_slab_f_pct != null;
   }
   function pieceSlabMcRate(line, slab) {
     if (line.manualEntry) return null;
@@ -1016,8 +1017,11 @@ var KcExhibitionBillingModule = (() => {
     if (slab === "Q") {
       return parseMetalSlabFraction(line.metal_slab_r_pct ?? 1);
     }
-    if (slab === "R1" || slab === "W") {
-      return parseMetalSlabFraction(line.metal_slab_w_pct ?? line.metal_slab_r_pct ?? 1);
+    if (slab === "R1") {
+      return parseMetalSlabFraction(line.metal_slab_r1_pct ?? line.metal_slab_r_pct ?? 1);
+    }
+    if (slab === "W") {
+      return parseMetalSlabFraction(line.metal_slab_w_pct ?? line.metal_slab_r1_pct ?? line.metal_slab_r_pct ?? 1);
     }
     if (slab === "F") {
       return parseMetalSlabFraction(line.metal_slab_f_pct ?? line.metal_slab_w_pct ?? 1);

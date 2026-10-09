@@ -17,6 +17,7 @@ export type TagEditFieldKey =
   | 'mc_rate_slab_w'
   | 'mc_rate_slab_f'
   | 'metal_slab_r_pct'
+  | 'metal_slab_r1_pct'
   | 'metal_slab_w_pct'
   | 'metal_slab_f_pct'
   | 'mc_type'
@@ -60,6 +61,7 @@ export const TAG_EDIT_FIELD_DEFS: TagEditFieldDef[] = [
   { key: 'mc_rate_slab_w', label: 'MC W', kind: 'number' },
   { key: 'mc_rate_slab_f', label: 'MC F', kind: 'number' },
   { key: 'metal_slab_r_pct', label: 'Met R%', kind: 'number' },
+  { key: 'metal_slab_r1_pct', label: 'Met R1%', kind: 'number' },
   { key: 'metal_slab_w_pct', label: 'Met W%', kind: 'number' },
   { key: 'metal_slab_f_pct', label: 'Met F%', kind: 'number' },
   { key: 'mc_type', label: 'MCType', kind: 'text' },

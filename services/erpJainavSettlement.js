@@ -13,6 +13,7 @@ function parseMetalSlabFraction(raw) {
 
 function metalSlabKeyForSlab(slab) {
     const s = String(slab || 'R').toUpperCase();
+    if (s === 'R1') return 'metal_slab_r1_pct';
     if (s === 'W') return 'metal_slab_w_pct';
     if (s === 'F') return 'metal_slab_f_pct';
     return 'metal_slab_r_pct';
