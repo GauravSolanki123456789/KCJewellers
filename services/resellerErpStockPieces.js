@@ -1114,11 +1114,13 @@ async function healLanePiecesToInStock(query, resellerUserId) {
 
 async function lookupStockPiece(query, resellerUserId, code) {
     await healLanePiecesToInStock(query, resellerUserId);
+    const trimmed = String(code || '').trim();
+    if (!trimmed) return null;
     const rows = await query(
         `SELECT * FROM reseller_erp_stock_pieces
-         WHERE reseller_user_id = $1 AND barcode = $2
+         WHERE reseller_user_id = $1 AND lower(trim(barcode)) = lower(trim($2))
          LIMIT 1`,
-        [resellerUserId, code],
+        [resellerUserId, trimmed],
     );
     if (!rows.length) return null;
     const p = mapPiece(rows[0]);

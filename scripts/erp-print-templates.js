@@ -762,7 +762,7 @@ function buildLabelTemplateVars(piece, hw, profile) {
             ? String(Math.round(Number(piece.fixed_price)))
             : '';
     return {
-        barcode: String(piece.barcode || '').trim(),
+        barcode: String(piece.barcode || '').trim().toUpperCase(),
         product_name: String(piece.product_name || piece.item_code || piece.style_code || '').trim(),
         style_code: String(piece.style_code || piece.product_name || '').trim(),
         item_code: String(piece.item_code || '').trim(),

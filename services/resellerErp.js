@@ -2262,7 +2262,7 @@ function registerResellerErpRoutes(app, deps) {
                         COALESCE(wp.box_charges, 0)::float AS box_charges,
                         COALESCE(wp.stone_charges, 0)::float AS stone_charges
                  FROM web_products wp
-                 WHERE (wp.barcode = $1 OR wp.sku = $1)
+                 WHERE (lower(trim(wp.barcode)) = lower(trim($1)) OR lower(trim(wp.sku)) = lower(trim($1)))
                    AND (wp.is_active IS NULL OR wp.is_active = true)
                  LIMIT 1`,
                 [code],
