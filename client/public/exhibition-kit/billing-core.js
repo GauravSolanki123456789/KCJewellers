@@ -993,25 +993,31 @@ var KcExhibitionBillingModule = (() => {
       }
       return line.mc_rate ?? null;
     }
+    if (slab === "R") {
+      if (line.mc_rate_slab_r != null && Number.isFinite(Number(line.mc_rate_slab_r))) {
+        return Number(line.mc_rate_slab_r);
+      }
+      return null;
+    }
     if (slab === "R1") {
       if (line.mc_rate_slab_r1 != null && Number.isFinite(Number(line.mc_rate_slab_r1))) {
         return Number(line.mc_rate_slab_r1);
       }
-      return line.mc_rate_slab_r ?? line.mc_rate ?? null;
+      return null;
     }
     if (slab === "W") {
       if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
         return Number(line.mc_rate_slab_w);
       }
-      return line.mc_rate_slab_r1 ?? line.mc_rate_slab_r ?? line.mc_rate ?? null;
+      return null;
     }
     if (slab === "F") {
       if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
         return Number(line.mc_rate_slab_f);
       }
-      return line.mc_rate_slab_w ?? line.mc_rate ?? null;
+      return null;
     }
-    return line.mc_rate_slab_r ?? line.mc_rate ?? null;
+    return null;
   }
   function pieceSlabMetalFraction(line, slab) {
     if (slab === "Q") {
@@ -1234,10 +1240,33 @@ var KcExhibitionBillingModule = (() => {
     }
     return 0;
   }
+  function pieceMcFieldForSlab(slab) {
+    if (slab === "R1") return "mc_rate_slab_r1";
+    if (slab === "W") return "mc_rate_slab_w";
+    if (slab === "F") return "mc_rate_slab_f";
+    return "mc_rate_slab_r";
+  }
+  function explicitPieceSlabMcPerUnit(line, slab) {
+    if (line.manualEntry) return null;
+    if (slab === "Q") {
+      const r = line.mc_rate_slab_r;
+      if (r != null && Number.isFinite(Number(r)) && Number(r) > 0) return Number(r);
+      return null;
+    }
+    const field = pieceMcFieldForSlab(slab);
+    const v = line[field];
+    if (v != null && Number.isFinite(Number(v)) && Number(v) > 0) return Number(v);
+    return null;
+  }
   function erpEffectiveMcPerUnit(line, slab, slabSettings) {
+    if (skipCatalogMcPcDiscount(line)) {
+      const base = Number(line.mc_rate ?? 0) || erpCatalogMcPerUnit(line);
+      return base > 0 ? roundMc(base) : 0;
+    }
+    const explicit = explicitPieceSlabMcPerUnit(line, slab);
+    if (explicit != null) return roundMc(explicit);
     const catalog = erpCatalogMcPerUnit(line);
     if (catalog <= 0) return 0;
-    if (skipCatalogMcPcDiscount(line)) return catalog;
     const pct = erpTierMcDiscountPct(line, slab, slabSettings);
     if (pct <= 0) return roundMc(catalog);
     return roundMc(catalog * (1 - pct / 100));
@@ -1716,9 +1745,8 @@ var KcExhibitionBillingModule = (() => {
       const adjusted = applyPieceSlabToLine(slabLine, slab);
       const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);
       const silverOffset = opts?.literalCustomMetalRate ? 0 : slab === "R" ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0;
-      const perPc = isMcPerPiece(adjusted.mc_type);
-      const mcDisc = perPc ? 0 : Math.max(0, Number(tier.mc_gm_discount_pct ?? 0) || 0);
-      const effMc = perPc ? erpEffectiveMcPerUnit(adjusted, slab, slabSettings) : null;
+      const effMc = erpEffectiveMcPerUnit(adjusted, slab, slabSettings);
+      const mcDisc = effMc > 0 ? 0 : Math.max(0, Number(tier.mc_gm_discount_pct ?? 0) || 0);
       let bd2 = computeErpPieceSlabBreakdown(
         adjusted,
         slab,
@@ -1727,8 +1755,21 @@ var KcExhibitionBillingModule = (() => {
         gstPct,
         silverOffset,
         mcDisc,
-        effMc
+        effMc > 0 ? effMc : null
       );
+      const catalogMc = erpCatalogMcPerUnit(adjusted);
+      if (catalogMc > effMc && effMc > 0 && bd2.mc > 0) {
+        const qty = Math.max(1, Number(adjusted.qty) || 1);
+        const mcWt = !isMcPerPiece(adjusted.mc_type) ? Number(bd2.net_weight ?? adjusted.originalWeightGm ?? adjusted.weightGm) || 0 : 0;
+        const mcBefore = isMcPerPiece(adjusted.mc_type) ? Math.round(catalogMc * qty) : mcWt > 0 ? Math.round(catalogMc * mcWt * qty) : 0;
+        if (mcBefore > bd2.mc) {
+          bd2 = {
+            ...bd2,
+            mc_before_discount: mcBefore,
+            mc_discount_pct: catalogMc > 0 ? Math.round((1 - effMc / catalogMc) * 100) : bd2.mc_discount_pct
+          };
+        }
+      }
       bd2 = finalizeSilverBillLineBreakdown(line, bd2, silverPerG, slab, gstPct);
       const box2 = Number(line.box_charges || 0) || 0;
       if (box2 <= 0) return bd2;

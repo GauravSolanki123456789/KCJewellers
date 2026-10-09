@@ -2317,14 +2317,13 @@ export function ErpBillingWorkspace() {
       case 'mc_rate':
         return billingMcDisplay(line, rateSlab, goldSlabRShowMc)
       case 'mc_rate_slab_r': {
-        if (rateSlab === 'R') {
-          const catalog = erpCatalogMcPerUnit(line)
-          const eff = erpEffectiveMcPerUnit(line, rateSlab, slabSettings)
-          if (catalog > 0 && eff > 0 && Math.abs(eff - catalog) > 0.009) return eff
-        }
         const k = mcSlabFieldForBillingSlab(rateSlab)
         const v = line[k]
-        return v != null && Number.isFinite(Number(v)) ? v : ''
+        if (v != null && Number.isFinite(Number(v)) && Number(v) > 0) return v
+        const catalog = erpCatalogMcPerUnit(line)
+        const eff = erpEffectiveMcPerUnit(line, rateSlab, slabSettings)
+        if (catalog > 0 && eff > 0 && Math.abs(eff - catalog) > 0.009) return eff
+        return ''
       }
       case 'mc_type':
         return line.mc_type ?? ''

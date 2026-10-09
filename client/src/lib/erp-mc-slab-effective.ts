@@ -66,18 +66,49 @@ export function erpTierMcDiscountPct(
   return 0
 }
 
+function pieceMcFieldForSlab(
+  slab: ErpRateSlab,
+): 'mc_rate_slab_r' | 'mc_rate_slab_r1' | 'mc_rate_slab_w' | 'mc_rate_slab_f' {
+  if (slab === 'R1') return 'mc_rate_slab_r1'
+  if (slab === 'W') return 'mc_rate_slab_w'
+  if (slab === 'F') return 'mc_rate_slab_f'
+  return 'mc_rate_slab_r'
+}
+
+/** Excel / design MCRateSlabR|R1|W|F when set — overrides catalogue MC/PC disc %. */
+export function explicitPieceSlabMcPerUnit(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+): number | null {
+  if (line.manualEntry) return null
+  if (slab === 'Q') {
+    const r = line.mc_rate_slab_r
+    if (r != null && Number.isFinite(Number(r)) && Number(r) > 0) return Number(r)
+    return null
+  }
+  const field = pieceMcFieldForSlab(slab)
+  const v = line[field]
+  if (v != null && Number.isFinite(Number(v)) && Number(v) > 0) return Number(v)
+  return null
+}
+
 /**
  * Billable ₹/pc (or ₹/gm) after catalogue slab MC disc — once.
- * Base 450 + Slab W 50% → 225. Never 225 × 50% again (the 113 bug).
+ * Explicit MCRateSlab* from stock wins; else MC × (1 − catalogue MC/PC or MC/GM disc %).
  */
 export function erpEffectiveMcPerUnit(
   line: ErpBillLine,
   slab: ErpRateSlab,
   slabSettings?: ResellerSlabSettings | null,
 ): number {
+  if (skipCatalogMcPcDiscount(line)) {
+    const base = Number(line.mc_rate ?? 0) || erpCatalogMcPerUnit(line)
+    return base > 0 ? roundMc(base) : 0
+  }
+  const explicit = explicitPieceSlabMcPerUnit(line, slab)
+  if (explicit != null) return roundMc(explicit)
   const catalog = erpCatalogMcPerUnit(line)
   if (catalog <= 0) return 0
-  if (skipCatalogMcPcDiscount(line)) return catalog
   const pct = erpTierMcDiscountPct(line, slab, slabSettings)
   if (pct <= 0) return roundMc(catalog)
   return roundMc(catalog * (1 - pct / 100))

@@ -24,7 +24,10 @@ import {
   computeManualAsLineBreakdown,
   isManualArticlesOrJewelleryLine,
 } from '@/lib/erp-manual-as-line-pricing'
-import { erpCatalogMcPerUnit, erpEffectiveMcPerUnit } from '@/lib/erp-mc-slab-effective'
+import {
+  erpCatalogMcPerUnit,
+  erpEffectiveMcPerUnit,
+} from '@/lib/erp-mc-slab-effective'
 import {
   isFixedPriceCatalogItem,
   isGiftingItem,
@@ -589,11 +592,9 @@ export function computeLineBreakdown(
       : slab === 'R'
         ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0)
         : 0
-    const perPc = isMcPerPiece(adjusted.mc_type)
-    const mcDisc = perPc
-      ? 0
-      : Math.max(0, Number(tier.mc_gm_discount_pct ?? 0) || 0)
-    const effMc = perPc ? erpEffectiveMcPerUnit(adjusted, slab, slabSettings) : null
+    const effMc = erpEffectiveMcPerUnit(adjusted, slab, slabSettings)
+    const mcDisc =
+      effMc > 0 ? 0 : Math.max(0, Number(tier.mc_gm_discount_pct ?? 0) || 0)
     let bd = computeErpPieceSlabBreakdown(
       adjusted,
       slab,
@@ -602,8 +603,30 @@ export function computeLineBreakdown(
       gstPct,
       silverOffset,
       mcDisc,
-      effMc,
+      effMc > 0 ? effMc : null,
     )
+    const catalogMc = erpCatalogMcPerUnit(adjusted)
+    if (catalogMc > effMc && effMc > 0 && bd.mc > 0) {
+      const qty = Math.max(1, Number(adjusted.qty) || 1)
+      const mcWt = !isMcPerPiece(adjusted.mc_type)
+        ? Number(bd.net_weight ?? adjusted.originalWeightGm ?? adjusted.weightGm) || 0
+        : 0
+      const mcBefore = isMcPerPiece(adjusted.mc_type)
+        ? Math.round(catalogMc * qty)
+        : mcWt > 0
+          ? Math.round(catalogMc * mcWt * qty)
+          : 0
+      if (mcBefore > bd.mc) {
+        bd = {
+          ...bd,
+          mc_before_discount: mcBefore,
+          mc_discount_pct:
+            catalogMc > 0
+              ? Math.round((1 - effMc / catalogMc) * 100)
+              : bd.mc_discount_pct,
+        }
+      }
+    }
     bd = finalizeSilverBillLineBreakdown(line, bd, silverPerG, slab, gstPct)
     const box = Number(line.box_charges || 0) || 0
     if (box <= 0) return bd

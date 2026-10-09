@@ -40,25 +40,31 @@ export function pieceSlabMcRate(line: ErpBillLine, slab: ErpRateSlab): number | 
     }
     return line.mc_rate ?? null
   }
+  if (slab === 'R') {
+    if (line.mc_rate_slab_r != null && Number.isFinite(Number(line.mc_rate_slab_r))) {
+      return Number(line.mc_rate_slab_r)
+    }
+    return null
+  }
   if (slab === 'R1') {
     if (line.mc_rate_slab_r1 != null && Number.isFinite(Number(line.mc_rate_slab_r1))) {
       return Number(line.mc_rate_slab_r1)
     }
-    return line.mc_rate_slab_r ?? line.mc_rate ?? null
+    return null
   }
   if (slab === 'W') {
     if (line.mc_rate_slab_w != null && Number.isFinite(Number(line.mc_rate_slab_w))) {
       return Number(line.mc_rate_slab_w)
     }
-    return line.mc_rate_slab_r1 ?? line.mc_rate_slab_r ?? line.mc_rate ?? null
+    return null
   }
   if (slab === 'F') {
     if (line.mc_rate_slab_f != null && Number.isFinite(Number(line.mc_rate_slab_f))) {
       return Number(line.mc_rate_slab_f)
     }
-    return line.mc_rate_slab_w ?? line.mc_rate ?? null
+    return null
   }
-  return line.mc_rate_slab_r ?? line.mc_rate ?? null
+  return null
 }
 
 export function pieceSlabMetalFraction(line: ErpBillLine, slab: ErpRateSlab): number {

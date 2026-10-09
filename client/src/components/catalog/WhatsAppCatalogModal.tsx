@@ -18,6 +18,7 @@ import { resolveCatalogShareBrand } from '@/lib/catalog-share'
 import { createSharedCatalog, fetchSharedCatalogExpiryOptions, fetchActiveSharedCatalogs, appendToSharedCatalog, updateSharedCatalogWholesaleRates, type ActiveSharedCatalog, type SharedCatalogExpiryOption } from '@/lib/shared-catalog-api'
 import type { Item } from '@/lib/pricing'
 import {
+  catalogSlabUsesWholesaleMetal,
   type CatalogSlabKind,
   metalsNeedingWholesaleRate,
   parseResellerSlabSettings,
@@ -214,14 +215,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     return {
       pricingSlab,
       slabSettingsSnapshot: slabSettings,
-      wholesaleGoldRatePerG:
-        pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
-          ? Number(wholesaleGoldRate) || null
-          : null,
-      wholesaleSilverRatePerG:
-        pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
-          ? Number(wholesaleSilverRate) || null
-          : null,
+      wholesaleGoldRatePerG: catalogSlabUsesWholesaleMetal(pricingSlab)
+        ? Number(wholesaleGoldRate) || null
+        : null,
+      wholesaleSilverRatePerG: catalogSlabUsesWholesaleMetal(pricingSlab)
+        ? Number(wholesaleSilverRate) || null
+        : null,
     }
   }, [pricingSlab, slabSettings, wholesaleGoldRate, wholesaleSilverRate])
 
@@ -269,7 +268,11 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     if (linkMode !== 'update_rates' || !selectedCatalogId) return
     const cat = activeCatalogs.find((c) => c.id === selectedCatalogId)
     if (!cat) return
-    if (cat.pricingSlab === 'slab_w' || cat.pricingSlab === 'slab_f') {
+    if (
+      cat.pricingSlab === 'slab_r1' ||
+      cat.pricingSlab === 'slab_w' ||
+      cat.pricingSlab === 'slab_f'
+    ) {
       setPricingSlab(cat.pricingSlab as CatalogSlabKind)
       setWholesaleGoldRate(
         cat.wholesaleGoldRatePerG != null && cat.wholesaleGoldRatePerG > 0
@@ -308,7 +311,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         return
       }
       const cat = activeCatalogs.find((c) => c.id === selectedCatalogId)
-      if (!cat || (cat.pricingSlab !== 'slab_w' && cat.pricingSlab !== 'slab_f')) {
+      if (
+        !cat ||
+        (cat.pricingSlab !== 'slab_r1' &&
+          cat.pricingSlab !== 'slab_w' &&
+          cat.pricingSlab !== 'slab_f')
+      ) {
         setError('Wholesale rates can only be updated on Slab W or Slab F catalogues.')
         return
       }
@@ -356,7 +364,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
     setBusy(true)
     try {
       if (
-        (pricingSlab === 'slab_w' || pricingSlab === 'slab_f') &&
+        catalogSlabUsesWholesaleMetal(pricingSlab) &&
         metalsNeeded.needsGold &&
         !(Number(wholesaleGoldRate) > 0)
       ) {
@@ -365,7 +373,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         return
       }
       if (
-        (pricingSlab === 'slab_w' || pricingSlab === 'slab_f') &&
+        catalogSlabUsesWholesaleMetal(pricingSlab) &&
         metalsNeeded.needsSilver &&
         !(Number(wholesaleSilverRate) > 0)
       ) {
@@ -474,14 +482,12 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
         format: 'temporary_web_link',
         expiresAt: expiresAtIso,
         pricingSlab,
-        wholesaleGoldRatePerG:
-          pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
-            ? Number(wholesaleGoldRate) || null
-            : null,
-        wholesaleSilverRatePerG:
-          pricingSlab === 'slab_w' || pricingSlab === 'slab_f'
-            ? Number(wholesaleSilverRate) || null
-            : null,
+        wholesaleGoldRatePerG: catalogSlabUsesWholesaleMetal(pricingSlab)
+          ? Number(wholesaleGoldRate) || null
+          : null,
+        wholesaleSilverRatePerG: catalogSlabUsesWholesaleMetal(pricingSlab)
+          ? Number(wholesaleSilverRate) || null
+          : null,
         uploadedMcSlabKey: uploadedMcSlabKey.trim() || null,
       })
       if (res.success && res.format === 'temporary_web_link') {
@@ -689,6 +695,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
               >
                 <option value="standard">Standard — live rates + markup / discount</option>
                 <option value="slab_r">Slab R — retail MC off + silver −₹/g</option>
+                <option value="slab_r1">Slab R1 — wholesale metal + MC off</option>
                 <option value="slab_w">Slab W — wholesale MC off + your metal rate</option>
                 <option value="slab_f">Slab F — wholesale + wastage + MC off</option>
               </select>
@@ -710,6 +717,18 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                         ? ` · Margin +${Math.round(activeSlabTier.margin_pct)}%`
                         : ''}
                       . Customers see strikethrough retail vs slab price.
+                    </>
+                  )}
+                  {pricingSlab === 'slab_r1' && (
+                    <>
+                      <span className="kc-slab-hint-em">
+                        MC {Math.round(activeSlabTier.mc_discount_pct ?? 0)}% off
+                      </span>
+                      {' · '}
+                      Wholesale metal ₹/g you enter (MC/GM disc from catalogue settings).
+                      {activeSlabTier.gift_discount_pct
+                        ? ` Gift ${Math.round(activeSlabTier.gift_discount_pct)}% off.`
+                        : '.'}
                     </>
                   )}
                   {pricingSlab === 'slab_w' && (
@@ -744,7 +763,7 @@ export default function WhatsAppCatalogModal({ open, onClose }: Props) {
                   )}
                 </p>
               )}
-              {(pricingSlab === 'slab_w' || pricingSlab === 'slab_f') && (
+              {catalogSlabUsesWholesaleMetal(pricingSlab) && (
                 <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
                   <p className="kc-catalog-modal-label !normal-case !tracking-normal">
                     Wholesale metal rate (₹/g fine)

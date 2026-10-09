@@ -7246,7 +7246,7 @@ function parseSharedDiscountPct(raw) {
     return Math.max(0, Math.min(100, n));
 }
 
-const PRICING_SLAB_KINDS = new Set(['standard', 'slab_r', 'slab_w', 'slab_f']);
+const PRICING_SLAB_KINDS = new Set(['standard', 'slab_r', 'slab_r1', 'slab_w', 'slab_f']);
 
 function parsePricingSlab(raw) {
     const s = String(raw || 'standard').trim().toLowerCase();
@@ -7278,9 +7278,11 @@ function parseResellerSlabSettingsServer(raw) {
     };
     return {
         slab_r: tier('slab_r'),
+        slab_r1: tier('slab_r1'),
         slab_w: tier('slab_w'),
         slab_f: tier('slab_f'),
         gold_slab_r: tier('gold_slab_r'),
+        gold_slab_r1: tier('gold_slab_r1'),
         gold_slab_w: tier('gold_slab_w'),
         gold_slab_f: tier('gold_slab_f'),
     };

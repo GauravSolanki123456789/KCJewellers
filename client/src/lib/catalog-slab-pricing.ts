@@ -26,6 +26,11 @@ import {
 
 export type CatalogSlabKind = 'standard' | 'slab_r' | 'slab_r1' | 'slab_w' | 'slab_f'
 
+/** Slabs that bill metal at wholesale ₹/g (R1 / W / F). */
+export function catalogSlabUsesWholesaleMetal(kind: CatalogSlabKind): boolean {
+  return kind === 'slab_r1' || kind === 'slab_w' || kind === 'slab_f'
+}
+
 export type ResellerSlabTierSettings = {
   /** MC/PC — % off making charges when mc_type is per-piece. */
   mc_discount_pct?: number

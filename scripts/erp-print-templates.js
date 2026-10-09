@@ -1229,15 +1229,22 @@ function lineHasPieceSlabFields(line) {
 function printPieceSlabMcRatePerUnit(line, rateSlab) {
     const slab = String(rateSlab || 'R').toUpperCase();
     if (slab === 'R1') {
-        return line?.mc_rate_slab_r1 ?? line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+        const v = line?.mc_rate_slab_r1;
+        return v != null && Number(v) > 0 ? v : null;
     }
     if (slab === 'W') {
-        return line?.mc_rate_slab_w ?? line?.mc_rate_slab_r1 ?? line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+        const v = line?.mc_rate_slab_w;
+        return v != null && Number(v) > 0 ? v : null;
     }
     if (slab === 'F') {
-        return line?.mc_rate_slab_f ?? line?.mc_rate_slab_w ?? line?.mc_rate ?? null;
+        const v = line?.mc_rate_slab_f;
+        return v != null && Number(v) > 0 ? v : null;
     }
-    return line?.mc_rate_slab_r ?? line?.mc_rate ?? null;
+    if (slab === 'R') {
+        const v = line?.mc_rate_slab_r;
+        return v != null && Number(v) > 0 ? v : null;
+    }
+    return null;
 }
 
 /** Catalog / list MC before slab overlay (stock mc_rate column). */
@@ -1983,6 +1990,8 @@ function erpGoldBillableWeightGmJs(netWt, purityPct, wastagePct) {
 function roughMetalValueForLine(line, rates, rateSlab, printFormats) {
     const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
     const rate = Number(roughRateForLine(line, rates)) || 0;
+    const qty = Math.max(1, Number(line?.qty) || 1);
+    const wtUnits = isMcPerPieceType(line?.mc_type) ? qty : 1;
     if (wt <= 0 || rate <= 0) return 0;
     if (isGoldEstimateLine(line)) {
         const vPct = roughVAddnPercent(line, rateSlab, printFormats);
@@ -1990,10 +1999,10 @@ function roughMetalValueForLine(line, rates, rateSlab, printFormats) {
         const p = Math.max(0, purity) / 100;
         const w = Math.max(0, vPct) / 100;
         const factor = p + w;
-        return Math.round(wt * factor * rate * 100) / 100;
+        return Math.round(wt * factor * rate * wtUnits * 100) / 100;
     }
     const vaddnG = Number(roughVAddnGrams(line, rateSlab, printFormats)) || 0;
-    return Math.round(rate * (wt + vaddnG) * 100) / 100;
+    return Math.round(rate * (wt + vaddnG) * wtUnits * 100) / 100;
 }
 
 function roughPreDiscountSubtotal(line, rates, rateSlab, printFormats) {
@@ -2049,9 +2058,11 @@ function pushIf(out, row) {
 function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats, gstEnabled = true) {
     const out = [];
     const tag = String(line?.barcode || line?.code || '').trim();
+    const qty = Math.max(1, Number(line?.qty) || 1);
     out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
     if (tag) out.push(`Tag : ${tag}`);
     pushIf(out, roughKvRow('Weight (gm)', Number(line?.weightGm ?? line?.net_weight) || 0));
+    if (qty > 1) pushIf(out, roughKvRow('Pcs', qty));
     const vPct = roughVAddnPercent(line, rateSlab, printFormats);
     if (vPct > 0) {
         pushIf(out, roughKvRow('V. ADDN (%)', `${vPct.toFixed(2)}%`, ROUGH_ESTIMATE_WIDTH, { multiply: true }));
@@ -2077,10 +2088,15 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
         pushIf(out, roughDiscountRow('Disc on MC Value', mcDisc));
     }
 
-    const taxable = roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats);
+    const lineTotalStored = Math.round(Number(line?.lineTotalInr) || 0);
+    let taxable = roughNetSubtotalAfterDiscounts(line, rates, rateSlab, printFormats);
+    let itemTotal = Math.round(splitRoughGst(taxable, gstEnabled).gross);
+    if (lineTotalStored > 0) {
+        taxable = lineTaxableFromTotal(lineTotalStored, gstEnabled);
+        itemTotal = lineTotalStored;
+    }
     out.push(roughSandwichAmount(taxable));
     const gst = splitRoughGst(taxable, gstEnabled);
-    const itemTotal = Math.round(gst.gross);
     if (gstEnabled) {
         pushIf(out, roughKvRow('CGST (1.5%)', gst.cgst));
         pushIf(out, roughKvRow('SGST (1.5%)', gst.sgst));
