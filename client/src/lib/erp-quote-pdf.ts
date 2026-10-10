@@ -248,6 +248,9 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
     collectedAmount: collectedAmount ?? null,
     explicitCashDiscountInr: explicitCash,
     lines: enriched,
+    rateSlab: slab,
+    silverPerG,
+    displayRates: baseRates,
   })
 
   return {

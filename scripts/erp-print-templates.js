@@ -1817,6 +1817,13 @@ function buildMarlechaOldExchangeItemSection(line, idx, gstEnabled = true) {
 }
 
 function roughItemDisplayName(line) {
+    const skuNorm = String(line?.sku || '')
+        .trim()
+        .toLowerCase();
+    if (skuNorm === 'silver gift items') {
+        const product = String(line?.name || line?.product_name || '').trim();
+        if (product) return product;
+    }
     return String(
         line?.sku ||
             line?.product_name ||

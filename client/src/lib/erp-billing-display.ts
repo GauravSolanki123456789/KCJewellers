@@ -1,5 +1,9 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
-import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
+import {
+  isPiecePricedBillLine,
+  isRetailQuoteSlab,
+  type ErpRateSlab,
+} from '@/lib/erp-billing-pricing'
 import { lineHasPieceSlabFields, pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
 import { erpMcBillingWeightGm } from '@/lib/erp-manual-as-line-pricing'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
@@ -184,6 +188,8 @@ export function computeMcDiscountTotal(lines: ErpBillLine[]): number {
 
 export type BillingDiscountSummary = {
   mcDiscountInr: number
+  /** Slab R live silver vs line ₹/g × pure weight × pcs (matches Epson “Disc on Silver Rate”). */
+  rateDiscountInr: number
   /** User-entered settlement discount (₹) — not auto-derived from collected. */
   cashDiscountInr: number
   /** Net − collected (informational until user confirms Discount field). */
@@ -192,14 +198,60 @@ export type BillingDiscountSummary = {
   collectedAmount: number | null
 }
 
+/** Epson-aligned silver rate savings for estimate PDF / billing footer. */
+export function computeSilverRateDiscountTotal(
+  lines: ErpBillLine[],
+  rateSlab: ErpRateSlab,
+  silverPerG: number,
+  displayRates?: unknown,
+): number {
+  if (isRetailQuoteSlab(rateSlab)) return 0
+  const rates = displayRates as { silver?: number } | null | undefined
+  const liveSilver =
+    silverPerG > 0 ? silverPerG : Number(rates?.silver) > 0 ? Number(rates?.silver) : 0
+  if (liveSilver <= 0) return 0
+
+  let sum = 0
+  for (const line of lines) {
+    if (line.manualCategory === 'gift' || line.mrpMode || isPiecePricedBillLine(line)) continue
+    const metal = String(line.metal_type || '').toLowerCase()
+    if (!metal.startsWith('silver')) continue
+
+    const net = Number(line.originalWeightGm ?? line.weightGm) || 0
+    if (net <= 0) continue
+    const qty = Math.max(1, Number(line.qty) || 1)
+    const wastRaw = billingWastageDisplay(line, rateSlab)
+    const wast = typeof wastRaw === 'number' ? wastRaw : Number(wastRaw) || 0
+    const perPc = wast > 0 ? net * (1 + wast / 100) : net
+    const totalPureWt = Math.round(perPc * qty * 1000) / 1000
+
+    const lineRate = line.ratePerGram != null ? Number(line.ratePerGram) : NaN
+    if (!Number.isFinite(lineRate) || lineRate <= 0 || liveSilver <= lineRate) continue
+    sum += Math.round((liveSilver - lineRate) * totalPureWt)
+  }
+  return sum
+}
+
 /** MC slab savings + optional explicit cash discount (balance is display-only). */
 export function computeBillingDiscountSummary(params: {
   netTotal: number
   collectedAmount: number | null
   explicitCashDiscountInr: number | null
   lines: ErpBillLine[]
+  rateSlab?: ErpRateSlab
+  silverPerG?: number
+  displayRates?: unknown
 }): BillingDiscountSummary {
   const mcDiscountInr = computeMcDiscountTotal(params.lines)
+  const rateDiscountInr =
+    params.rateSlab != null
+      ? computeSilverRateDiscountTotal(
+          params.lines,
+          params.rateSlab,
+          Number(params.silverPerG) || 0,
+          params.displayRates,
+        )
+      : 0
   const collectedAmount = params.collectedAmount
   const settledTotal = erpSettledTotalInr(params.netTotal, params.explicitCashDiscountInr)
   const balanceInr =
@@ -211,9 +263,12 @@ export function computeBillingDiscountSummary(params: {
       ? Math.round(params.explicitCashDiscountInr)
       : 0
   const totalDiscountInr =
-    mcDiscountInr + (params.explicitCashDiscountInr != null ? cashDiscountInr : 0)
+    mcDiscountInr +
+    rateDiscountInr +
+    (params.explicitCashDiscountInr != null ? cashDiscountInr : 0)
   return {
     mcDiscountInr,
+    rateDiscountInr,
     cashDiscountInr,
     balanceInr,
     totalDiscountInr,

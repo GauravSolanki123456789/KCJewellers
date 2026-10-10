@@ -377,6 +377,8 @@ export type ErpQuotePdfDocumentProps = {
   gstin?: string | null
   layoutMode?: ErpQuotePdfLayoutMode
   slabSettingsRaw?: unknown
+  /** From Print formats → Estimate (default false). */
+  showEstimatePdfPhotos?: boolean
 }
 
 export function ErpQuotePdfDocument({
@@ -392,6 +394,7 @@ export function ErpQuotePdfDocument({
   gstin,
   layoutMode = 'detailed',
   slabSettingsRaw,
+  showEstimatePdfPhotos = false,
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
@@ -604,7 +607,7 @@ export function ErpQuotePdfDocument({
           ) : null}
         </View>
 
-        {photoEntries.length > 0 ? (
+        {showEstimatePdfPhotos && photoEntries.length > 0 ? (
           <>
             <Text style={styles.photosTitle}>PRODUCT PHOTOS</Text>
             <View style={styles.photoGrid}>

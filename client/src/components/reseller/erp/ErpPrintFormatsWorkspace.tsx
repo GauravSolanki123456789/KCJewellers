@@ -741,6 +741,41 @@ export function ErpPrintFormatsWorkspace() {
           <ShopHeaderPanel pf={pf} setPf={setPf} />
           <div className={erpCardCls}>
             <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Quotation PDF — product photos
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                  When ON, downloaded / shared estimate PDFs include the product photo grid. Default is OFF (table
+                  only). Save print formats after changing.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pf.showEstimatePdfPhotos === true}
+                className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${
+                  pf.showEstimatePdfPhotos === true
+                    ? 'bg-emerald-700'
+                    : 'bg-[var(--color-slate-700,#d4cfc8)]'
+                }`}
+                onClick={() =>
+                  setPf((p) => ({
+                    ...p,
+                    showEstimatePdfPhotos: p.showEstimatePdfPhotos !== true,
+                  }))
+                }
+              >
+                <span
+                  className={`inline-block size-6 transform rounded-full bg-white shadow transition ${
+                    pf.showEstimatePdfPhotos === true ? 'translate-x-7' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+          <div className={erpCardCls}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                   Slab R gold — show MC on bills &amp; estimates

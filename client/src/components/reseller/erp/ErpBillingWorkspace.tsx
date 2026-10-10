@@ -1936,8 +1936,11 @@ export function ErpBillingWorkspace() {
         collectedAmount: parsedCollected,
         explicitCashDiscountInr: parsedExplicitCashDiscount,
         lines,
+        rateSlab,
+        silverPerG,
+        displayRates,
       }),
-    [totals.net, parsedCollected, parsedExplicitCashDiscount, lines],
+    [totals.net, parsedCollected, parsedExplicitCashDiscount, lines, rateSlab, silverPerG, displayRates],
   )
   const balanceDue = Math.max(0, totals.net - parsedAdvance)
   const isOfficialGstBill = !shouldRouteSaleToShadow({
@@ -4075,14 +4078,23 @@ export function ErpBillingWorkspace() {
                   <p className="font-semibold tabular-nums text-emerald-700">
                     {formatErpInr(discountSummary.totalDiscountInr)}
                   </p>
-                  {discountSummary.mcDiscountInr > 0 || parsedExplicitCashDiscount != null ? (
+                  {discountSummary.mcDiscountInr > 0 ||
+                  discountSummary.rateDiscountInr > 0 ||
+                  parsedExplicitCashDiscount != null ? (
                     <p className="text-[9px] text-[var(--color-jewelry-black,#1a1814)]/50">
-                      {discountSummary.mcDiscountInr > 0
-                        ? `MC ₹${discountSummary.mcDiscountInr.toLocaleString('en-IN')}`
-                        : ''}
-                      {parsedExplicitCashDiscount != null && discountSummary.cashDiscountInr !== 0
-                        ? `${discountSummary.mcDiscountInr > 0 ? ' + ' : ''}cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
-                        : ''}
+                      {[
+                        discountSummary.mcDiscountInr > 0
+                          ? `MC ₹${discountSummary.mcDiscountInr.toLocaleString('en-IN')}`
+                          : '',
+                        discountSummary.rateDiscountInr > 0
+                          ? `rate ₹${discountSummary.rateDiscountInr.toLocaleString('en-IN')}`
+                          : '',
+                        parsedExplicitCashDiscount != null && discountSummary.cashDiscountInr !== 0
+                          ? `cash ₹${discountSummary.cashDiscountInr.toLocaleString('en-IN')}`
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' + ')}
                     </p>
                   ) : null}
                 </div>

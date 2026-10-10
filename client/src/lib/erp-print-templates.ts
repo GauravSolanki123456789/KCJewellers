@@ -374,6 +374,8 @@ export type ErpPrintFormatsSettings = {
   estimatePrintMode?: EstimatePrintMode
   /** When custom estimate mode, print duplicate copy below original. */
   estimateDuplicateCopy?: boolean
+  /** Photo grid on quotation PDF (default off). Set in Print formats → Estimate tab. */
+  showEstimatePdfPhotos?: boolean
   shopName?: string
   shopAddress?: string
   shopPhone?: string
@@ -574,6 +576,7 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true
   if (!pf.estimatePrintMode) pf.estimatePrintMode = 'rough'
   if (pf.estimateDuplicateCopy == null) pf.estimateDuplicateCopy = true
+  if (pf.showEstimatePdfPhotos == null) pf.showEstimatePdfPhotos = false
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }

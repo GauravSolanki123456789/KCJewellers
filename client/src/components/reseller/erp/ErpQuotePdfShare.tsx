@@ -25,6 +25,7 @@ import {
   resolveErpLineImages,
 } from '@/lib/erp-quote-pdf'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
+import { migratePrintFormats } from '@/lib/erp-print-templates'
 
 function normalizeMobileDigits(raw: string | null | undefined): string {
   return String(raw || '')
@@ -82,6 +83,18 @@ export async function shareErpQuotePdf(params: {
   const totals = computeErpQuoteTotals(billForPdf, params.slabSettingsRaw)
   const ratesUnfixed = billRatesUnfixed(billForPdf)
   const resolvedMobile = await resolveBillCustomerMobile(params.bill, params.mobile)
+  let showEstimatePdfPhotos = false
+  try {
+    const settingsRes = await axios.get<{ settings?: { printFormats?: unknown } }>(
+      '/api/reseller/erp/settings',
+    )
+    showEstimatePdfPhotos =
+      migratePrintFormats(
+        settingsRes.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
+      ).showEstimatePdfPhotos === true
+  } catch {
+    /* default off */
+  }
 
   const blob = await pdf(
     <ErpQuotePdfDocument
@@ -95,6 +108,7 @@ export async function shareErpQuotePdf(params: {
       ratesUnfixed={ratesUnfixed}
       layoutMode={params.layoutMode ?? 'detailed'}
       slabSettingsRaw={params.slabSettingsRaw}
+      showEstimatePdfPhotos={showEstimatePdfPhotos}
     />,
   ).toBlob()
 
