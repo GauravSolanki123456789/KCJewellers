@@ -6,7 +6,7 @@ import {
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
 import { parseResellerSlabSettings, tierSettingsForSlab, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
-import { isFixedPriceCatalogItem } from '@/lib/pricing'
+import { giftCatalogMrpInclGst, isFixedPriceCatalogItem } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 
 /** Catalogue list MRP for gift / fixed-price stock (before slab Gift/MRP disc %). */
@@ -48,8 +48,9 @@ export function giftMrpSlabPrice(
 ): number {
   const m = Number(mrp)
   if (!Number.isFinite(m) || m <= 0) return 0
+  const baseInclGst = giftCatalogMrpInclGst(m)
   const disc = giftMrpDiscountPct(slab, slabSettings)
-  return Math.round(m * (1 - disc / 100) * 100) / 100
+  return Math.round(baseInclGst * (1 - disc / 100) * 100) / 100
 }
 
 export function parseResellerSlabSettingsFromUser(raw: unknown): ResellerSlabSettings {

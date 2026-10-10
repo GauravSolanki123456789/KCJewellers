@@ -45,6 +45,7 @@ import {
   buildErpBillSession,
   type ErpBillSession,
 } from '@/lib/erp-bill-session'
+import { pdfFooterTotalWeightGm } from '@/lib/erp-quote-pdf-weight'
 import {
   combinedEstimateLabel,
   mergeEstimateLines,
@@ -1845,8 +1846,9 @@ export function ErpBillingWorkspace() {
     let taxable = 0
     let gst = 0
     let net = 0
-    let weight = 0
+    let count = 0
     for (const l of lines) {
+      count += Math.max(1, Number(l.qty) || 1)
       const bd = computeLineBreakdown(
         l,
         displayRates,
@@ -1862,10 +1864,22 @@ export function ErpBillingWorkspace() {
       taxable += bd.taxable
       gst += (bd.cgst || 0) + (bd.sgst || 0)
       net += bd.total
-      weight += Number(l.originalWeightGm ?? l.weightGm) || 0
     }
-    return { subtotal: taxable, gst, net, weight, count: lines.length }
-  }, [lines, displayRates, rateSlab, slabSettings, wholesaleGold, wholesaleSilver, goldPerG, silverPerG, goldSlabRShowMc, gstEnabled])
+    const weight = pdfFooterTotalWeightGm(lines, ratesUnfixed, rateSlab)
+    return { subtotal: taxable, gst, net, weight, count }
+  }, [
+    lines,
+    displayRates,
+    rateSlab,
+    slabSettings,
+    wholesaleGold,
+    wholesaleSilver,
+    goldPerG,
+    silverPerG,
+    goldSlabRShowMc,
+    gstEnabled,
+    ratesUnfixed,
+  ])
 
   const resetBill = () => {
     billLoadGen.current += 1

@@ -1943,16 +1943,30 @@ function roughMcDiscountAmount(line, rateSlab, rates, printFormats) {
     return 0;
 }
 
+function roughLinePureWeightTotalForSilverDisc(line) {
+    const net = Number(line?.originalWeightGm ?? line?.weightGm ?? line?.net_weight) || 0;
+    const qty = Math.max(1, Number(line?.qty) || 1);
+    if (net <= 0) return 0;
+    const wastRaw = line?.displayWastagePct ?? line?.wastage_pct;
+    const wast = Number(wastRaw);
+    const wastPct = Number.isFinite(wast) && wast > 0 ? wast : 0;
+    const perPc = wastPct > 0 ? net * (1 + wastPct / 100) : net;
+    return Math.round(perPc * qty * 1000) / 1000;
+}
+
 function roughSilverRateDiscountInfo(line, rates, rateSlab = 'R') {
     if (isRetailQuoteSlab(rateSlab)) return { amount: 0, label: 'Disc on Silver Rate' };
-    const wt = Number(line?.weightGm ?? line?.net_weight) || 0;
+    const totalPureWt = roughLinePureWeightTotalForSilverDisc(line);
     const liveSilver = rates?.silver != null ? Number(rates.silver) : null;
     const lineRate = line?.ratePerGram != null ? Number(line.ratePerGram) : null;
-    if (wt > 0 && liveSilver != null && lineRate != null && liveSilver > lineRate) {
+    if (totalPureWt > 0 && liveSilver != null && lineRate != null && liveSilver > lineRate) {
         const perG = Math.round(liveSilver - lineRate);
-        const wtLabel = Math.round(wt) === wt ? String(Math.round(wt)) : String(wt);
+        const wtLabel =
+            Math.round(totalPureWt) === totalPureWt
+                ? String(Math.round(totalPureWt))
+                : String(totalPureWt);
         return {
-            amount: Math.round((liveSilver - lineRate) * wt),
+            amount: Math.round((liveSilver - lineRate) * totalPureWt),
             label: `Disc on Silver Rate (${wtLabel} x ${perG})`,
         };
     }

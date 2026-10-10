@@ -403,7 +403,7 @@ export function calculateBreakdownWithSlab(
   if (isFixedPriceCatalogItem(item)) {
     const base = calculateBreakdown(item, rates, gst, null, pricingOptions)
     if (giftDisc <= 0) return finish(base)
-    const total = Math.round(base.total * (1 - giftDisc / 100))
+    const total = Math.round(base.total * (1 - giftDisc / 100) * 100) / 100
     return finish({
       ...base,
       total,

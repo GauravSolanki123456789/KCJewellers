@@ -290,16 +290,51 @@ export function isDiamondItem(item: Item | null | undefined): boolean {
   return mt.startsWith('diamond') || mt.includes('diamond')
 }
 
+/** Style / SKU hints for Design Master “Gift Items” families (brooch, plated, etc.). */
+export function catalogGiftStyleHint(item: Item | null | undefined): boolean {
+  if (!item) return false
+  const blob = [item.style_code, item.sku, item.item_name, item.design_group]
+    .map((s) => String(s ?? '').toUpperCase())
+    .join(' ')
+  if (!blob.trim()) return false
+  if (/\bBROOCH\b/.test(blob)) return true
+  if (blob.includes('PLATED')) return true
+  if (blob.includes('GIFT')) return true
+  return false
+}
+
 /** Returns true if item metal_type is gifting (fixed-price catalogue, no live metal rate). */
 export function isGiftingItem(item: Item | null | undefined): boolean {
   const mt = (item?.metal_type ?? '').toString().toLowerCase()
-  return (
+  if (
     mt.startsWith('gifting') ||
     mt.includes('gifting') ||
     mt.startsWith('gift item') ||
     mt === 'gift items' ||
-    mt === 'gift item'
-  )
+    mt === 'gift item' ||
+    mt.includes('gift')
+  ) {
+    return true
+  }
+  if (catalogGiftStyleHint(item)) {
+    const fp = Number(item?.fixed_price ?? 0) || 0
+    const wt = getItemWeight(item)
+    if (fp > 0 && (wt == null || wt <= 0)) return true
+  }
+  const fp = Number(item?.fixed_price ?? 0) || 0
+  const wt = getItemWeight(item)
+  if (fp > 0 && (wt == null || wt <= 0)) {
+    if (mt.includes('plated') || mt.includes('brooch')) return true
+  }
+  return false
+}
+
+/** List MRP ex-GST → customer-facing incl. 3% GST (gift / fixed MRP catalogue). */
+export function giftCatalogMrpInclGst(mrp: number, gstPct = 3): number {
+  const m = Number(mrp)
+  if (!Number.isFinite(m) || m <= 0) return 0
+  const g = Math.max(0, Number(gstPct) || 0)
+  return Math.round(m * (1 + g / 100) * 100) / 100
 }
 
 /** Diamond or gifting — uses `fixed_price` instead of live rates (cart, checkout, filters). */
@@ -328,6 +363,7 @@ export function productPriceShowsInclGst(
   item: Item,
   pricingOptions?: CatalogPricingOptions,
 ): boolean {
+  if (isGiftingItem(item)) return false
   return resolveItemGstRate(item, undefined, pricingOptions) > 0
 }
 
@@ -560,7 +596,56 @@ export function calculateBreakdown(
     const stoneAmt = Number(item.stone_charges ?? 0) || 0
     const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt
     const categoryDisc = categoryDiscountPct(item)
-    const gstPct = resolveItemGstRate(item, gstRate, pricingOptions)
+    const isGift = isGiftingItem(item)
+    const gstPct = isGift ? 0 : resolveItemGstRate(item, gstRate, pricingOptions)
+
+    const giftTotalFromExGst = (exGstBase: number) =>
+      Math.round(giftCatalogMrpInclGst(exGstBase) * 100) / 100
+
+    if (isGift) {
+      if (categoryDisc > 0) {
+        const afterCat = basePrice * (1 - categoryDisc / 100)
+        const total = giftTotalFromExGst(afterCat)
+        const originalTotal = giftTotalFromExGst(basePrice)
+        return {
+          metal: 0,
+          mc: 0,
+          stone: 0,
+          cgst: 0,
+          sgst: 0,
+          taxable: total,
+          total,
+          originalTotal,
+          discountPercent: categoryDisc,
+          wholesale_retail_total: undefined,
+          is_wholesale_price: false,
+        }
+      }
+
+      const markup = accountMarkupPct(wIn, 0)
+      const acctDisc = accountDiscountPct(wIn, 0)
+      const exGstMarked = basePrice * (1 + markup / 100)
+      const totalBeforeDiscount = giftTotalFromExGst(exGstMarked)
+      const total =
+        acctDisc > 0
+          ? Math.round(totalBeforeDiscount * (1 - acctDisc / 100) * 100) / 100
+          : totalBeforeDiscount
+      const retailTotal = giftTotalFromExGst(basePrice)
+      const wholesaleActive = !!wIn && (acctDisc > 0 || Math.abs(markup) > 1e-6)
+      return {
+        metal: 0,
+        mc: 0,
+        stone: 0,
+        cgst: 0,
+        sgst: 0,
+        taxable: total,
+        total,
+        originalTotal: acctDisc > 0 ? totalBeforeDiscount : undefined,
+        discountPercent: acctDisc > 0 ? acctDisc : undefined,
+        wholesale_retail_total: wholesaleActive ? retailTotal : undefined,
+        is_wholesale_price: wholesaleActive,
+      }
+    }
 
     if (categoryDisc > 0) {
       const taxable = basePrice * (1 - categoryDisc / 100)

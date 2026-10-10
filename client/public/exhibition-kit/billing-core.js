@@ -150,13 +150,59 @@ var KcExhibitionBillingModule = (() => {
     if (factor <= 0) return Math.round(net * ratePerG * q * 100) / 100;
     return Math.round(net * factor * ratePerG * q * 100) / 100;
   }
+  function parseLocaleWeightNumber(raw) {
+    if (raw == null || typeof raw === "string" && raw.trim() === "") return null;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    let s = String(raw).trim().replace(/\s+/g, "");
+    if (/^\d+,\d+$/.test(s)) s = s.replace(",", ".");
+    else if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+    const num = Number(s);
+    if (Number.isFinite(num)) return num;
+    const m = s.match(/^(\d+(?:\.\d+)?)/);
+    return m ? Number(m[1]) : null;
+  }
+  function getItemWeight(item) {
+    if (!item) return null;
+    const n = item.net_wt ?? item.net_weight ?? item.weight ?? item.avg_wt;
+    if (n == null || typeof n === "string" && n === "") return null;
+    const num = typeof n === "string" ? parseLocaleWeightNumber(n) : Number(n);
+    return num == null || Number.isNaN(num) ? null : num;
+  }
   function isDiamondItem(item) {
     const mt = (item?.metal_type ?? "").toString().toLowerCase();
     return mt.startsWith("diamond") || mt.includes("diamond");
   }
+  function catalogGiftStyleHint(item) {
+    if (!item) return false;
+    const blob = [item.style_code, item.sku, item.item_name, item.design_group].map((s) => String(s ?? "").toUpperCase()).join(" ");
+    if (!blob.trim()) return false;
+    if (/\bBROOCH\b/.test(blob)) return true;
+    if (blob.includes("PLATED")) return true;
+    if (blob.includes("GIFT")) return true;
+    return false;
+  }
   function isGiftingItem(item) {
     const mt = (item?.metal_type ?? "").toString().toLowerCase();
-    return mt.startsWith("gifting") || mt.includes("gifting") || mt.startsWith("gift item") || mt === "gift items" || mt === "gift item";
+    if (mt.startsWith("gifting") || mt.includes("gifting") || mt.startsWith("gift item") || mt === "gift items" || mt === "gift item" || mt.includes("gift")) {
+      return true;
+    }
+    if (catalogGiftStyleHint(item)) {
+      const fp2 = Number(item?.fixed_price ?? 0) || 0;
+      const wt2 = getItemWeight(item);
+      if (fp2 > 0 && (wt2 == null || wt2 <= 0)) return true;
+    }
+    const fp = Number(item?.fixed_price ?? 0) || 0;
+    const wt = getItemWeight(item);
+    if (fp > 0 && (wt == null || wt <= 0)) {
+      if (mt.includes("plated") || mt.includes("brooch")) return true;
+    }
+    return false;
+  }
+  function giftCatalogMrpInclGst(mrp, gstPct = 3) {
+    const m = Number(mrp);
+    if (!Number.isFinite(m) || m <= 0) return 0;
+    const g = Math.max(0, Number(gstPct) || 0);
+    return Math.round(m * (1 + g / 100) * 100) / 100;
   }
   function isFixedPriceCatalogItem(item) {
     return isDiamondItem(item) || isGiftingItem(item);
@@ -236,7 +282,49 @@ var KcExhibitionBillingModule = (() => {
       const stoneAmt2 = Number(item.stone_charges ?? 0) || 0;
       const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt2;
       const categoryDisc2 = categoryDiscountPct(item);
-      const gstPct = resolveItemGstRate(item, gstRate, pricingOptions);
+      const isGift = isGiftingItem(item);
+      const gstPct = isGift ? 0 : resolveItemGstRate(item, gstRate, pricingOptions);
+      const giftTotalFromExGst = (exGstBase) => Math.round(giftCatalogMrpInclGst(exGstBase) * 100) / 100;
+      if (isGift) {
+        if (categoryDisc2 > 0) {
+          const afterCat = basePrice * (1 - categoryDisc2 / 100);
+          const total4 = giftTotalFromExGst(afterCat);
+          const originalTotal = giftTotalFromExGst(basePrice);
+          return {
+            metal: 0,
+            mc: 0,
+            stone: 0,
+            cgst: 0,
+            sgst: 0,
+            taxable: total4,
+            total: total4,
+            originalTotal,
+            discountPercent: categoryDisc2,
+            wholesale_retail_total: void 0,
+            is_wholesale_price: false
+          };
+        }
+        const markup3 = accountMarkupPct(wIn, 0);
+        const acctDisc3 = accountDiscountPct(wIn, 0);
+        const exGstMarked = basePrice * (1 + markup3 / 100);
+        const totalBeforeDiscount3 = giftTotalFromExGst(exGstMarked);
+        const total3 = acctDisc3 > 0 ? Math.round(totalBeforeDiscount3 * (1 - acctDisc3 / 100) * 100) / 100 : totalBeforeDiscount3;
+        const retailTotal2 = giftTotalFromExGst(basePrice);
+        const wholesaleActive3 = !!wIn && (acctDisc3 > 0 || Math.abs(markup3) > 1e-6);
+        return {
+          metal: 0,
+          mc: 0,
+          stone: 0,
+          cgst: 0,
+          sgst: 0,
+          taxable: total3,
+          total: total3,
+          originalTotal: acctDisc3 > 0 ? totalBeforeDiscount3 : void 0,
+          discountPercent: acctDisc3 > 0 ? acctDisc3 : void 0,
+          wholesale_retail_total: wholesaleActive3 ? retailTotal2 : void 0,
+          is_wholesale_price: wholesaleActive3
+        };
+      }
       if (categoryDisc2 > 0) {
         const taxable3 = basePrice * (1 - categoryDisc2 / 100);
         const gstAmt2 = taxable3 * (gstPct / 100);
@@ -586,7 +674,7 @@ var KcExhibitionBillingModule = (() => {
     if (isFixedPriceCatalogItem(item)) {
       const base = calculateBreakdown(item, rates, gst, null, pricingOptions);
       if (giftDisc <= 0) return finish(base);
-      const total = Math.round(base.total * (1 - giftDisc / 100));
+      const total = Math.round(base.total * (1 - giftDisc / 100) * 100) / 100;
       return finish({
         ...base,
         total,
@@ -1142,8 +1230,9 @@ var KcExhibitionBillingModule = (() => {
   function giftMrpSlabPrice(mrp, slab, slabSettings) {
     const m = Number(mrp);
     if (!Number.isFinite(m) || m <= 0) return 0;
+    const baseInclGst = giftCatalogMrpInclGst(m);
     const disc = giftMrpDiscountPct(slab, slabSettings);
-    return Math.round(m * (1 - disc / 100) * 100) / 100;
+    return Math.round(baseInclGst * (1 - disc / 100) * 100) / 100;
   }
   function applyGiftMrpPieceRate(line, slab, slabSettings) {
     if (line.manualCategory === "shipping") return line;
@@ -1647,6 +1736,14 @@ var KcExhibitionBillingModule = (() => {
     const box = Number(line.box_charges || 0) || 0;
     const taxable = Math.round((qty * pieceRate + box) * 100) / 100;
     const gstPct = shipping ? 0 : erpBillGstPct(gstEnabled);
+    if ((line.manualCategory === "gift" || line.mrpMode) && !shipping && pieceRate > 0) {
+      return {
+        ...line,
+        qty,
+        unitInr: pieceRate,
+        lineTotalInr: taxable
+      };
+    }
     const total = gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : Math.round(taxable);
     return {
       ...line,

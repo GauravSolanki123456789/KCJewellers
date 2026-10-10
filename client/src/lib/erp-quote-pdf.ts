@@ -9,6 +9,7 @@ import {
   isLineRateUnfixed,
   type ErpBillSession,
 } from '@/lib/erp-bill-session'
+import { pdfFooterTotalWeightGm } from '@/lib/erp-quote-pdf-weight'
 import {
   computeLineBreakdown,
   parseSlabSettingsFromUser,
@@ -137,13 +138,14 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
   let weight = 0
   let count = 0
 
-  const slab = session.rateSlab
+  const slab = (session.rateSlab || 'R') as ErpRateSlab
   const gstOn = erpBillGstEnabled(bill)
+  const ratesUnfixed =
+    session.ratesUnfixed === true || billLinesRatesUnfixed(lines)
 
   if (baseRates && slab) {
     for (const line of lines) {
       count += Number(line.qty) || 1
-      weight += Number(line.originalWeightGm ?? line.weightGm) || 0
       const rates = resolveLineDisplayRates(line, baseRates, goldPerG, silverPerG)
       const bd = computeLineBreakdown(
         line,
@@ -161,12 +163,13 @@ export function computeErpQuoteTotals(bill: ErpBill, slabSettingsRaw?: unknown):
       gst += (bd.cgst || 0) + (bd.sgst || 0)
       net += bd.total
     }
+    weight = pdfFooterTotalWeightGm(lines, ratesUnfixed, slab)
   } else {
     for (const line of lines) {
       count += Number(line.qty) || 1
-      weight += Number(line.originalWeightGm ?? line.weightGm) || 0
       net += Number(line.lineTotalInr) || 0
     }
+    weight = pdfFooterTotalWeightGm(lines, ratesUnfixed, slab)
     if (net > 0) {
       if (gstOn) {
         subtotal = Math.round(net / 1.03)

@@ -450,6 +450,15 @@ export function applyPiecePricedLineCalc(line: ErpBillLine, gstEnabled = true): 
   const box = Number(line.box_charges || 0) || 0
   const taxable = Math.round((qty * pieceRate + box) * 100) / 100
   const gstPct = shipping ? 0 : erpBillGstPct(gstEnabled)
+  /** Gift / MRP slab prices from catalogue already include 3% GST in the piece rate. */
+  if ((line.manualCategory === 'gift' || line.mrpMode) && !shipping && pieceRate > 0) {
+    return {
+      ...line,
+      qty,
+      unitInr: pieceRate,
+      lineTotalInr: taxable,
+    }
+  }
   const total =
     gstPct > 0 ? Math.round(taxable * (1 + gstPct / 100)) : Math.round(taxable)
   return {
