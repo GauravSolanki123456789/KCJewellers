@@ -195,6 +195,17 @@ function buildStyles(p: KcPdfPalette) {
       fontWeight: 'bold',
       color: p.textPrimary,
     },
+    headCellStack: {
+      paddingVertical: 2,
+      paddingHorizontal: 2,
+      justifyContent: 'center',
+    },
+    headCellStackLine: {
+      fontSize: 6.5,
+      fontWeight: 'bold',
+      color: p.textPrimary,
+      lineHeight: 1.15,
+    },
     bodyRow: {
       flexDirection: 'row',
       borderBottomWidth: 0.5,
@@ -468,11 +479,18 @@ export function ErpQuotePdfDocument({
         </View>
         <View style={styles.headRow}>
           <Text style={[styles.headCell, { width: '3%' }]}>#</Text>
-          {cols.map((c) => (
-            <Text key={c.key} style={[styles.headCell, { width: c.w }]}>
-              {c.label}
-            </Text>
-          ))}
+          {cols.map((c) =>
+            c.key === 'mcValue' ? (
+              <View key={c.key} style={[styles.headCellStack, { width: c.w }]}>
+                <Text style={styles.headCellStackLine}>MC</Text>
+                <Text style={styles.headCellStackLine}>Value</Text>
+              </View>
+            ) : (
+              <Text key={c.key} style={[styles.headCell, { width: c.w }]}>
+                {c.label}
+              </Text>
+            ),
+          )}
         </View>
         {lines.map((line, i) => (
           <View key={`row-${i}`} style={[styles.bodyRow, i % 2 === 1 ? styles.bodyRowAlt : {}]}>

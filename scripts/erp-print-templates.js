@@ -1638,6 +1638,40 @@ function roughDiscountRow(label, amount, width = ROUGH_ESTIMATE_WIDTH) {
     return `${plainLabel}${' '.repeat(gap)}${boldVal}`;
 }
 
+function roughQtyForLine(line) {
+    return Math.max(1, Number(line?.qty) || 1);
+}
+
+/** e.g. Disc on MC Value (150 x 5) when qty > 1 */
+function roughLabelWithPcsBreakdown(baseLabel, totalAmount, qty) {
+    const q = Math.max(1, Number(qty) || 1);
+    if (q <= 1) return String(baseLabel || '').trim();
+    const total = Math.abs(Number(totalAmount) || 0);
+    if (total <= 0) return String(baseLabel || '').trim();
+    const perPc = Math.round(total / q);
+    if (perPc <= 0) return String(baseLabel || '').trim();
+    return `${String(baseLabel || '').trim()} (${perPc} x ${q})`;
+}
+
+function roughMcValueKvLabel(line, mcVal) {
+    const qty = roughQtyForLine(line);
+    if (qty <= 1) return 'MC Value';
+    const total = Number(mcVal) || 0;
+    if (total <= 0) return 'MC Value';
+    let perPc;
+    if (isMcPerPieceType(line?.mc_type)) {
+        const catalog = roughCatalogMcRatePerUnit(line);
+        if (catalog != null && Number(catalog) > 0) {
+            perPc = Math.round(Number(catalog));
+        } else {
+            perPc = Math.round(total / qty);
+        }
+    } else {
+        perPc = Math.round(total / qty);
+    }
+    return `MC Value (${perPc} x ${qty})`;
+}
+
 function roughSandwichAmount(amount, width = ROUGH_ESTIMATE_WIDTH) {
     const val = roughMoney(amount);
     const dash = '--------';
@@ -2090,7 +2124,7 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
     }
     pushIf(out, roughKvRow('Rate/Gm', roughRateForLine(line, rates)));
     const mcVal = roughMcValueAmount(line, rateSlab, printFormats);
-    if (mcVal > 0) pushIf(out, roughKvRow('MC Value', mcVal));
+    if (mcVal > 0) pushIf(out, roughKvRow(roughMcValueKvLabel(line, mcVal), mcVal));
 
     const otherCh = roughOtherCharges(line, { excludeDiamond: true });
     if (otherCh > 0) {
@@ -2106,7 +2140,10 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
         pushIf(out, roughDiscountRow(silverDisc.label, silverDisc.amount));
     }
     if (!isRetailQuoteSlab(rateSlab) && roughDiscountVisible(mcDisc)) {
-        pushIf(out, roughDiscountRow('Disc on MC Value', mcDisc));
+        pushIf(
+            out,
+            roughDiscountRow(roughLabelWithPcsBreakdown('Disc on MC Value', mcDisc, qty), mcDisc),
+        );
     }
 
     const lineTotalStored = Math.round(Number(line?.lineTotalInr) || 0);
@@ -2134,13 +2171,17 @@ function buildMarlechaSilverItemSection(line, idx, rateSlab, rates, printFormats
 function buildMarlechaGiftItemSection(line, idx, rateSlab = 'R', gstEnabled = true) {
     const out = [];
     const tag = String(line?.barcode || line?.code || '').trim();
+    const qty = roughQtyForLine(line);
     const gift = roughGiftDiscountInfo(line, gstEnabled, rateSlab);
     out.push(roughBold(`Item ${idx} : ${roughItemDisplayName(line)}`));
     if (tag) out.push(`Tag : ${tag}`);
+    pushIf(out, roughKvRow('Qty', qty));
     if (gift.basePer > 0) pushIf(out, roughKvRow('MRP', gift.basePer));
-    pushIf(out, roughKvRow('Qty', Number(line?.qty) || 1));
     if (gift.disc > 0) {
-        pushIf(out, roughDiscountRow('Disc on MRP', gift.disc));
+        pushIf(
+            out,
+            roughDiscountRow(roughLabelWithPcsBreakdown('Disc on MRP', gift.disc, qty), gift.disc),
+        );
     }
     out.push(roughSandwichAmount(gift.taxable));
     const gst = splitRoughGst(gift.taxable, gstEnabled);
