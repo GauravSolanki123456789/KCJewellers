@@ -5,6 +5,7 @@ export type ErpModuleSessionId =
   | 'products'
   | 'customers'
   | 'estimations'
+  | 'approval-issue'
   | 'sales-bills'
   | 'floors'
   | 'shadow'

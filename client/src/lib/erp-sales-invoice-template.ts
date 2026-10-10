@@ -91,10 +91,11 @@ export function sanitizeErpBillNumberForFilename(billNumber: string): string {
 
 export function buildErpSalesPdfFilename(
   billNumber: string,
-  kind?: boolean | 'bill' | 'einvoice' | 'eway',
+  kind?: boolean | 'bill' | 'einvoice' | 'eway' | 'approval',
 ): string {
   const num = sanitizeErpBillNumberForFilename(billNumber)
   if (kind === true || kind === 'einvoice') return `${num}-einvoice.pdf`
   if (kind === 'eway') return `${num}-eway.pdf`
+  if (kind === 'approval') return `${num}.pdf`
   return `${num}.pdf`
 }

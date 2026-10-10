@@ -56,6 +56,12 @@ export type ErpBillSession = {
   operatorDisplayName?: string
   /** Internal tracking only — not shown on estimate PDF */
   estimateNarration?: string
+  /** Delivery Challan [Issue] narration (printed on approval PDF). */
+  approvalNarration?: string
+  approvalSourceEstimateNumber?: string
+  approvalSourceEstimateStatus?: string
+  approvalIssuedAt?: string
+  approvalClosedAt?: string
   /** When false, bill/estimate totals exclude 3% GST. */
   gstEnabled?: boolean
   /** Jainav lane metal + MC settlement snapshot (optional). */

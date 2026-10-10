@@ -11,6 +11,7 @@ import { ResellerErpAccessGate, ResellerErpShell } from '@/components/reseller/e
 import { erpBtnPrimary } from '@/components/reseller/erp/erp-ui'
 import { ErpBillingWorkspace } from '@/components/reseller/erp/ErpBillingWorkspace'
 import { ErpEstimationsWorkspace } from '@/components/reseller/erp/ErpEstimationsWorkspace'
+import { ErpApprovalIssueWorkspace } from '@/components/reseller/erp/ErpApprovalIssueWorkspace'
 import { ErpSalesBillsWorkspace } from '@/components/reseller/erp/ErpSalesBillsWorkspace'
 import { ErpSalesReturnWorkspace } from '@/components/reseller/erp/ErpSalesReturnWorkspace'
 import { ErpCreditDebitNotesWorkspace } from '@/components/reseller/erp/ErpCreditDebitNotesWorkspace'
@@ -93,6 +94,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpOrderManagementWorkspace />
     case 'estimations':
       return <ErpEstimationsWorkspace />
+    case 'approval-issue':
+      return <ErpApprovalIssueWorkspace />
     case 'rol':
       return <ErpRolWorkspace />
     case 'sales-reports':

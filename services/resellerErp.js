@@ -41,11 +41,12 @@ const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./reseller
 const { registerStockCheckRoutes } = require('./resellerErpStockCheck');
 const { registerRolRoutes, ensureRolSchema } = require('./resellerErpRol');
 const { registerPoshRfidInboundRoutes } = require('./poshRfidInbound');
-const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin, operatorCanSaveSalesBill } = require('./resellerErpOperators');
+const { erpGateWithOperator, registerOperatorRoutes, getSessionOperator, requireJainavUnlockedAdmin, operatorCanSaveSalesBill, operatorCanAccessModule } = require('./resellerErpOperators');
 const {
     registerEstimateNarrationRoutes,
     assertEstimateNarrationIfRequired,
 } = require('./resellerErpEstimateNarrations');
+const { registerApprovalIssueRoutes } = require('./resellerErpApproval');
 const {
     registerShadowRoutes,
     createShadowBillFromBillingPayload,
@@ -401,6 +402,7 @@ function billTypePrefix(billType) {
     if (billType === 'estimate') return 'ESTIMATE';
     if (billType === 'order') return 'ORDER';
     if (billType === 'sales_return' || billType === 'credit' || billType === 'debit') return 'SSR';
+    if (billType === 'approval') return 'GAI';
     return 'SCB';
 }
 
@@ -434,7 +436,7 @@ async function nextBillNumber(query, userId, billType) {
         return `SSR${String(n).padStart(width, '0')}`;
     }
     const prefix = billTypePrefix(billType);
-    if (billType === 'sale') {
+    if (billType === 'sale' || billType === 'approval') {
         const rows = await query(
             `SELECT bill_number FROM reseller_erp_bills
              WHERE reseller_user_id = $1 AND bill_type = $2
@@ -473,7 +475,7 @@ async function nextBillNumber(query, userId, billType) {
     return `${prefix}-${String(n).padStart(width, '0')}`;
 }
 
-const AUTO_BILL_PREFIXES = new Set(['SCB', 'ESTIMATE', 'CREDIT', 'ORDER', 'SSR', 'DN']);
+const AUTO_BILL_PREFIXES = new Set(['SCB', 'ESTIMATE', 'CREDIT', 'ORDER', 'SSR', 'DN', 'GAI']);
 
 async function suggestManualBillNumber(query, userId, preferredPrefix) {
     const rows = await query(
@@ -694,6 +696,18 @@ function billGstEnabledFromPayload(body) {
     return true;
 }
 
+function denyUnlessApprovalModule(req, res) {
+    const op = getSessionOperator(req);
+    if (!op || !operatorCanAccessModule(op, 'approval-issue')) {
+        res.status(403).json({
+            error: 'You do not have access to this module',
+            module: 'approval-issue',
+        });
+        return true;
+    }
+    return false;
+}
+
 function mapBill(row, options = {}) {
     const forClient = options.forClient !== false;
     if (!row) return row;
@@ -860,8 +874,9 @@ async function deleteErpBillCascade(query, userId, existingBill) {
             if (t === 'sales_return') {
                 await reverseSalesReturnStock(query, userId, b);
             } else if (
-                t === 'sale' &&
-                ['completed', 'paid', 'final', 'issued', 'billed'].includes(st)
+                (t === 'sale' &&
+                    ['completed', 'paid', 'final', 'issued', 'billed'].includes(st)) ||
+                t === 'approval'
             ) {
                 await restorePiecesInStock(query, userId, b.lines);
             }
@@ -941,6 +956,7 @@ function registerResellerErpRoutes(app, deps) {
         uploadsRoot,
     });
     registerEstimateNarrationRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerApprovalIssueRoutes(app, { query, pool, checkAuth, requireJson, erpGate, nextBillNumber, mapBill });
 
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
         try {
@@ -1010,10 +1026,16 @@ function registerResellerErpRoutes(app, deps) {
             const limitRaw = parseInt(String(req.query.limit || '500'), 10);
             const limit = Number.isFinite(limitRaw) ? Math.min(500, Math.max(1, limitRaw)) : 500;
             const laneBooks = String(req.query.lane_books || '') === '1' && req.session?.shadowUnlocked === true;
+            const idRaw = parseInt(String(req.query.id || ''), 10);
+            const customerId = Number.isFinite(idRaw) && idRaw > 0 ? idRaw : null;
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_customers WHERE reseller_user_id = $1`;
             if (!laneBooks) {
                 sql += ` AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') <> 'jainav2'`;
+            }
+            if (customerId) {
+                params.push(customerId);
+                sql += ` AND id = $${params.length}`;
             }
             if (q) {
                 params.push(q);
@@ -1213,6 +1235,8 @@ function registerResellerErpRoutes(app, deps) {
                 .map((s) => trimStrLower(s, 32))
                 .filter(Boolean)
                 .slice(0, 8);
+            const wantsApproval = billType === 'approval' || billTypes.includes('approval');
+            if (wantsApproval && denyUnlessApprovalModule(req, res)) return;
             const status = trimStrLower(req.query.status, 32);
             const q = trimStr(req.query.q, 200);
             const customerIdRaw = parseInt(String(req.query.customer_id || ''), 10);
@@ -1229,6 +1253,8 @@ function registerResellerErpRoutes(app, deps) {
             } else if (billTypes.length === 1 || billType) {
                 params.push(billTypes[0] || billType);
                 sql += ` AND bill_type = $${params.length}`;
+            } else {
+                sql += ` AND bill_type <> 'approval'`;
             }
             if (customerId) {
                 params.push(customerId);
@@ -1328,6 +1354,8 @@ function registerResellerErpRoutes(app, deps) {
                 console.error('erp next bill number (auto):', inner);
                 billNumber = billType === 'sale'
                     ? 'SCB001'
+                    : billType === 'approval'
+                      ? 'GAI001'
                     : isSsrNumberedType(billType)
                       ? 'SSR001'
                       : `${billTypePrefix(billType)}-${billType === 'estimate' ? '001' : '0001'}`;
@@ -1361,6 +1389,9 @@ function registerResellerErpRoutes(app, deps) {
                 [id, req.user.id],
             );
             if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            if (String(rows[0].bill_type || '').toLowerCase() === 'approval') {
+                if (denyUnlessApprovalModule(req, res)) return;
+            }
             res.json({ bill: mapBill(rows[0]) });
         } catch (e) {
             console.error('erp bill get:', e);
@@ -1711,6 +1742,11 @@ function registerResellerErpRoutes(app, deps) {
             if (existingType === 'estimate' && existingStatus === 'billed') {
                 return res.status(400).json({ error: 'This estimation is already billed and cannot be edited.' });
             }
+            if (existingType === 'approval') {
+                return res.status(400).json({
+                    error: 'Approval issues cannot be edited here. Return to estimate or convert to bill from Approval Issue.',
+                });
+            }
             const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
             if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
             req.body.session = ensureSessionNetTotalInr(req.body, lines);
@@ -1838,6 +1874,11 @@ function registerResellerErpRoutes(app, deps) {
             const existingType = String(existingRows[0].bill_type || '').toLowerCase();
             const existingStatus = String(existingRows[0].status || '').toLowerCase();
             const nextStatus = String(status).toLowerCase();
+            if (existingType === 'approval') {
+                return res.status(400).json({
+                    error: 'Approval issues cannot be status-changed here. Use Return or Convert to bill.',
+                });
+            }
             if (existingType === 'estimate') {
                 if (existingStatus === 'billed') {
                     return res.status(400).json({
@@ -2392,6 +2433,7 @@ function registerResellerErpRoutes(app, deps) {
                 `SELECT
                     COUNT(*) FILTER (
                         WHERE bill_type <> 'order'
+                          AND bill_type <> 'approval'
                           AND NOT (
                             bill_type = 'estimate'
                             AND LOWER(COALESCE(status, 'draft')) IN ('cancelled', 'billed')
@@ -2408,6 +2450,7 @@ function registerResellerErpRoutes(app, deps) {
                     COALESCE(SUM(total_inr) FILTER (WHERE bill_type = 'order'), 0)::float AS order_inr,
                     COALESCE(SUM(total_inr) FILTER (
                         WHERE bill_type <> 'order'
+                          AND bill_type <> 'approval'
                           AND NOT (
                             bill_type = 'estimate'
                             AND LOWER(COALESCE(status, 'draft')) IN ('cancelled', 'billed')
@@ -2424,6 +2467,7 @@ function registerResellerErpRoutes(app, deps) {
                  WHERE reseller_user_id = $1
                    AND COALESCE(bill_date, created_at::date) >= CURRENT_DATE - INTERVAL '30 days'
                    AND bill_type <> 'order'
+                   AND bill_type <> 'approval'
                    AND NOT (
                      bill_type = 'estimate'
                      AND LOWER(COALESCE(status, 'draft')) IN ('cancelled', 'billed')

@@ -38,6 +38,7 @@ import {
 } from '@/lib/erp-estimate-status'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import {
+  ClipboardList,
   Download,
   Eye,
   FileSpreadsheet,
@@ -47,6 +48,7 @@ import {
   ShoppingCart,
   Trash2,
 } from 'lucide-react'
+import { ErpApprovalIssueModal } from '@/components/reseller/erp/ErpApprovalIssueModal'
 
 const STATUSES = ESTIMATE_STATUSES
 const FILTER_STATUSES = ESTIMATE_FILTER_STATUSES
@@ -56,7 +58,8 @@ function sortEstimatesDesc(list: ErpBill[]): ErpBill[] {
 }
 
 export function ErpEstimationsWorkspace() {
-  const { canDeleteRecords } = useErpOperator()
+  const { canDeleteRecords, canAccessModule } = useErpOperator()
+  const canIssueApproval = canAccessModule('approval-issue')
   const auth = useAuth()
   const brandLabel =
     (auth.user as WholesaleUserFields)?.business_name?.trim() || 'Our store'
@@ -71,6 +74,8 @@ export function ErpEstimationsWorkspace() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [previewBill, setPreviewBill] = useState<ErpBill | null>(null)
   const [statusBusyId, setStatusBusyId] = useState<number | null>(null)
+  const [issueBill, setIssueBill] = useState<ErpBill | null>(null)
+  const [issueBusy, setIssueBusy] = useState(false)
 
   const sessionRestore = useErpModuleSession(
     'estimations',
@@ -174,6 +179,23 @@ export function ErpEstimationsWorkspace() {
       else next.add(id)
       return next
     })
+  }
+
+  const issueApproval = async (narration: string) => {
+    if (!issueBill) return
+    setIssueBusy(true)
+    try {
+      await axios.post('/api/reseller/erp/approvals/issue', {
+        estimate_id: issueBill.id,
+        narration,
+      })
+      setIssueBill(null)
+      await load()
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setIssueBusy(false)
+    }
   }
 
   const deleteOne = async (id: number) => {
@@ -525,6 +547,17 @@ export function ErpEstimationsWorkspace() {
                           <Pencil className="size-4" />
                         </Link>
                       ) : null}
+                      {!billed && effectiveStatus !== 'cancelled' && canIssueApproval ? (
+                        <button
+                          type="button"
+                          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 text-[11px] font-semibold text-amber-950 hover:bg-amber-100"
+                          title="Issue as approval"
+                          onClick={() => setIssueBill(b)}
+                        >
+                          <ClipboardList className="size-4" />
+                          Issue
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="inline-flex size-9 items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] hover:bg-[var(--color-slate-900,#faf8f4)]"
@@ -596,6 +629,15 @@ export function ErpEstimationsWorkspace() {
       )}
 
       <ErpBillPreviewModal bill={previewBill} kind="estimate" onClose={() => setPreviewBill(null)} />
+      <ErpApprovalIssueModal
+        open={!!issueBill}
+        estimateLabel={issueBill ? String(issueBill.bill_number) : ''}
+        busy={issueBusy}
+        onClose={() => {
+          if (!issueBusy) setIssueBill(null)
+        }}
+        onConfirm={(n) => void issueApproval(n)}
+      />
     </div>
   )
 }

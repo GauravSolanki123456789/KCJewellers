@@ -1,4 +1,5 @@
 import { pdf } from '@react-pdf/renderer'
+import axios from '@/lib/axios'
 import type { ErpBill } from '@/components/reseller/erp/erp-ui'
 import { ErpTaxInvoicePdfDocument, type ErpTaxInvoiceCompliance } from '@/lib/erp-tax-invoice-pdf-document'
 import { ErpConfigurableTaxInvoicePdfDocument } from '@/lib/erp-marlecha-invoice-pdf'
@@ -54,6 +55,8 @@ export async function buildErpSalesPdfPayload(params: {
   taxInvoiceMode?: boolean
   /** E-way bill number for e-way PDF variant */
   ewayBillNo?: string | null
+  /** Delivery Challan [Issue] — no tax block / T&C; narration instead of payment label. */
+  approvalIssue?: boolean
 }): Promise<PdfShareSheetPayload> {
   const lines = params.bill.lines ?? []
   if (!lines.length) {
@@ -80,6 +83,37 @@ export async function buildErpSalesPdfPayload(params: {
 
   const totals = computeErpQuoteTotals(params.bill, params.slabSettingsRaw)
   const brandLabel = params.brandLabel.trim() || gst.legalName?.trim() || 'Our store'
+  const isApproval = params.approvalIssue === true || String(params.bill.bill_type || '').toLowerCase() === 'approval'
+
+  let customerAddress = params.customerAddress ?? session.address ?? null
+  let customerMobile = params.mobile ?? session.mobile ?? null
+  let customerPan = params.customerPan ?? session.pan ?? null
+  let customerGst = params.customerGst ?? session.customerGst ?? null
+  if (params.bill.customer_id) {
+    try {
+      const cres = await axios.get<{
+        customers: {
+          id: number
+          address?: string | null
+          mobile?: string | null
+          gstin?: string | null
+          pan?: string | null
+          name?: string
+        }[]
+      }>('/api/reseller/erp/customers', {
+        params: { id: params.bill.customer_id, limit: 1 },
+      })
+      const hit = (cres.data.customers || []).find((c) => c.id === params.bill.customer_id)
+      if (hit) {
+        if (!customerAddress && hit.address) customerAddress = hit.address
+        if (!customerMobile && hit.mobile) customerMobile = hit.mobile
+        if (!customerPan && hit.pan) customerPan = hit.pan
+        if (!customerGst && hit.gstin) customerGst = hit.gstin
+      }
+    } catch {
+      /* keep session CRM fields */
+    }
+  }
 
   let compliance: ErpTaxInvoiceCompliance | null = null
   const einvoice = params.bill.compliance?.einvoice
@@ -114,34 +148,39 @@ export async function buildErpSalesPdfPayload(params: {
     gst,
     bank,
     customerName: params.customerName ?? params.bill.customer_name,
-    customerAddress: params.customerAddress ?? session.address ?? null,
-    customerMobile: params.mobile ?? session.mobile ?? null,
-    customerPan: params.customerPan ?? session.pan ?? null,
-    customerGst: params.customerGst ?? session.customerGst ?? null,
+    customerAddress,
+    customerMobile,
+    customerPan,
+    customerGst,
     compliance,
     ewayBillNo: params.ewayBillNo ?? params.bill.compliance?.eway?.ewb_no ?? null,
     mrpItemNames: mrpNames,
   }
 
   const isEinvoicePdf = params.taxInvoiceMode && !!compliance?.irn
+  const pdfVariant = isApproval ? 'approval' : isEinvoicePdf ? 'einvoice' : 'bill'
+  const approvalNarration = session.approvalNarration || null
 
   const blob = await pdf(
-    useChallanTemplate ? (
+    isApproval || useChallanTemplate ? (
       <ErpConfigurableTaxInvoicePdfDocument
         {...docProps}
         templateConfig={isEinvoicePdf ? einvoiceTemplateConfig : billTemplateConfig}
-        variant={isEinvoicePdf ? 'einvoice' : 'bill'}
+        variant={pdfVariant}
+        approvalNarration={approvalNarration}
       />
     ) : (
       <ErpTaxInvoicePdfDocument {...docProps} mrpItemNames={mrpNames} />
     ),
   ).toBlob()
 
-  const filename = params.taxInvoiceMode
-    ? buildErpSalesPdfFilename(params.bill.bill_number, 'einvoice')
-    : params.ewayBillNo
-      ? buildErpSalesPdfFilename(params.bill.bill_number, 'eway')
-      : buildErpSalesPdfFilename(params.bill.bill_number, 'bill')
+  const filename = isApproval
+    ? buildErpSalesPdfFilename(params.bill.bill_number, 'approval')
+    : params.taxInvoiceMode
+      ? buildErpSalesPdfFilename(params.bill.bill_number, 'einvoice')
+      : params.ewayBillNo
+        ? buildErpSalesPdfFilename(params.bill.bill_number, 'eway')
+        : buildErpSalesPdfFilename(params.bill.bill_number, 'bill')
 
   const text = buildErpSalesWhatsAppMessage({
     brandLabel,
@@ -154,12 +193,12 @@ export async function buildErpSalesPdfPayload(params: {
   return {
     blob,
     filename,
-    title: `${brandLabel} — ${params.taxInvoiceMode ? 'Tax invoice' : 'Invoice'} ${params.bill.bill_number}`,
+    title: `${brandLabel} — ${isApproval ? 'Delivery Challan' : params.taxInvoiceMode ? 'Tax invoice' : 'Invoice'} ${params.bill.bill_number}`,
     text,
     fallbackWhatsAppText: text,
     fallbackWhatsAppHref: null,
-    customerWhatsAppHref: erpCustomerWhatsAppHref(params.mobile ?? session.mobile, text),
-    customerMobile: normalizeMobileDigits(params.mobile ?? session.mobile) || null,
+    customerWhatsAppHref: erpCustomerWhatsAppHref(customerMobile, text),
+    customerMobile: normalizeMobileDigits(customerMobile) || null,
     brandLabel,
   }
 }

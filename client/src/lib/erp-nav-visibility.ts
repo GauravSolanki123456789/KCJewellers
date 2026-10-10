@@ -20,6 +20,7 @@ const NEVER_JAINAV_LOCK_IDS = new Set<string>([
   'sales-return',
   'orders',
   'estimations',
+  'approval-issue',
   'customers',
   'customer-routing',
   'ledger',
@@ -51,6 +52,7 @@ export type ErpNavVisibility = {
 export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'billing',
   'estimations',
+  'approval-issue',
   'sales-bills',
   'products',
   'customers',
@@ -92,6 +94,7 @@ export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
 export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
   'billing',
   'estimations',
+  'approval-issue',
   'sales-bills',
   'products',
   'customers',

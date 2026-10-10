@@ -144,7 +144,7 @@ function classifyLane({ paymentMethod, laneOverride, session }) {
     return 'jainav';
 }
 
-async function createShadowBillFromBillingPayload(query, resellerUserId, body, operatorId) {
+async function createShadowBillFromBillingPayload(query, resellerUserId, body, operatorId, opts = {}) {
     const linesRaw = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
     const sessionObj =
         body.session && typeof body.session === 'object'
@@ -183,7 +183,8 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     const status = statusRaw.toLowerCase();
     const billType = trimStr(body.bill_type, 32) || 'sale';
     const barcodes = linesRaw.map((l) => (l.barcode || l.code || '').trim()).filter(Boolean);
-    if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
+    const skipStock = opts.skipStock === true;
+    if (!skipStock && billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
         const conflicts = await findSoldBarcodeConflicts(query, resellerUserId, barcodes);
         if (conflicts.length) {
             const err = new Error('One or more items are already sold');
@@ -225,7 +226,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
         ],
     );
     const bill = mapShadowBill(rows[0]);
-    if (billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
+    if (!skipStock && billType === 'sale' && ['completed', 'paid', 'final'].includes(status)) {
         await markPiecesShadowSold(query, resellerUserId, linesRaw, bill.id);
         if (saleIsCashCollected(sessionObj)) {
             try {

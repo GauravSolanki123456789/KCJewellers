@@ -17,6 +17,7 @@ import {
   Receipt,
   ScanLine,
   ClipboardCheck,
+  ClipboardList,
   Settings2,
   ShoppingBag,
   Split,
@@ -42,6 +43,7 @@ export type ResellerErpModuleId =
   | 'sales-return'
   | 'orders'
   | 'estimations'
+  | 'approval-issue'
   | 'customers'
   | 'customer-routing'
   | 'ledger'
@@ -153,6 +155,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Estimates',
     description: '',
     icon: Calculator,
+    group: 'sales',
+    kind: 'workspace',
+  },
+  {
+    id: 'approval-issue',
+    title: 'Approval Issue',
+    short: 'Approval',
+    description: 'Issue stock on delivery challan without a sales bill',
+    icon: ClipboardList,
     group: 'sales',
     kind: 'workspace',
   },

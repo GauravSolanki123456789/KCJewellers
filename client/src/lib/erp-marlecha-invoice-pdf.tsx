@@ -30,8 +30,10 @@ export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
   templateConfig?: ErpTaxInvoiceTemplateConfig | null
   /** e-way bill number when rendering e-way variant */
   ewayBillNo?: string | null
-  /** bill = 3 copies; einvoice = 3 copies + IRN / QR / e-way */
-  variant?: 'bill' | 'einvoice'
+  /** bill = 3 copies; einvoice = 3 copies + IRN / QR / e-way; approval = Delivery Challan[Issue] */
+  variant?: 'bill' | 'einvoice' | 'approval'
+  /** Printed in place of payment method on approval challans. */
+  approvalNarration?: string | null
   mrpItemNames?: Set<string>
 }
 
@@ -381,12 +383,15 @@ function InvoicePage({
   customerName,
   customerAddress,
   customerMobile,
+  customerPan,
+  customerGst,
   compliance,
   lines,
   session,
   ewayBillNo,
   mrpItemNames,
   variant = 'bill',
+  approvalNarration,
 }: {
   copyLabel: string
   template: ErpTaxInvoiceTemplateConfig
@@ -396,19 +401,22 @@ function InvoicePage({
   customerName?: string | null
   customerAddress?: string | null
   customerMobile?: string | null
+  customerPan?: string | null
+  customerGst?: string | null
   compliance?: ErpTaxInvoiceCompliance | null
   lines: ErpBillLine[]
   session: Record<string, unknown>
   ewayBillNo?: string | null
   mrpItemNames?: Set<string>
-  variant?: 'bill' | 'einvoice'
+  variant?: 'bill' | 'einvoice' | 'approval'
+  approvalNarration?: string | null
 }) {
   const placeOfSupply =
     String(session.placeOfSupply || gst.placeOfSupply || '').trim() || 'Tamil Nadu'
   const interstate = isInterstateSupply({
     sellerGstin: gst.gstin,
     placeOfSupply,
-    buyerGstin: String(session.customerGst || ''),
+    buyerGstin: String(session.customerGst || customerGst || ''),
   })
   const gstOffOnBill =
     bill.gst_enabled === false ||
@@ -428,7 +436,14 @@ function InvoicePage({
   const rawTotal = taxable + gstAmt
   const roundedTotal = Math.round(rawTotal)
   const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
-  const payLabel = paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
+  const isApproval = variant === 'approval'
+  const narrationCaps = String(approvalNarration || session.approvalNarration || '')
+    .trim()
+    .toUpperCase()
+  const payLabel = isApproval
+    ? narrationCaps
+    : paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
+  const headerTitle = isApproval ? 'Delivery Challan[Issue]' : template.headerTitle
   const shopDisplay = template.shopName || gst.legalName || 'Shop'
   const unifiedRows: string[][] = lines.map((line, idx) => {
     const slNo = `${idx + 1}.`
@@ -480,7 +495,7 @@ function InvoicePage({
         {copyLabel ? <Text style={styles.copyTag}>{copyLabel}</Text> : null}
         <View style={styles.headerMain}>
           <View style={styles.headerCenter}>
-            <Text style={styles.title}>{sanitizePdfText(template.headerTitle)}</Text>
+            <Text style={styles.title}>{sanitizePdfText(headerTitle)}</Text>
             <Text style={styles.shopName}>{sanitizePdfText(shopDisplay)}</Text>
             {addressLines.map((line, i) => (
               <Text key={`addr-${i}`} style={styles.centerLine}>
@@ -533,6 +548,12 @@ function InvoicePage({
               <Text style={{ marginTop: 3 }}>{sanitizePdfText(customerAddress)}</Text>
             ) : null}
             {customerMobile ? <Text style={{ marginTop: 2 }}>Mob: {sanitizePdfText(customerMobile)}</Text> : null}
+            {isApproval && customerGst ? (
+              <Text style={{ marginTop: 2 }}>GSTIN: {sanitizePdfText(customerGst)}</Text>
+            ) : null}
+            {isApproval && customerPan ? (
+              <Text style={{ marginTop: 2 }}>PAN: {sanitizePdfText(customerPan)}</Text>
+            ) : null}
           </View>
         </View>
         <View style={styles.billingRight}>
@@ -571,12 +592,29 @@ function InvoicePage({
       <View style={styles.summaryRow}>
         <View style={styles.summaryLeft}>
           <View>
-            <Text style={{ fontWeight: 'bold', fontSize: 8 }}>{amountInWordsInr(roundedTotal)}</Text>
-            <Text style={{ marginTop: 6, fontSize: 8 }}>{payLabel}</Text>
+            {isApproval ? null : (
+              <Text style={{ fontWeight: 'bold', fontSize: 8 }}>{amountInWordsInr(roundedTotal)}</Text>
+            )}
+            {payLabel ? (
+              <Text
+                style={{
+                  marginTop: isApproval ? 0 : 6,
+                  fontSize: isApproval ? 9 : 8,
+                  fontFamily: isApproval ? 'Helvetica-Bold' : 'Helvetica',
+                  fontWeight: isApproval ? 'bold' : 'normal',
+                }}
+              >
+                {sanitizePdfText(payLabel)}
+              </Text>
+            ) : null}
           </View>
           <Text style={{ fontSize: 7.5, marginTop: 8 }}>{sanitizePdfText(template.partySignatureLabel)}</Text>
         </View>
         <View style={styles.summaryRight}>
+          {isApproval ? (
+            <View style={{ flexGrow: 1 }} />
+          ) : (
+            <>
           <View style={styles.totalCell}>
             <Text>{template.totalsLabels.total}</Text>
             <Text>{taxable.toFixed(2)}</Text>
@@ -607,11 +645,15 @@ function InvoicePage({
             <Text style={styles.fieldLabel}>{template.totalsLabels.netAmount}</Text>
             <Text style={styles.fieldLabel}>{roundedTotal.toFixed(2)}</Text>
           </View>
+            </>
+          )}
         </View>
       </View>
 
       <View style={styles.footerRow}>
         <View style={styles.termsCol}>
+          {isApproval ? null : (
+            <>
           <Text style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: 3 }}>
             {sanitizePdfText(template.termsTitle)}
           </Text>
@@ -621,6 +663,8 @@ function InvoicePage({
             </Text>
           ))}
           <Text style={{ marginTop: 4, fontStyle: 'italic' }}>{sanitizePdfText(template.jurisdictionLine)}</Text>
+            </>
+          )}
         </View>
         <View style={styles.bankCol}>
           {template.bankLines.map((line, i) => (
@@ -671,9 +715,9 @@ export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoi
 
   return (
     <Document>
-      <InvoicePage {...pageProps} copyLabel={copies[0]} variant={props.variant || 'bill'} />
-      <InvoicePage {...pageProps} copyLabel={copies[1]} variant={props.variant || 'bill'} />
-      <InvoicePage {...pageProps} copyLabel={copies[2]} variant={props.variant || 'bill'} />
+      <InvoicePage {...pageProps} copyLabel={copies[0]} variant={props.variant || 'bill'} approvalNarration={props.approvalNarration} />
+      <InvoicePage {...pageProps} copyLabel={copies[1]} variant={props.variant || 'bill'} approvalNarration={props.approvalNarration} />
+      <InvoicePage {...pageProps} copyLabel={copies[2]} variant={props.variant || 'bill'} approvalNarration={props.approvalNarration} />
     </Document>
   )
 }

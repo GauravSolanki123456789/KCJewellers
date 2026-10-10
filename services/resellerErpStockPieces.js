@@ -969,6 +969,46 @@ async function markPiecesShadowSold(query, resellerUserId, lines, shadowBillId) 
     }
 }
 
+/** Approval → Jainav bill: pieces already `sold` on the GAI row become `shadow_sold`. */
+async function reclassifyOfficialSoldToShadow(query, resellerUserId, lines, officialBillId, shadowBillId) {
+    const officialId = Number(officialBillId);
+    const shadowId = Number(shadowBillId);
+    const officialOk = Number.isFinite(officialId) && officialId > 0;
+    const shadowOk = Number.isFinite(shadowId) && shadowId > 0 ? shadowId : null;
+    const barcodes = [];
+    const pieceIds = [];
+    for (const line of lines || []) {
+        const pieceId = lineStockPieceId(line);
+        if (pieceId) pieceIds.push(pieceId);
+        const bc = lineStockBarcode(line);
+        if (bc) barcodes.push(bc);
+    }
+    const params = [resellerUserId, shadowOk];
+    const match = [];
+    if (officialOk) {
+        params.push(officialId);
+        match.push(`sold_bill_id = $${params.length}`);
+    }
+    if (pieceIds.length) {
+        params.push([...new Set(pieceIds)]);
+        match.push(`id = ANY($${params.length}::int[])`);
+    }
+    if (barcodes.length) {
+        params.push([...new Set(barcodes)]);
+        match.push(`barcode = ANY($${params.length}::text[])`);
+    }
+    if (!match.length) return;
+    await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'shadow_sold',
+            shadow_bill_id = $2,
+            sold_bill_id = NULL,
+            updated_at = NOW()
+         WHERE reseller_user_id = $1 AND status = 'sold' AND (${match.join(' OR ')})`,
+        params,
+    );
+}
+
 async function restorePiecesFromShadowSold(query, resellerUserId, lines) {
     const restoredIds = [];
     for (const line of lines || []) {
@@ -2786,7 +2826,7 @@ function registerStockPieceRoutes(app, deps) {
         }
     });
 
-    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, markPiecesShadowSold, restorePiecesFromShadowSold, restorePiecesInStock, markReturnedPiecesSoldAgain, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
+    return { lookupStockPiece, markPiecesSold, markPiecesShadowLane, markPiecesShadowSold, restorePiecesFromShadowSold, restorePiecesInStock, markReturnedPiecesSoldAgain, reclassifyOfficialSoldToShadow, syncStockAlertCounts, mapPiece, mapPieceForClient, parseExcelRowToPiece, findSoldBarcodeConflicts };
 }
 
 module.exports = {
@@ -2799,6 +2839,7 @@ module.exports = {
     restorePiecesFromShadowSold,
     restorePiecesInStock,
     markReturnedPiecesSoldAgain,
+    reclassifyOfficialSoldToShadow,
     mapPiece,
     mapPieceForClient,
     parseExcelRowToPiece,
