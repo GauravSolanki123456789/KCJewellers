@@ -104,6 +104,7 @@ import {
 } from '@/lib/erp-billing-shortcuts'
 import {
   catalogProductUsesMrpPricing,
+  catalogProductNeedsFinishPick,
   enrichCatalogWithSkuSizeVariants,
   findCatalogProduct,
   mergeCatalogProductsForStyleSku,
@@ -1557,7 +1558,7 @@ export function ErpBillingWorkspace() {
           )
         }
         let patch = patchLineFromCatalogProduct(line, product) as Partial<ErpBillLine>
-        const needsFinishPick = (product.finish_options?.length || 0) >= 2
+        const needsFinishPick = catalogProductNeedsFinishPick(product)
         if (
           patch.mrpMode &&
           product.fixed_price &&
@@ -1661,20 +1662,21 @@ export function ErpBillingWorkspace() {
               return Number.isFinite(n) ? n : null
             }
             const catalogMc = num('mc_rate') ?? l.mc_rate_catalog ?? l.mc_rate
+            const giftManual = l.manualCategory === 'gift'
             return recalcLine({
               ...l,
               style_code: styleCode,
               sku,
               name: '',
-              purity: num('purity') ?? l.purity,
+              purity: giftManual ? null : (num('purity') ?? l.purity),
               metal_type:
-                l.manualCategory === 'gift'
+                giftManual
                   ? null
                   : String(d.metal_type || l.metal_type || 'silver'),
-              wastage_pct: num('wastage_pct') ?? l.wastage_pct,
-              mc_rate: catalogMc,
-              mc_rate_catalog: catalogMc,
-              mc_type: normalizeMcTypeInput(d.mc_type) ?? l.mc_type,
+              wastage_pct: giftManual ? null : (num('wastage_pct') ?? l.wastage_pct),
+              mc_rate: giftManual ? null : catalogMc,
+              mc_rate_catalog: giftManual ? null : catalogMc,
+              mc_type: giftManual ? null : (normalizeMcTypeInput(d.mc_type) ?? l.mc_type),
               mc_rate_slab_r: num('mc_rate_slab_r') ?? l.mc_rate_slab_r,
               mc_rate_slab_r1: num('mc_rate_slab_r1') ?? l.mc_rate_slab_r1,
               mc_rate_slab_w: num('mc_rate_slab_w') ?? l.mc_rate_slab_w,

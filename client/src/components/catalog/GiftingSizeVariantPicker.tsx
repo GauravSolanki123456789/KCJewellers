@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { getCustomerDisplaySize, type Item } from '@/lib/pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
-import { sortSizeVariants, visibleSizeVariantIndices } from '@/lib/product-variants'
+import { sortSizeVariants } from '@/lib/product-variants'
 
 type Props = {
   variants: Item[]
@@ -31,13 +31,7 @@ export default function GiftingSizeVariantPicker({
 }: Props) {
   const sorted = useMemo(() => sortSizeVariants(variants), [variants])
   const selectedKey = getProductSelectionKey(selected)
-  const selectedIdx = sorted.findIndex((v) => getProductSelectionKey(v) === selectedKey)
   const isDetail = density === 'detail'
-
-  const visibleIndices = useMemo(
-    () => visibleSizeVariantIndices(sorted.length, selectedIdx < 0 ? 0 : selectedIdx),
-    [sorted.length, selectedIdx],
-  )
 
   if (sorted.length <= 1) return null
 
@@ -54,10 +48,12 @@ export default function GiftingSizeVariantPicker({
       <div
         role="listbox"
         aria-label="Choose size"
-        className={cn('flex min-w-0 gap-1.5', isDetail ? 'gap-2' : '')}
+        className={cn(
+          'flex min-w-0 flex-row gap-1.5 overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          isDetail ? 'gap-2 pb-0.5' : 'pb-0.5',
+        )}
       >
-        {visibleIndices.map((i) => {
-          const v = sorted[i]
+        {sorted.map((v) => {
           const key = getProductSelectionKey(v)
           const active = key === selectedKey
           const shortlisted = !!(key && shortlistedKeys?.has(key))
@@ -74,10 +70,10 @@ export default function GiftingSizeVariantPicker({
                 onSelect(v)
               }}
               className={cn(
-                'kc-size-chip relative min-w-0 flex-1 touch-manipulation rounded-lg border font-semibold tabular-nums transition',
+                'kc-size-chip relative shrink-0 touch-manipulation whitespace-nowrap rounded-lg border font-semibold tabular-nums transition',
                 isDetail
-                  ? 'min-h-[44px] max-w-[10rem] px-4 py-2.5 text-sm'
-                  : 'min-h-[32px] px-2 py-1 text-[11px] sm:min-h-[36px] sm:px-2.5 sm:text-xs',
+                  ? 'min-h-[44px] px-4 py-2.5 text-sm'
+                  : 'min-h-[32px] px-2.5 py-1 text-[11px] sm:min-h-[36px] sm:px-3 sm:text-xs',
                 active ? 'kc-size-chip-active' : 'kc-size-chip-idle',
                 shortlisted && !active ? 'kc-size-chip-shortlisted' : '',
               )}

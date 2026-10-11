@@ -4,6 +4,7 @@ import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
+import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
@@ -260,8 +261,29 @@ function formatBillDate(bill: ErpBill): string {
   return formatErpDateDdMmYyyy(bill.bill_date || bill.created_at)
 }
 
+function lineQty(line: ErpBillLine): number {
+  return Math.max(1, Number(line.qty) || 1)
+}
+
 function lineNetGm(line: ErpBillLine): number {
   return Number(line.originalWeightGm ?? line.weightGm) || 0
+}
+
+/** Flat MRP row (no weight columns) — not weight-based silver gift stock. */
+function marlechaFlatMrpRow(line: ErpBillLine, mrpItemNames?: Set<string> | null): boolean {
+  return isMrpInvoiceLine(line, mrpItemNames) && !shouldUseWeightSilverNotMrp(line)
+}
+
+function lineTotalNetGm(line: ErpBillLine): number {
+  const per = lineNetGm(line)
+  if (per <= 0) return 0
+  return Math.round(per * lineQty(line) * 100) / 100
+}
+
+function lineTotalGrossGm(line: ErpBillLine): number {
+  const per = lineGrossGm(line)
+  if (per <= 0) return 0
+  return Math.round(per * lineQty(line) * 100) / 100
 }
 
 function lineGrossGm(line: ErpBillLine): number {
@@ -278,10 +300,10 @@ function lineTaxableInr(line: ErpBillLine, gstOffOnBill: boolean): number {
   return Math.round((total / 1.03) * 100) / 100
 }
 
-function lineRatePerGram(line: ErpBillLine, taxableInr: number): number {
-  const netGm = lineNetGm(line)
+function lineRatePerGram(line: ErpBillLine, amountInr: number, useTotalNet = false): number {
+  const netGm = useTotalNet ? lineTotalNetGm(line) : lineNetGm(line)
   if (netGm <= 0) return 0
-  return taxableInr / netGm
+  return amountInr / netGm
 }
 
 function linePieceRate(line: ErpBillLine): number {
@@ -445,13 +467,16 @@ function InvoicePage({
     : paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
   const headerTitle = isApproval ? 'Delivery Challan[Issue]' : template.headerTitle
   const shopDisplay = template.shopName || gst.legalName || 'Shop'
+  const approvalNetDisplay =
+    Math.round(Number(bill.total_inr) || totals.net || roundedTotal || 0)
+  const approvalWeightDisplay = totals.weight > 0 ? totals.weight : 0
+
   const unifiedRows: string[][] = lines.map((line, idx) => {
     const slNo = `${idx + 1}.`
     const desc = line.invoice_item_name || line.name || 'JEWELLERY'
     const hsn = line.hsn_code || '711311'
-    const mrp = isMrpInvoiceLine(line, mrpItemNames)
-    if (mrp) {
-      const qty = Math.max(1, Number(line.qty) || 1)
+    const qty = lineQty(line)
+    if (marlechaFlatMrpRow(line, mrpItemNames)) {
       const amt = Number(line.lineTotalInr) || 0
       const rate = linePieceRate(line)
       return [
@@ -465,19 +490,22 @@ function InvoicePage({
         amt.toFixed(2),
       ]
     }
-    const taxable = lineTaxableInr(line, !!gstOffOnBill)
-    const grossGm = lineGrossGm(line)
-    const netGm = lineNetGm(line)
-    const rate = lineRatePerGram(line, taxable)
+    const lineAmtInr = isApproval
+      ? Number(line.lineTotalInr) || 0
+      : lineTaxableInr(line, !!gstOffOnBill)
+    const grossTotal = lineTotalGrossGm(line)
+    const netTotal = lineTotalNetGm(line)
+    const rate = lineRatePerGram(line, lineAmtInr, true)
+    const showQty = isApproval || qty > 1
     return [
       slNo,
       desc,
       hsn,
-      '—',
-      grossGm > 0 ? grossGm.toFixed(2) : '—',
-      netGm > 0 ? netGm.toFixed(2) : '—',
+      showQty ? String(qty) : '—',
+      grossTotal > 0 ? grossTotal.toFixed(2) : '—',
+      netTotal > 0 ? netTotal.toFixed(2) : '—',
       rate > 0 ? rate.toFixed(2) : '—',
-      taxable.toFixed(2),
+      lineAmtInr > 0 ? lineAmtInr.toFixed(2) : '—',
     ]
   })
 
@@ -612,7 +640,18 @@ function InvoicePage({
         </View>
         <View style={styles.summaryRight}>
           {isApproval ? (
-            <View style={{ flexGrow: 1 }} />
+            <>
+              <View style={styles.totalCell}>
+                <Text style={{ fontWeight: 'bold' }}>Total Weight</Text>
+                <Text style={{ fontWeight: 'bold' }}>
+                  {approvalWeightDisplay > 0 ? approvalWeightDisplay.toFixed(2) : '—'}
+                </Text>
+              </View>
+              <View style={styles.netCell}>
+                <Text style={styles.fieldLabel}>Net Amount</Text>
+                <Text style={styles.fieldLabel}>{approvalNetDisplay.toFixed(2)}</Text>
+              </View>
+            </>
           ) : (
             <>
           <View style={styles.totalCell}>

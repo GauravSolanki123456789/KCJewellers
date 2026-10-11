@@ -1,6 +1,7 @@
 import { isGiftingItem, type Item } from '@/lib/pricing'
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { normalizeMcTypeInput } from '@/lib/erp-mc-type-field'
+import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 
 export type DesignCatalogSize = {
   size_label: string
@@ -134,6 +135,10 @@ export function resolveDesignFinishOptions(
   if (opts.length < 2) return undefined
   const multiSize = (product?.sizes?.length || 0) >= 2
   if (multiSize) {
+    const sizedMrp = (product?.sizes || [])
+      .map((s) => s.fixed_price)
+      .filter((p) => p != null && Number(p) > 0)
+    if (sizedMrp.length >= 2) return undefined
     const hasChargeOrMrp = opts.some(
       (o) => (Number(o.stone_charges) || 0) > 0 || (o.fixed_price != null && Number(o.fixed_price) > 0),
     )
@@ -148,6 +153,34 @@ export function resolveDesignFinishOptions(
 
 export function lineHasFinishPicker(line: ErpBillLine): boolean {
   return (line.designFinishOptions?.length ?? 0) >= 2
+}
+
+function isFixedMrpCatalogProduct(product: DesignCatalogProduct, line: ErpBillLine): boolean {
+  if (!catalogProductUsesMrpPricing(product)) return false
+  const probe: ErpBillLine = {
+    ...line,
+    metal_type: product.metal_type ?? line.metal_type,
+    manualCategory: line.manualCategory,
+    mrpMode: line.mrpMode,
+  }
+  return !shouldUseWeightSilverNotMrp(probe)
+}
+
+/** Fixed MRP gift rows — no MC / wastage / purity / weight on the bill grid. */
+function clearFixedMrpMetalFields(patch: Partial<ErpBillLine>): Partial<ErpBillLine> {
+  return {
+    ...patch,
+    mc_rate: null,
+    mc_rate_catalog: null,
+    mc_type: null,
+    wastage_pct: null,
+    purity: null,
+    weightGm: null,
+    originalWeightGm: null,
+    gross_weight: null,
+    bag_wt: null,
+    bags: null,
+  }
 }
 
 export function catalogProductUsesMrpPricing(product: DesignCatalogProduct): boolean {
@@ -186,14 +219,15 @@ export function patchLineFromCatalogProduct(
   product: DesignCatalogProduct,
 ): Partial<ErpBillLine> {
   const mrpMode = catalogProductUsesMrpPricing(product)
+  const fixedMrp = isFixedMrpCatalogProduct(product, line)
   const patch: Partial<ErpBillLine> = {
     name: product.name,
     imageUrl: product.image_url ?? line.imageUrl ?? null,
-    mc_rate: product.mc_rate ?? line.mc_rate,
-    mc_rate_catalog: product.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate,
-    mc_type: normalizeMcTypeInput(product.mc_type) ?? line.mc_type,
-    wastage_pct: product.wastage_pct ?? line.wastage_pct,
-    purity: product.purity ?? line.purity,
+    mc_rate: fixedMrp ? null : (product.mc_rate ?? line.mc_rate),
+    mc_rate_catalog: fixedMrp ? null : (product.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate),
+    mc_type: fixedMrp ? null : (normalizeMcTypeInput(product.mc_type) ?? line.mc_type),
+    wastage_pct: fixedMrp ? null : (product.wastage_pct ?? line.wastage_pct),
+    purity: fixedMrp ? null : (product.purity ?? line.purity),
     metal_type:
       line.manualCategory === 'gift'
         ? null
@@ -238,13 +272,15 @@ export function patchLineFromCatalogProduct(
     if (shouldKeepCatalogWeights(line, mrpMode) && s.gross_weight != null) {
       patch.gross_weight = s.gross_weight
     }
-    if (s.mc_rate != null) {
-      patch.mc_rate = s.mc_rate
-      patch.mc_rate_catalog = s.mc_rate
+    if (!fixedMrp) {
+      if (s.mc_rate != null) {
+        patch.mc_rate = s.mc_rate
+        patch.mc_rate_catalog = s.mc_rate
+      }
+      if (s.mc_type) patch.mc_type = s.mc_type
+      if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct
+      if (s.purity != null) patch.purity = s.purity
     }
-    if (s.mc_type) patch.mc_type = s.mc_type
-    if (s.wastage_pct != null) patch.wastage_pct = s.wastage_pct
-    if (s.purity != null) patch.purity = s.purity
     if (s.fixed_price != null) {
       const sizeWt = Number(s.net_weight ?? 0) || 0
       const silverWeightSku =
@@ -283,6 +319,10 @@ export function patchLineFromCatalogProduct(
     patch.mrpListPrice = Number(patch.fixed_price)
   }
 
+  if (fixedMrp) {
+    return clearFixedMrpMetalFields(patch)
+  }
+
   return patch
 }
 
@@ -290,6 +330,10 @@ export function patchLineFromCatalogProduct(
 export function nextFieldAfterCatalogProduct(product: DesignCatalogProduct): keyof ErpBillLine {
   if ((product.sizes?.length || 0) > 1) return 'size'
   return nextFieldAfterCatalogSize(product)
+}
+
+export function catalogProductNeedsFinishPick(product: DesignCatalogProduct): boolean {
+  return resolveDesignFinishOptions(product) != null
 }
 
 export function findDesignOptionLabel<T extends { label: string }>(
@@ -303,11 +347,11 @@ export function findDesignOptionLabel<T extends { label: string }>(
 
 export function nextFieldAfterCatalogSize(product: DesignCatalogProduct): keyof ErpBillLine {
   if (catalogProductUsesMrpPricing(product)) {
-    if ((product.finish_options?.length || 0) >= 2) return 'stone_charges'
+    if (catalogProductNeedsFinishPick(product)) return 'stone_charges'
     if ((product.box_options?.length || 0) >= 2) return 'box_charges'
     return 'qty'
   }
-  if ((product.finish_options?.length || 0) >= 2) return 'stone_charges'
+  if (catalogProductNeedsFinishPick(product)) return 'stone_charges'
   return 'weightGm'
 }
 
@@ -319,23 +363,15 @@ export function patchLineFromCatalogSize(
   const hit = product.sizes?.find((s) => s.size_label === sizeLabel)
   if (!hit) return { size: sizeLabel || null }
   const mrp = catalogProductUsesMrpPricing(product)
+  const fixedMrp = isFixedMrpCatalogProduct(product, line)
   const keepWt = shouldKeepCatalogWeights(line, mrp)
-  return {
+  const base: Partial<ErpBillLine> = {
     size: sizeLabel,
     weightGm: keepWt ? (hit.net_weight ?? line.weightGm) : null,
     originalWeightGm: keepWt ? (hit.net_weight ?? line.originalWeightGm) : null,
     gross_weight: keepWt ? (hit.gross_weight ?? line.gross_weight) : null,
-    mc_rate: hit.mc_rate ?? line.mc_rate,
-    mc_rate_catalog: hit.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate,
-    mc_type: hit.mc_type ?? line.mc_type,
-    wastage_pct: hit.wastage_pct ?? line.wastage_pct,
-    purity: hit.purity ?? line.purity,
     fixed_price: hit.fixed_price ?? line.fixed_price,
     box_charges: hit.box_charges ?? line.box_charges,
-    mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
-    mc_rate_slab_r1: hit.mc_rate_slab_r1 ?? line.mc_rate_slab_r1,
-    mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
-    mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
     ...(mrp && hit.fixed_price != null
       ? {
           mrpListPrice: Number(hit.fixed_price),
@@ -344,5 +380,20 @@ export function patchLineFromCatalogSize(
           unitInr: line.unitInr ?? hit.fixed_price,
         }
       : {}),
+  }
+  if (fixedMrp) {
+    return clearFixedMrpMetalFields(base)
+  }
+  return {
+    ...base,
+    mc_rate: hit.mc_rate ?? line.mc_rate,
+    mc_rate_catalog: hit.mc_rate ?? line.mc_rate_catalog ?? line.mc_rate,
+    mc_type: hit.mc_type ?? line.mc_type,
+    wastage_pct: hit.wastage_pct ?? line.wastage_pct,
+    purity: hit.purity ?? line.purity,
+    mc_rate_slab_r: hit.mc_rate_slab_r ?? line.mc_rate_slab_r,
+    mc_rate_slab_r1: hit.mc_rate_slab_r1 ?? line.mc_rate_slab_r1,
+    mc_rate_slab_w: hit.mc_rate_slab_w ?? line.mc_rate_slab_w,
+    mc_rate_slab_f: hit.mc_rate_slab_f ?? line.mc_rate_slab_f,
   }
 }
