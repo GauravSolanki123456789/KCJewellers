@@ -74,3 +74,8 @@ export function addressPayloadFromTextarea(raw: string | null | undefined): {
   const lines = addressLinesFromTextarea(raw)
   return { address: lines.join('\n'), address_lines: lines }
 }
+
+/** Invoice / challan PDF: up to 3 lines, uppercase per print convention. */
+export function formatPdfAddressLines(raw: string | null | undefined): string[] {
+  return splitAddressLines(raw).map((line) => line.toUpperCase())
+}

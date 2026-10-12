@@ -112,13 +112,17 @@ export async function buildErpSalesPdfPayload(params: {
       })
       const hit = (cres.data.customers || []).find((c) => c.id === params.bill.customer_id)
       if (hit) {
-        if (!customerAddress && hit.address) customerAddress = hit.address
-        if (!customerMobile && hit.mobile) customerMobile = hit.mobile
-        if (!customerPan && hit.pan) customerPan = hit.pan
-        if (!customerGst && hit.gstin) customerGst = hit.gstin
+        // CRM is source of truth — bill session.address is often a stale single-line snapshot from billing.
+        if (hit.address) customerAddress = hit.address
+        if (hit.mobile) customerMobile = hit.mobile
+        if (hit.pan) customerPan = hit.pan
+        if (hit.gstin) customerGst = hit.gstin
         if (hit.has_shipping_address === true && String(hit.shipping_address || '').trim()) {
           customerHasShippingAddress = true
           customerShippingAddress = String(hit.shipping_address).trim()
+        } else {
+          customerHasShippingAddress = false
+          customerShippingAddress = null
         }
       }
     } catch {

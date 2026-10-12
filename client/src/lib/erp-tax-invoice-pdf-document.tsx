@@ -6,6 +6,7 @@ import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { formatPdfAddressLines } from '@/lib/erp-customer-address-format'
 
 export type ErpGstSettings = {
   gstin?: string | null
@@ -317,7 +318,13 @@ function InvoiceCopyPage({
       {customerAddress ? (
         <View style={styles.billedRow}>
           <Text style={styles.billedLabel}>Address :</Text>
-          <Text style={styles.billedValue}>{sanitizePdfText(customerAddress)}</Text>
+          <View style={{ flexGrow: 1, flexShrink: 1 }}>
+            {formatPdfAddressLines(customerAddress).map((line, i) => (
+              <Text key={`bill-addr-${i}`} style={styles.billedValue}>
+                {sanitizePdfText(line)}
+              </Text>
+            ))}
+          </View>
         </View>
       ) : null}
       {customerMobile ? (

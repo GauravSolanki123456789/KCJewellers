@@ -8,7 +8,7 @@ import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
-import { splitAddressLines } from '@/lib/erp-customer-address-format'
+import { formatPdfAddressLines } from '@/lib/erp-customer-address-format'
 import {
   isInterstateSupply,
   paymentMethodInvoiceLabel,
@@ -497,7 +497,7 @@ function CustomerAddressBlock({
       <Text style={{ fontFamily: 'Helvetica-Bold', fontWeight: 'bold', marginTop: 2 }}>
         {sanitizePdfText(name)}
       </Text>
-      {splitAddressLines(addressText).map((line, i) => (
+      {formatPdfAddressLines(addressText).map((line, i) => (
         <Text key={`addr-line-${i}`} style={{ marginTop: i === 0 ? 3 : 1 }}>
           {sanitizePdfText(line)}
         </Text>
