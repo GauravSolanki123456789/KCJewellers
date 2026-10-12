@@ -585,14 +585,13 @@ async function lookupGstinFromGstzen(query, resellerUserId, gstinRaw) {
     const stateInfo = cd.state_info && typeof cd.state_info === 'object' ? cd.state_info : {};
     const stateName = String(stateInfo.name || cd.state || '').trim();
     const stateCode = String(stateInfo.code || gstStateCode(check.gstin)).trim().padStart(2, '0');
-    const address =
-        String(pradr.addr || pradr.addr1 || cd.legal_name || '')
-            .trim()
-            .slice(0, 2000) ||
-        [pradr.street, pradr.loc, pradr.district, pradr.state_in_address, pradr.pincode]
-            .filter(Boolean)
-            .join(', ')
-            .slice(0, 2000);
+    const { formatAddressToThreeLines, formatGstPradrToThreeLines } = require('./erpCustomerAddressFormat');
+    const addrRaw = String(pradr.addr || pradr.addr1 || '').trim();
+    const address = (
+        addrRaw
+            ? formatAddressToThreeLines(addrRaw)
+            : formatGstPradrToThreeLines(pradr, stateName, stateCode)
+    ).slice(0, 2000);
 
     const legalName = String(cd.legal_name || cd.trade_name || '').trim();
     const tradeName = String(cd.trade_name || cd.legal_name || '').trim();

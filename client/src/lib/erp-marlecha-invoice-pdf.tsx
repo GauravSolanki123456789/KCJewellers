@@ -8,6 +8,7 @@ import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
+import { splitAddressLines } from '@/lib/erp-customer-address-format'
 import {
   isInterstateSupply,
   paymentMethodInvoiceLabel,
@@ -202,23 +203,20 @@ const styles = StyleSheet.create({
     minHeight: 30,
   },
   tableHeaderCellLast: { borderRightWidth: 0 },
-  tableTotalsRow: {
-    flexDirection: 'row',
-    alignSelf: 'stretch',
+  colFooterCell: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    width: '100%',
     borderTopWidth: PDF_BORDER,
     borderTopColor: '#000',
     minHeight: 22,
-    alignItems: 'center',
-  },
-  tableTotalsCell: {
-    paddingVertical: 4,
-    paddingHorizontal: 2,
-    borderRightWidth: PDF_BORDER,
-    borderRightColor: '#000',
     justifyContent: 'center',
   },
-  tableTotalsCellLast: { borderRightWidth: 0 },
-  tableTotalsText: { fontSize: 7, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' },
+  colFooterText: {
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
+  },
   headCellText: {
     fontSize: 6.5,
     fontWeight: 'bold',
@@ -258,6 +256,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
     fontSize: 7.5,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
   },
   totalCellEmpty: {
     paddingVertical: 4,
@@ -389,46 +389,6 @@ function columnAlignments(count: number, kind: 'weight' | 'mrp' | 'unified'): Co
 }
 
 /** Column-based table — vertical borders run full height including empty spacer area. */
-function renderTableTotalsFooter(
-  tableKey: string,
-  widths: readonly string[],
-  footerCells: string[],
-  kind: 'weight' | 'mrp' | 'unified',
-) {
-  const aligns = columnAlignments(widths.length, kind)
-  const last = widths.length - 1
-  return (
-    <View style={styles.tableTotalsRow}>
-      {widths.map((w, colIdx) => (
-        <View
-          key={`${tableKey}-foot-${colIdx}`}
-          style={[
-            styles.tableTotalsCell,
-            { width: w },
-            ...(colIdx === last ? [styles.tableTotalsCellLast] : []),
-          ]}
-        >
-          <Text
-            style={[
-              styles.tableTotalsText,
-              {
-                textAlign:
-                  aligns[colIdx] === 'left'
-                    ? 'left'
-                    : aligns[colIdx] === 'center'
-                      ? 'center'
-                      : 'right',
-              },
-            ]}
-          >
-            {sanitizePdfText(footerCells[colIdx] || '')}
-          </Text>
-        </View>
-      ))}
-    </View>
-  )
-}
-
 function renderColumnTable(
   tableKey: string,
   columns: string[],
@@ -490,12 +450,28 @@ function renderColumnTable(
             </View>
           ))}
           {opts?.fillRemaining ? <View style={styles.colSpacer} /> : null}
+          {opts?.footerCells?.length ? (
+            <View style={styles.colFooterCell}>
+              <Text
+                style={[
+                  styles.colFooterText,
+                  {
+                    textAlign:
+                      aligns[colIdx] === 'left'
+                        ? 'left'
+                        : aligns[colIdx] === 'center'
+                          ? 'center'
+                          : 'right',
+                  },
+                ]}
+              >
+                {sanitizePdfText(opts.footerCells[colIdx] || '')}
+              </Text>
+            </View>
+          ) : null}
         </View>
       ))}
       </View>
-      {opts?.footerCells?.length
-        ? renderTableTotalsFooter(tableKey, widths, opts.footerCells, kind)
-        : null}
     </View>
   )
 }
@@ -521,7 +497,11 @@ function CustomerAddressBlock({
       <Text style={{ fontFamily: 'Helvetica-Bold', fontWeight: 'bold', marginTop: 2 }}>
         {sanitizePdfText(name)}
       </Text>
-      {addressText ? <Text style={{ marginTop: 3 }}>{sanitizePdfText(addressText)}</Text> : null}
+      {splitAddressLines(addressText).map((line, i) => (
+        <Text key={`addr-line-${i}`} style={{ marginTop: i === 0 ? 3 : 1 }}>
+          {sanitizePdfText(line)}
+        </Text>
+      ))}
       {mobile ? <Text style={{ marginTop: 2 }}>MOB: {sanitizePdfText(mobile)}</Text> : null}
       {pan ? <Text style={{ marginTop: 2 }}>PAN NO: {sanitizePdfText(pan)}</Text> : null}
       {gst ? <Text style={{ marginTop: 2 }}>GST NO: {sanitizePdfText(gst)}</Text> : null}

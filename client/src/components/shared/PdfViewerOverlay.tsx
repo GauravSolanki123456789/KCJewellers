@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { Download, FileText, Loader2, MessageCircle, Printer, Share2, X } from 'lucide-react'
+import { Download, Loader2, MessageCircle, Printer, Share2, X } from 'lucide-react'
 import {
   closePdfOverlay,
   getPdfOverlayPayload,
@@ -285,11 +285,6 @@ export default function PdfViewerOverlay() {
             <Loader2 className="size-8 animate-spin text-emerald-700" />
           </div>
         )}
-        <p className="mt-2 flex shrink-0 items-center gap-1.5 text-[11px] text-[#1a1814]/55">
-          <FileText className="size-3.5" />
-          Use <span className="font-semibold text-[#1a1814]">Download {opts.filename}</span> so the file is saved
-          with this name (the browser PDF bar uses a random name).
-        </p>
       </main>
     </div>
   )

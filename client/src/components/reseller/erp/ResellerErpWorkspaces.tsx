@@ -12,6 +12,7 @@ import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy, formatErpDateTime, toIsoDateInput } from '@/lib/erp-date-format'
+import { formatAddressToThreeLines } from '@/lib/erp-customer-address-format'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { ErpWhatsAppCloudPanel } from '@/components/reseller/erp/ErpWhatsAppCloudPanel'
@@ -173,14 +174,14 @@ export function CustomersWorkspace() {
       email: c.email || '',
       gstin: c.gstin || '',
       pan: c.pan || '',
-      address: c.address || '',
+      address: formatAddressToThreeLines(c.address || ''),
+      shipping_address: formatAddressToThreeLines(c.shipping_address || ''),
       state: c.state || '',
       birthdate: toIsoDateInput(c.birthdate),
       anniversary_date: toIsoDateInput(c.anniversary_date),
       notes: c.notes || '',
       rate_slab: normalizeErpCustomerSlab(c.rate_slab),
       has_shipping_address: c.has_shipping_address === true,
-      shipping_address: c.shipping_address || '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -205,10 +206,17 @@ export function CustomersWorkspace() {
     setBusy(true)
     try {
       const wasEdit = editingId
+      const payload = {
+        ...form,
+        address: formatAddressToThreeLines(form.address),
+        shipping_address: form.has_shipping_address
+          ? formatAddressToThreeLines(form.shipping_address)
+          : '',
+      }
       if (editingId) {
-        await axios.put(`/api/reseller/erp/customers/${editingId}`, form)
+        await axios.put(`/api/reseller/erp/customers/${editingId}`, payload)
       } else {
-        await axios.post('/api/reseller/erp/customers', form)
+        await axios.post('/api/reseller/erp/customers', payload)
       }
       setForm(emptyForm())
       setEditingId(null)
@@ -445,7 +453,7 @@ export function CustomersWorkspace() {
                   gstin: d.gstin,
                   name: d.name && !f.name.trim() ? d.name : f.name || d.name || '',
                   pan: d.pan || f.pan,
-                  address: d.address || f.address,
+                  address: formatAddressToThreeLines(d.address || f.address),
                   state: matchGstStateName(d.state) || f.state,
                   mobile: d.mobile || f.mobile,
                 }))
@@ -455,7 +463,16 @@ export function CustomersWorkspace() {
             />
           </div>
           <input className={erpInputCls} placeholder="PAN" value={form.pan} onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })} />
-          <input className={erpInputCls} placeholder="Billing address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
+            Billing address (up to 3 lines)
+            <textarea
+              className={`${erpInputCls} mt-1 min-h-[72px] resize-y py-2.5`}
+              rows={3}
+              placeholder="Door / street / locality&#10;City — PIN&#10;State"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+            />
+          </label>
           <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 sm:col-span-2">
             <input
               type="checkbox"
@@ -472,12 +489,16 @@ export function CustomersWorkspace() {
             <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">Add shipping address</span>
           </label>
           {form.has_shipping_address ? (
-            <textarea
-              className={`${erpInputCls} min-h-[88px] py-2.5 sm:col-span-2`}
-              placeholder="Shipping address"
-              value={form.shipping_address}
-              onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
-            />
+            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
+              Shipping address (up to 3 lines)
+              <textarea
+                className={`${erpInputCls} mt-1 min-h-[72px] resize-y py-2.5`}
+                rows={3}
+                placeholder="Door / street / locality&#10;City — PIN&#10;State"
+                value={form.shipping_address}
+                onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
+              />
+            </label>
           ) : null}
           <select
             className={erpInputCls}
