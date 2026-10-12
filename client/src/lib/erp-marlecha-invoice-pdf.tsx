@@ -280,18 +280,24 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     color: '#000',
   },
-  footerRow: { flexDirection: 'row', marginTop: 16, minHeight: 76, paddingTop: 2 },
-  termsCol: { width: '50%', fontSize: 7.5, lineHeight: 1.35, paddingRight: 6 },
-  bankCol: { width: '28%', fontSize: 9.5, lineHeight: 1.4, paddingTop: 0 },
-  bankHeading: {
-    fontFamily: 'Helvetica-Bold',
-    fontWeight: 'bold',
-    color: '#000',
+  footerRow: { flexDirection: 'row', marginTop: 20, minHeight: 76, paddingTop: 2 },
+  termsCol: { width: '48%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 8 },
+  bankCol: {
+    width: '28%',
     fontSize: 9.5,
-    marginBottom: 3,
+    lineHeight: 1.4,
+    paddingTop: 0,
+    paddingLeft: 0,
+    marginLeft: -10,
+    alignItems: 'flex-start',
   },
   bankLine: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000', fontSize: 9.5 },
-  signCol: { width: '22%', fontSize: 8.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
+  signCol: { width: '24%', fontSize: 8.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
+  signCompanyLine: {
+    fontWeight: 'bold',
+    marginTop: -9,
+    textAlign: 'center',
+  },
   signLine: { borderTopWidth: PDF_BORDER, borderTopColor: '#000', marginTop: 42, paddingTop: 3, textAlign: 'center' },
   eRef: { marginTop: 6, fontSize: 7 },
   qr: { width: 88, height: 88, objectFit: 'contain' },
@@ -512,11 +518,13 @@ function BankDetailsBlock({
 }) {
   const lines = buildMarlechaBankDetailLines(bank, templateLines)
   if (!lines.length) return null
-  const inline = lines.join('  ')
   return (
     <View>
-      <Text style={styles.bankHeading}>BANK ACCOUNT DETAILS :</Text>
-      <Text style={styles.bankLine}>{sanitizePdfText(inline)}</Text>
+      {lines.map((line, i) => (
+        <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
+          {sanitizePdfText(line)}
+        </Text>
+      ))}
     </View>
   )
 }
@@ -835,13 +843,13 @@ function InvoicePage({
             {isApproval ? null : (
               <Text style={{ fontWeight: 'bold', fontSize: 9 }}>{amountInWordsInr(roundedTotal)}</Text>
             )}
-            {payLabel ? (
+            {isApproval && payLabel ? (
               <Text
                 style={{
-                  marginTop: isApproval ? 0 : 6,
-                  fontSize: isApproval ? 10 : 9,
-                  fontFamily: isApproval ? 'Helvetica-Bold' : 'Helvetica',
-                  fontWeight: isApproval ? 'bold' : 'normal',
+                  marginTop: 0,
+                  fontSize: 10,
+                  fontFamily: 'Helvetica-Bold',
+                  fontWeight: 'bold',
                 }}
               >
                 {sanitizePdfText(payLabel)}
@@ -921,7 +929,7 @@ function InvoicePage({
           <BankDetailsBlock bank={bank} templateLines={template.bankLines} />
         </View>
         <View style={styles.signCol}>
-          <Text style={{ fontWeight: 'bold' }}>
+          <Text style={styles.signCompanyLine}>
             {template.authorisedForPrefix} {sanitizePdfText(shopDisplay)}
           </Text>
           <View style={styles.signLine}>
