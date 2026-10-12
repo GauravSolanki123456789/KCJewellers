@@ -43,6 +43,8 @@ export type ErpTaxInvoicePdfDocumentProps = {
   customerMobile?: string | null
   customerPan?: string | null
   customerGst?: string | null
+  customerHasShippingAddress?: boolean
+  customerShippingAddress?: string | null
   compliance?: ErpTaxInvoiceCompliance | null
   /** Invoice categories flagged MRP in GST settings (qty-based groups). */
   mrpItemNames?: Set<string>

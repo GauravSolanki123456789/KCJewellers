@@ -130,6 +130,8 @@ export function CustomersWorkspace() {
     anniversary_date: '',
     notes: '',
     rate_slab: 'R' as ErpRateSlabCode,
+    has_shipping_address: false,
+    shipping_address: '',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
 
@@ -159,6 +161,8 @@ export function CustomersWorkspace() {
     anniversary_date: '',
     notes: '',
     rate_slab: 'R' as ErpRateSlabCode,
+    has_shipping_address: false,
+    shipping_address: '',
   })
 
   const loadCustomerIntoForm = (c: ErpCustomer) => {
@@ -175,6 +179,8 @@ export function CustomersWorkspace() {
       anniversary_date: toIsoDateInput(c.anniversary_date),
       notes: c.notes || '',
       rate_slab: normalizeErpCustomerSlab(c.rate_slab),
+      has_shipping_address: c.has_shipping_address === true,
+      shipping_address: c.shipping_address || '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -449,7 +455,30 @@ export function CustomersWorkspace() {
             />
           </div>
           <input className={erpInputCls} placeholder="PAN" value={form.pan} onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })} />
-          <input className={erpInputCls} placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <input className={erpInputCls} placeholder="Billing address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 sm:col-span-2">
+            <input
+              type="checkbox"
+              className="size-4 rounded border-[var(--color-slate-700,#e8e4df)] accent-emerald-600"
+              checked={form.has_shipping_address}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  has_shipping_address: e.target.checked,
+                  shipping_address: e.target.checked ? f.shipping_address : '',
+                }))
+              }
+            />
+            <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">Add shipping address</span>
+          </label>
+          {form.has_shipping_address ? (
+            <textarea
+              className={`${erpInputCls} min-h-[88px] py-2.5 sm:col-span-2`}
+              placeholder="Shipping address"
+              value={form.shipping_address}
+              onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
+            />
+          ) : null}
           <select
             className={erpInputCls}
             value={form.state}

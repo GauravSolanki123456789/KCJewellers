@@ -90,6 +90,10 @@ async function ensureResellerErpSchema(pool) {
             ADD COLUMN IF NOT EXISTS rate_slab VARCHAR(1);
         ALTER TABLE reseller_erp_customers
             ALTER COLUMN rate_slab TYPE VARCHAR(8);
+        ALTER TABLE reseller_erp_customers
+            ADD COLUMN IF NOT EXISTS has_shipping_address BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE reseller_erp_customers
+            ADD COLUMN IF NOT EXISTS shipping_address TEXT;
         UPDATE reseller_erp_customers
             SET rate_slab = 'R'
             WHERE rate_slab IS NULL OR TRIM(rate_slab) = '';
@@ -577,8 +581,26 @@ function mapCustomer(row) {
         anniversary_date: row.anniversary_date,
         notes: row.notes,
         rate_slab: normalizeCustomerRateSlab(row.rate_slab),
+        has_shipping_address: row.has_shipping_address === true,
+        shipping_address: row.shipping_address || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
+    };
+}
+
+function parseCustomerShippingFields(body) {
+    const hasShipping =
+        body?.has_shipping_address === true ||
+        body?.hasShippingAddress === true ||
+        body?.has_shipping_address === 'true' ||
+        body?.hasShippingAddress === 'true';
+    const shippingRaw = trimStr(body?.shipping_address || body?.shippingAddress, 2000);
+    if (!hasShipping) {
+        return { has_shipping_address: false, shipping_address: null };
+    }
+    return {
+        has_shipping_address: true,
+        shipping_address: shippingRaw || null,
     };
 }
 
@@ -1086,11 +1108,13 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const name = trimStr(req.body.name, 255);
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
+            const shipping = parseCustomerShippingFields(req.body);
             const rows = await query(
                 `INSERT INTO reseller_erp_customers (
                     reseller_user_id, name, mobile, email, gstin, pan, address, state,
-                    birthdate, anniversary_date, notes, rate_slab
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                    birthdate, anniversary_date, notes, rate_slab,
+                    has_shipping_address, shipping_address
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -1105,6 +1129,8 @@ function registerResellerErpRoutes(app, deps) {
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
                     normalizeCustomerRateSlab(req.body.rate_slab || req.body.slab),
+                    shipping.has_shipping_address,
+                    shipping.shipping_address,
                 ],
             );
             res.json({ success: true, customer: mapCustomer(rows[0]) });
@@ -1122,11 +1148,13 @@ function registerResellerErpRoutes(app, deps) {
             }
             const name = trimStr(req.body.name, 255);
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
+            const shipping = parseCustomerShippingFields(req.body);
             const rows = await query(
                 `UPDATE reseller_erp_customers SET
                     name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6, state = $7,
-                    birthdate = $8, anniversary_date = $9, notes = $10, rate_slab = $11, updated_at = NOW()
-                 WHERE id = $12 AND reseller_user_id = $13
+                    birthdate = $8, anniversary_date = $9, notes = $10, rate_slab = $11,
+                    has_shipping_address = $12, shipping_address = $13, updated_at = NOW()
+                 WHERE id = $14 AND reseller_user_id = $15
                  RETURNING *`,
                 [
                     name,
@@ -1140,6 +1168,8 @@ function registerResellerErpRoutes(app, deps) {
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
                     normalizeCustomerRateSlab(req.body.rate_slab || req.body.slab),
+                    shipping.has_shipping_address,
+                    shipping.shipping_address,
                     id,
                     req.user.id,
                 ],

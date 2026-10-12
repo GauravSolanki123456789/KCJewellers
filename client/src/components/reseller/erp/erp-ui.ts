@@ -262,6 +262,8 @@ export type ErpCustomer = {
   notes?: string | null
   /** Assigned making-charge slab: R / W / F */
   rate_slab?: string | null
+  has_shipping_address?: boolean
+  shipping_address?: string | null
 }
 
 export type ErpRateSlabCode = 'R' | 'R1' | 'W' | 'F' | 'Q'

@@ -44,7 +44,7 @@ export type ErpTaxInvoiceTemplateConfig = {
 export const DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE: ErpTaxInvoiceTemplateConfig = {
   preset: 'marlecha',
   copyLabels: ['ORIGINAL FOR RECIPIENT', 'DUPLICATE FOR RECIPIENT', 'TRIPLICATE FOR SUPPLIER'],
-  headerTitle: 'TAX INVOICE CUM DELIVERY CHALLAN',
+  headerTitle: 'TAX INVOICE',
   shopName: 'B.N. MARLECHA SILVER',
   addressLines: ['No : 10/24A, 2nd Floor,', 'Vijay Complex, Veerappan Street, Sowcarpet, Chennai-600079'],
   phoneEmailLine: 'Ph : 044 - 4272 8080 , E-mail Id : bnmarlechasilver@gmail.com',

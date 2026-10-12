@@ -49,6 +49,8 @@ export async function buildErpSalesPdfPayload(params: {
   customerAddress?: string | null
   customerPan?: string | null
   customerGst?: string | null
+  customerHasShippingAddress?: boolean
+  customerShippingAddress?: string | null
   slabSettingsRaw?: unknown
   gstin?: string | null
   /** When true, include IRN / ACK / QR from bill compliance */
@@ -89,6 +91,8 @@ export async function buildErpSalesPdfPayload(params: {
   let customerMobile = params.mobile ?? session.mobile ?? null
   let customerPan = params.customerPan ?? session.pan ?? null
   let customerGst = params.customerGst ?? session.customerGst ?? null
+  let customerHasShippingAddress = params.customerHasShippingAddress === true
+  let customerShippingAddress = params.customerShippingAddress ?? null
   if (params.bill.customer_id) {
     try {
       const cres = await axios.get<{
@@ -99,6 +103,8 @@ export async function buildErpSalesPdfPayload(params: {
           gstin?: string | null
           pan?: string | null
           name?: string
+          has_shipping_address?: boolean
+          shipping_address?: string | null
         }[]
       }>('/api/reseller/erp/customers', {
         params: { id: params.bill.customer_id, limit: 1 },
@@ -109,6 +115,10 @@ export async function buildErpSalesPdfPayload(params: {
         if (!customerMobile && hit.mobile) customerMobile = hit.mobile
         if (!customerPan && hit.pan) customerPan = hit.pan
         if (!customerGst && hit.gstin) customerGst = hit.gstin
+        if (hit.has_shipping_address === true && String(hit.shipping_address || '').trim()) {
+          customerHasShippingAddress = true
+          customerShippingAddress = String(hit.shipping_address).trim()
+        }
       }
     } catch {
       /* keep session CRM fields */
@@ -152,6 +162,8 @@ export async function buildErpSalesPdfPayload(params: {
     customerMobile,
     customerPan,
     customerGst,
+    customerHasShippingAddress,
+    customerShippingAddress,
     compliance,
     ewayBillNo: params.ewayBillNo ?? params.bill.compliance?.eway?.ewb_no ?? null,
     mrpItemNames: mrpNames,

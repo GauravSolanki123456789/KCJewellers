@@ -50,6 +50,8 @@ const UNIFIED_COLS = [
   'Amount\n(in Rs.)',
 ] as const
 
+const PDF_BORDER = 1.5
+
 const styles = StyleSheet.create({
   page: {
     padding: 18,
@@ -66,7 +68,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
   },
   headerBox: {
-    borderWidth: 1.5,
+    borderWidth: PDF_BORDER,
     borderColor: '#000',
     paddingHorizontal: 8,
     paddingTop: 4,
@@ -135,41 +137,57 @@ const styles = StyleSheet.create({
     lineHeight: 1.25,
     textAlign: 'center',
   },
-  billingBox: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 78 },
-  billingLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000' },
+  billingBox: {
+    flexDirection: 'row',
+    borderWidth: PDF_BORDER,
+    borderTopWidth: 0,
+    borderColor: '#000',
+    minHeight: 78,
+  },
+  billingLeft: { width: '58%', borderRightWidth: PDF_BORDER, borderRightColor: '#000' },
   billingRight: { width: '42%', padding: 6, paddingTop: 8 },
   billingBar: {
     backgroundColor: '#ffffff',
     paddingVertical: 3,
     paddingHorizontal: 6,
-    borderBottomWidth: 1,
+    borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
     fontSize: 7.5,
     fontWeight: 'bold',
   },
   billingBody: { padding: 6, fontSize: 7.5, lineHeight: 1.35 },
-  table: { borderWidth: 1, borderTopWidth: 0, borderColor: '#000', flexGrow: 1, display: 'flex', flexDirection: 'column' },
+  billingAddressStack: { flexGrow: 1 },
+  billingAddressSection: { flexGrow: 1 },
+  billingAddressSectionSplit: { borderBottomWidth: PDF_BORDER, borderBottomColor: '#000' },
+  table: {
+    borderWidth: PDF_BORDER,
+    borderTopWidth: 0,
+    borderColor: '#000',
+    flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
+  },
   tableColumnsRow: { flexDirection: 'row', alignSelf: 'stretch', flexGrow: 1, minHeight: 56 },
   tableColumnsRowFixed: { flexDirection: 'row', alignSelf: 'stretch' },
   tableColumn: {
     flexDirection: 'column',
-    borderRightWidth: 1,
+    borderRightWidth: PDF_BORDER,
     borderRightColor: '#000',
   },
   tableColumnLast: { borderRightWidth: 0 },
   headCell: {
     paddingVertical: 4,
     paddingHorizontal: 2,
-    borderRightWidth: 1,
+    borderRightWidth: PDF_BORDER,
     borderRightColor: '#000',
-    borderBottomWidth: 1,
+    borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
   },
   /** Single header band — one bottom border across all columns. */
   tableHeaderRow: {
     flexDirection: 'row',
     alignSelf: 'stretch',
-    borderBottomWidth: 1,
+    borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
     minHeight: 30,
     alignItems: 'flex-end',
@@ -178,12 +196,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingBottom: 3,
     paddingTop: 2,
-    borderRightWidth: 1,
+    borderRightWidth: PDF_BORDER,
     borderRightColor: '#000',
     justifyContent: 'flex-end',
     minHeight: 30,
   },
   tableHeaderCellLast: { borderRightWidth: 0 },
+  tableTotalsRow: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    borderTopWidth: PDF_BORDER,
+    borderTopColor: '#000',
+    minHeight: 22,
+    alignItems: 'center',
+  },
+  tableTotalsCell: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    borderRightWidth: PDF_BORDER,
+    borderRightColor: '#000',
+    justifyContent: 'center',
+  },
+  tableTotalsCellLast: { borderRightWidth: 0 },
+  tableTotalsText: { fontSize: 7, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' },
   headCellText: {
     fontSize: 6.5,
     fontWeight: 'bold',
@@ -193,7 +228,7 @@ const styles = StyleSheet.create({
   bodyCell: {
     paddingVertical: 4,
     paddingHorizontal: 2,
-    borderRightWidth: 1,
+    borderRightWidth: PDF_BORDER,
     borderRightColor: '#000',
   },
   colBodyCell: {
@@ -201,23 +236,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     width: '100%',
   },
-  colSpacer: { flexGrow: 1, minHeight: 40 },
+  colSpacer: { flexGrow: 1, minHeight: 16 },
   bodyCellText: {
     fontSize: 7,
   },
-  summaryRow: { flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: '#000', minHeight: 88 },
-  summaryLeft: { width: '58%', borderRightWidth: 1, borderRightColor: '#000', padding: 8, paddingBottom: 12, justifyContent: 'space-between' },
+  summaryRow: { flexDirection: 'row', borderWidth: PDF_BORDER, borderTopWidth: 0, borderColor: '#000', minHeight: 72 },
+  summaryLeft: {
+    width: '58%',
+    borderRightWidth: PDF_BORDER,
+    borderRightColor: '#000',
+    padding: 8,
+    paddingBottom: 8,
+    justifyContent: 'space-between',
+  },
   summaryRight: { width: '42%' },
   totalCell: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderBottomWidth: 1,
+    borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
     fontSize: 7.5,
   },
-  totalCellEmpty: { paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#000', minHeight: 14 },
+  totalCellEmpty: {
+    paddingVertical: 4,
+    borderBottomWidth: PDF_BORDER,
+    borderBottomColor: '#000',
+    minHeight: 14,
+  },
   netCell: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -228,17 +275,18 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     color: '#000',
   },
-  footerRow: { flexDirection: 'row', marginTop: 6, minHeight: 88, paddingTop: 4 },
+  footerRow: { flexDirection: 'row', marginTop: 0, minHeight: 76, paddingTop: 2 },
   termsCol: { width: '50%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 6 },
-  bankCol: { width: '28%', fontSize: 7, lineHeight: 1.4, paddingTop: 2 },
-  signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-end' },
-  signLine: { borderTopWidth: 1, borderTopColor: '#000', marginTop: 28, paddingTop: 3, textAlign: 'center' },
+  bankCol: { width: '28%', fontSize: 8.5, lineHeight: 1.35, paddingTop: 0 },
+  bankLine: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000' },
+  signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
+  signLine: { borderTopWidth: PDF_BORDER, borderTopColor: '#000', marginTop: 42, paddingTop: 3, textAlign: 'center' },
   eRef: { marginTop: 6, fontSize: 7 },
   qr: { width: 88, height: 88, objectFit: 'contain' },
   qrPlaceholder: {
     width: 88,
     height: 88,
-    borderWidth: 1,
+    borderWidth: PDF_BORDER,
     borderColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
@@ -312,6 +360,19 @@ function linePieceRate(line: ErpBillLine): number {
   return amt / qty
 }
 
+function lineDisplayAmountInr(
+  line: ErpBillLine,
+  opts: { gstOffOnBill: boolean; isApproval: boolean; mrpItemNames?: Set<string> | null },
+): number {
+  if (opts.isApproval) return Number(line.lineTotalInr) || 0
+  if (marlechaFlatMrpRow(line, opts.mrpItemNames)) return Number(line.lineTotalInr) || 0
+  return lineTaxableInr(line, opts.gstOffOnBill)
+}
+
+function roundInr2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
 type ColumnAlign = 'left' | 'center' | 'right'
 
 function columnAlignments(count: number, kind: 'weight' | 'mrp' | 'unified'): ColumnAlign[] {
@@ -328,12 +389,52 @@ function columnAlignments(count: number, kind: 'weight' | 'mrp' | 'unified'): Co
 }
 
 /** Column-based table — vertical borders run full height including empty spacer area. */
+function renderTableTotalsFooter(
+  tableKey: string,
+  widths: readonly string[],
+  footerCells: string[],
+  kind: 'weight' | 'mrp' | 'unified',
+) {
+  const aligns = columnAlignments(widths.length, kind)
+  const last = widths.length - 1
+  return (
+    <View style={styles.tableTotalsRow}>
+      {widths.map((w, colIdx) => (
+        <View
+          key={`${tableKey}-foot-${colIdx}`}
+          style={[
+            styles.tableTotalsCell,
+            { width: w },
+            ...(colIdx === last ? [styles.tableTotalsCellLast] : []),
+          ]}
+        >
+          <Text
+            style={[
+              styles.tableTotalsText,
+              {
+                textAlign:
+                  aligns[colIdx] === 'left'
+                    ? 'left'
+                    : aligns[colIdx] === 'center'
+                      ? 'center'
+                      : 'right',
+              },
+            ]}
+          >
+            {sanitizePdfText(footerCells[colIdx] || '')}
+          </Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function renderColumnTable(
   tableKey: string,
   columns: string[],
   widths: readonly string[],
   rows: string[][],
-  opts?: { fillRemaining?: boolean },
+  opts?: { fillRemaining?: boolean; footerCells?: string[] },
 ) {
   const kind: 'weight' | 'mrp' | 'unified' =
     widths.length >= 8 ? 'unified' : widths.length >= 7 ? 'weight' : 'mrp'
@@ -392,7 +493,39 @@ function renderColumnTable(
         </View>
       ))}
       </View>
+      {opts?.footerCells?.length
+        ? renderTableTotalsFooter(tableKey, widths, opts.footerCells, kind)
+        : null}
     </View>
+  )
+}
+
+function CustomerAddressBlock({
+  toLabel,
+  name,
+  addressText,
+  mobile,
+  pan,
+  gst,
+}: {
+  toLabel: string
+  name: string
+  addressText?: string | null
+  mobile?: string | null
+  pan?: string | null
+  gst?: string | null
+}) {
+  return (
+    <>
+      <Text style={styles.fieldLabel}>{sanitizePdfText(toLabel)}</Text>
+      <Text style={{ fontFamily: 'Helvetica-Bold', fontWeight: 'bold', marginTop: 2 }}>
+        {sanitizePdfText(name)}
+      </Text>
+      {addressText ? <Text style={{ marginTop: 3 }}>{sanitizePdfText(addressText)}</Text> : null}
+      {mobile ? <Text style={{ marginTop: 2 }}>MOB: {sanitizePdfText(mobile)}</Text> : null}
+      {pan ? <Text style={{ marginTop: 2 }}>PAN NO: {sanitizePdfText(pan)}</Text> : null}
+      {gst ? <Text style={{ marginTop: 2 }}>GST NO: {sanitizePdfText(gst)}</Text> : null}
+    </>
   )
 }
 
@@ -407,6 +540,8 @@ function InvoicePage({
   customerMobile,
   customerPan,
   customerGst,
+  customerHasShippingAddress,
+  customerShippingAddress,
   compliance,
   lines,
   session,
@@ -425,6 +560,8 @@ function InvoicePage({
   customerMobile?: string | null
   customerPan?: string | null
   customerGst?: string | null
+  customerHasShippingAddress?: boolean
+  customerShippingAddress?: string | null
   compliance?: ErpTaxInvoiceCompliance | null
   lines: ErpBillLine[]
   session: Record<string, unknown>
@@ -445,27 +582,34 @@ function InvoicePage({
     (bill.session &&
       typeof bill.session === 'object' &&
       (bill.session as { gstEnabled?: boolean }).gstEnabled === false)
-  let taxable = totals.subtotal
+  const isApproval = variant === 'approval'
+  const lineAmountOpts = { gstOffOnBill: !!gstOffOnBill, isApproval, mrpItemNames }
+  let taxable = roundInr2(
+    lines.reduce((sum, line) => sum + lineDisplayAmountInr(line, lineAmountOpts), 0),
+  )
   let gstAmt = totals.gst
   if (gstOffOnBill && totals.net > 0) {
     const net = Math.round(totals.net)
-    taxable = Math.round((net / 1.03) * 100) / 100
-    gstAmt = Math.round((net - taxable) * 100) / 100
+    taxable = roundInr2(net / 1.03)
+    gstAmt = roundInr2(net - taxable)
+  } else if (!gstOffOnBill) {
+    gstAmt = roundInr2(taxable * 0.03)
+  } else {
+    gstAmt = 0
   }
   const igst = interstate ? gstAmt : 0
   const cgst = interstate ? 0 : gstAmt / 2
   const sgst = interstate ? 0 : gstAmt / 2
-  const rawTotal = taxable + gstAmt
-  const roundedTotal = Math.round(rawTotal)
-  const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
-  const isApproval = variant === 'approval'
+  const rawTotal = roundInr2(taxable + gstAmt)
+  const roundedTotal = Math.round(Number(bill.total_inr) || totals.net || rawTotal)
+  const roundOff = roundInr2(roundedTotal - rawTotal)
   const narrationCaps = String(approvalNarration || session.approvalNarration || '')
     .trim()
     .toUpperCase()
   const payLabel = isApproval
     ? narrationCaps
     : paymentMethodInvoiceLabel(String(session.paymentMethod || ''))
-  const headerTitle = isApproval ? 'Delivery Challan[Issue]' : template.headerTitle
+  const headerTitle = isApproval ? 'Delivery Challan[Issue]' : 'TAX INVOICE'
   const shopDisplay = template.shopName || gst.legalName || 'Shop'
   const approvalNetDisplay =
     Math.round(Number(bill.total_inr) || totals.net || roundedTotal || 0)
@@ -496,12 +640,11 @@ function InvoicePage({
     const grossTotal = lineTotalGrossGm(line)
     const netTotal = lineTotalNetGm(line)
     const rate = lineRatePerGram(line, lineAmtInr, true)
-    const showQty = isApproval || qty > 1
     return [
       slNo,
       desc,
       hsn,
-      showQty ? String(qty) : '—',
+      String(qty),
       grossTotal > 0 ? grossTotal.toFixed(2) : '—',
       netTotal > 0 ? netTotal.toFixed(2) : '—',
       rate > 0 ? rate.toFixed(2) : '—',
@@ -515,6 +658,29 @@ function InvoicePage({
   const placeLabel = /:$/.test(template.placeOfSupplyLabel.trim())
     ? template.placeOfSupplyLabel.trim()
     : `${template.placeOfSupplyLabel.trim()}:`
+  const displayName = customerName || bill.customer_name || 'Walk-in'
+  const displayMobile = customerMobile || null
+  const displayPan = customerPan || null
+  const displayGst = customerGst || null
+  const showShipping =
+    !isApproval &&
+    customerHasShippingAddress === true &&
+    String(customerShippingAddress || '').trim().length > 0
+  const totalQty = lines.reduce((sum, line) => sum + lineQty(line), 0)
+  const totalNetWt = roundInr2(lines.reduce((sum, line) => sum + lineTotalNetGm(line), 0))
+  const tableFooterCells =
+    !isApproval && unifiedRows.length > 0
+      ? [
+          '',
+          'Total',
+          '',
+          String(totalQty),
+          '',
+          totalNetWt > 0 ? totalNetWt.toFixed(3) : '—',
+          '',
+          taxable > 0 ? taxable.toFixed(2) : '—',
+        ]
+      : undefined
 
   return (
     <Page size="A4" style={styles.page}>
@@ -566,21 +732,39 @@ function InvoicePage({
 
       <View style={styles.billingBox}>
         <View style={styles.billingLeft}>
-          <Text style={styles.billingBar}>{sanitizePdfText(template.billingAddressLabel)}</Text>
-          <View style={styles.billingBody}>
-            <Text style={styles.fieldLabel}>{sanitizePdfText(toLabel)}</Text>
-            <Text style={{ fontFamily: 'Helvetica-Bold', fontWeight: 'bold', marginTop: 2 }}>
-              {sanitizePdfText(customerName || bill.customer_name || 'Walk-in')}
-            </Text>
-            {customerAddress ? (
-              <Text style={{ marginTop: 3 }}>{sanitizePdfText(customerAddress)}</Text>
-            ) : null}
-            {customerMobile ? <Text style={{ marginTop: 2 }}>Mob: {sanitizePdfText(customerMobile)}</Text> : null}
-            {isApproval && customerGst ? (
-              <Text style={{ marginTop: 2 }}>GSTIN: {sanitizePdfText(customerGst)}</Text>
-            ) : null}
-            {isApproval && customerPan ? (
-              <Text style={{ marginTop: 2 }}>PAN: {sanitizePdfText(customerPan)}</Text>
+          <View style={styles.billingAddressStack}>
+            <View
+              style={[
+                styles.billingAddressSection,
+                ...(showShipping ? [styles.billingAddressSectionSplit] : []),
+              ]}
+            >
+              <Text style={styles.billingBar}>{sanitizePdfText(template.billingAddressLabel)}</Text>
+              <View style={styles.billingBody}>
+                <CustomerAddressBlock
+                  toLabel={toLabel}
+                  name={displayName}
+                  addressText={customerAddress}
+                  mobile={displayMobile}
+                  pan={displayPan}
+                  gst={displayGst}
+                />
+              </View>
+            </View>
+            {showShipping ? (
+              <View style={styles.billingAddressSection}>
+                <Text style={styles.billingBar}>Shipping Address</Text>
+                <View style={styles.billingBody}>
+                  <CustomerAddressBlock
+                    toLabel={toLabel}
+                    name={displayName}
+                    addressText={customerShippingAddress}
+                    mobile={displayMobile}
+                    pan={displayPan}
+                    gst={displayGst}
+                  />
+                </View>
+              </View>
             ) : null}
           </View>
         </View>
@@ -612,6 +796,7 @@ function InvoicePage({
         {unifiedRows.length > 0
           ? renderColumnTable('unified', [...UNIFIED_COLS], [...UNIFIED_COL_W], unifiedRows, {
               fillRemaining: true,
+              footerCells: tableFooterCells,
             })
           : null}
       </View>
@@ -707,7 +892,7 @@ function InvoicePage({
         </View>
         <View style={styles.bankCol}>
           {template.bankLines.map((line, i) => (
-            <Text key={`bank-${i}`}>{sanitizePdfText(line)}</Text>
+            <Text key={`bank-${i}`} style={styles.bankLine}>{sanitizePdfText(line)}</Text>
           ))}
         </View>
         <View style={styles.signCol}>
@@ -720,9 +905,9 @@ function InvoicePage({
         </View>
       </View>
 
-      {variant === 'einvoice' ? null : (
+      {variant === 'einvoice' ? (
         <Text style={styles.eRef}>{sanitizePdfText(template.electronicRefLabel)}</Text>
-      )}
+      ) : null}
     </Page>
   )
 }
