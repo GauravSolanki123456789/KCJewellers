@@ -332,9 +332,9 @@ export function mergeTemplateWithGstSettings(
   if (bank?.bankName || bank?.accountNo) {
     t.bankLines = [
       bank.bankName ? `Bank : ${bank.bankName}` : t.bankLines[0] || '',
-      bank.branch ? `Branch : ${bank.branch}` : t.bankLines[1] || '',
+      bank.accountNo ? `A/C No : ${bank.accountNo}` : t.bankLines[1] || '',
       bank.ifsc ? `IFSC : ${bank.ifsc}` : t.bankLines[2] || '',
-      bank.accountNo ? `A/C No : ${bank.accountNo}` : t.bankLines[3] || '',
+      bank.branch ? `Branch : ${bank.branch}` : t.bankLines[3] || '',
     ].filter(Boolean)
   }
   return t

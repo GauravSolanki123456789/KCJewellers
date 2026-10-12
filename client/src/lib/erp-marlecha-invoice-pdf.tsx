@@ -102,14 +102,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   title: {
-    fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 3,
-    color: '#000',
-  },
-  shopName: {
     fontSize: 12,
     fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
@@ -117,16 +109,29 @@ const styles = StyleSheet.create({
     marginBottom: 3,
     color: '#000',
   },
-  centerLine: { fontSize: 7.5, textAlign: 'center', lineHeight: 1.3 },
+  shopName: {
+    fontSize: 13,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 3,
+    color: '#000',
+  },
+  centerLine: { fontSize: 8.5, textAlign: 'center', lineHeight: 1.3 },
   taxIdLine: {
-    fontSize: 8,
+    fontSize: 9,
     fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
     textAlign: 'center',
     marginTop: 2,
     color: '#000',
   },
-  fieldLabel: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000' },
+  fieldLabel: {
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
+    color: '#000',
+    fontSize: 8.5,
+  },
   irnBlock: {
     marginTop: 4,
     paddingHorizontal: 2,
@@ -153,10 +158,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
-    fontSize: 7.5,
+    fontSize: 8.5,
     fontWeight: 'bold',
   },
-  billingBody: { padding: 6, fontSize: 7.5, lineHeight: 1.35 },
+  billingBody: { padding: 6, fontSize: 8.5, lineHeight: 1.35 },
   billingAddressStack: { flexGrow: 1 },
   billingAddressSection: { flexGrow: 1 },
   billingAddressSectionSplit: { borderBottomWidth: PDF_BORDER, borderBottomColor: '#000' },
@@ -213,12 +218,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   colFooterText: {
-    fontSize: 7,
+    fontSize: 8,
     fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
   },
   headCellText: {
-    fontSize: 6.5,
+    fontSize: 7.5,
     fontWeight: 'bold',
     textAlign: 'center',
     lineHeight: 1.15,
@@ -236,7 +241,7 @@ const styles = StyleSheet.create({
   },
   colSpacer: { flexGrow: 1, minHeight: 16 },
   bodyCellText: {
-    fontSize: 7,
+    fontSize: 8,
   },
   summaryRow: { flexDirection: 'row', borderWidth: PDF_BORDER, borderTopWidth: 0, borderColor: '#000', minHeight: 72 },
   summaryLeft: {
@@ -255,7 +260,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderBottomWidth: PDF_BORDER,
     borderBottomColor: '#000',
-    fontSize: 7.5,
+    fontSize: 8.5,
     fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
   },
@@ -272,14 +277,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     fontFamily: 'Helvetica-Bold',
     fontWeight: 'bold',
-    fontSize: 9.5,
+    fontSize: 10.5,
     color: '#000',
   },
-  footerRow: { flexDirection: 'row', marginTop: 0, minHeight: 76, paddingTop: 2 },
-  termsCol: { width: '50%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 6 },
-  bankCol: { width: '28%', fontSize: 8.5, lineHeight: 1.35, paddingTop: 0 },
-  bankLine: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000' },
-  signCol: { width: '22%', fontSize: 7.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
+  footerRow: { flexDirection: 'row', marginTop: 16, minHeight: 76, paddingTop: 2 },
+  termsCol: { width: '50%', fontSize: 7.5, lineHeight: 1.35, paddingRight: 6 },
+  bankCol: { width: '28%', fontSize: 9.5, lineHeight: 1.4, paddingTop: 0 },
+  bankHeading: {
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
+    color: '#000',
+    fontSize: 9.5,
+    marginBottom: 3,
+  },
+  bankLine: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000', fontSize: 9.5 },
+  signCol: { width: '22%', fontSize: 8.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
   signLine: { borderTopWidth: PDF_BORDER, borderTopColor: '#000', marginTop: 42, paddingTop: 3, textAlign: 'center' },
   eRef: { marginTop: 6, fontSize: 7 },
   qr: { width: 88, height: 88, objectFit: 'contain' },
@@ -476,6 +488,39 @@ function renderColumnTable(
   )
 }
 
+function buildMarlechaBankDetailLines(
+  bank?: ErpBankSettings | null,
+  templateLines?: string[],
+): string[] {
+  if (bank?.bankName || bank?.accountNo || bank?.ifsc || bank?.branch) {
+    return [
+      bank.bankName ? `Bank : ${bank.bankName}` : '',
+      bank.accountNo ? `A/C No : ${bank.accountNo}` : '',
+      bank.ifsc ? `IFSC : ${bank.ifsc}` : '',
+      bank.branch ? `Branch : ${bank.branch}` : '',
+    ].filter(Boolean)
+  }
+  return (templateLines || []).filter(Boolean)
+}
+
+function BankDetailsBlock({
+  bank,
+  templateLines,
+}: {
+  bank?: ErpBankSettings | null
+  templateLines?: string[]
+}) {
+  const lines = buildMarlechaBankDetailLines(bank, templateLines)
+  if (!lines.length) return null
+  const inline = lines.join('  ')
+  return (
+    <View>
+      <Text style={styles.bankHeading}>BANK ACCOUNT DETAILS :</Text>
+      <Text style={styles.bankLine}>{sanitizePdfText(inline)}</Text>
+    </View>
+  )
+}
+
 function CustomerAddressBlock({
   toLabel,
   name,
@@ -515,6 +560,7 @@ function InvoicePage({
   bill,
   totals,
   gst,
+  bank,
   customerName,
   customerAddress,
   customerMobile,
@@ -535,6 +581,7 @@ function InvoicePage({
   bill: ErpBill
   totals: ErpQuoteTotals
   gst: ErpGstSettings
+  bank?: ErpBankSettings
   customerName?: string | null
   customerAddress?: string | null
   customerMobile?: string | null
@@ -749,24 +796,24 @@ function InvoicePage({
           </View>
         </View>
         <View style={styles.billingRight}>
-          <Text style={{ fontSize: 8, marginBottom: 4 }}>
+          <Text style={{ fontSize: 9, marginBottom: 4 }}>
             <Text style={styles.fieldLabel}>{sanitizePdfText(template.billNoLabel)} </Text>
             {sanitizePdfText(bill.bill_number)}
           </Text>
-          <Text style={{ fontSize: 8, marginBottom: 12 }}>
+          <Text style={{ fontSize: 9, marginBottom: 12 }}>
             <Text style={styles.fieldLabel}>{sanitizePdfText(template.dateLabel)} </Text>
             {formatBillDate(bill)}
           </Text>
           {variant === 'einvoice' || ewayBillNo ? (
-            <Text style={{ fontSize: 8, marginBottom: 8 }}>
+            <Text style={{ fontSize: 9, marginBottom: 8 }}>
               <Text style={styles.fieldLabel}>E-Way Bill : </Text>
               {sanitizePdfText(ewayBillNo || '')}
             </Text>
           ) : null}
-          <Text style={{ fontSize: 7, marginBottom: 2 }}>
+          <Text style={{ fontSize: 8, marginBottom: 2 }}>
             <Text style={styles.fieldLabel}>{sanitizePdfText(placeLabel)}</Text>
           </Text>
-          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' }}>
+          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' }}>
             {sanitizePdfText(placeOfSupply)}
           </Text>
         </View>
@@ -786,13 +833,13 @@ function InvoicePage({
         <View style={styles.summaryLeft}>
           <View>
             {isApproval ? null : (
-              <Text style={{ fontWeight: 'bold', fontSize: 8 }}>{amountInWordsInr(roundedTotal)}</Text>
+              <Text style={{ fontWeight: 'bold', fontSize: 9 }}>{amountInWordsInr(roundedTotal)}</Text>
             )}
             {payLabel ? (
               <Text
                 style={{
                   marginTop: isApproval ? 0 : 6,
-                  fontSize: isApproval ? 9 : 8,
+                  fontSize: isApproval ? 10 : 9,
                   fontFamily: isApproval ? 'Helvetica-Bold' : 'Helvetica',
                   fontWeight: isApproval ? 'bold' : 'normal',
                 }}
@@ -801,7 +848,7 @@ function InvoicePage({
               </Text>
             ) : null}
           </View>
-          <Text style={{ fontSize: 7.5, marginTop: 8 }}>{sanitizePdfText(template.partySignatureLabel)}</Text>
+          <Text style={{ fontSize: 8.5, marginTop: 8 }}>{sanitizePdfText(template.partySignatureLabel)}</Text>
         </View>
         <View style={styles.summaryRight}>
           {isApproval ? (
@@ -871,9 +918,7 @@ function InvoicePage({
           )}
         </View>
         <View style={styles.bankCol}>
-          {template.bankLines.map((line, i) => (
-            <Text key={`bank-${i}`} style={styles.bankLine}>{sanitizePdfText(line)}</Text>
-          ))}
+          <BankDetailsBlock bank={bank} templateLines={template.bankLines} />
         </View>
         <View style={styles.signCol}>
           <Text style={{ fontWeight: 'bold' }}>
