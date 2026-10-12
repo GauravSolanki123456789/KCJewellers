@@ -57,3 +57,20 @@ export function splitAddressLines(raw: string | null | undefined): string[] {
     .map((s) => s.trim())
     .filter(Boolean)
 }
+
+/** Up to 3 trimmed lines from a CRM textarea (preserves user line breaks). */
+export function addressLinesFromTextarea(raw: string | null | undefined): string[] {
+  return normalizeLineEndings(String(raw ?? ''))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+}
+
+export function addressPayloadFromTextarea(raw: string | null | undefined): {
+  address: string
+  address_lines: string[]
+} {
+  const lines = addressLinesFromTextarea(raw)
+  return { address: lines.join('\n'), address_lines: lines }
+}

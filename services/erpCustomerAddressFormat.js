@@ -73,9 +73,26 @@ function formatGstPradrToThreeLines(pradr, stateName, stateCode) {
     return formatAddressToThreeLines(lines[0] || '');
 }
 
+function resolveAddressFromBody(body, field = 'address', linesField = 'address_lines') {
+    const rawLines = body?.[linesField] ?? body?.[`${field}_lines`];
+    if (Array.isArray(rawLines) && rawLines.length > 0) {
+        const joined = rawLines
+            .map((line) => {
+                const s = String(line ?? '').trim();
+                return s || null;
+            })
+            .filter(Boolean)
+            .slice(0, 3)
+            .join('\n');
+        if (joined) return trimMultilineStr(joined, 2000);
+    }
+    return trimMultilineStr(body?.[field], 2000);
+}
+
 module.exports = {
     formatAddressToThreeLines,
     formatGstPradrToThreeLines,
     normalizeAddressField,
     trimMultilineStr,
+    resolveAddressFromBody,
 };

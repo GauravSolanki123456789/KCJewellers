@@ -23,6 +23,7 @@ export type ErpModuleSessionId =
   | 'jainav-bills'
 
 export function erpModuleSessionKey(moduleId: ErpModuleSessionId | string): string {
+  if (moduleId === 'customers') return 'kc-erp-module-customers-v2'
   return `kc-erp-module-${moduleId}-v1`
 }
 

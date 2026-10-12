@@ -24,7 +24,7 @@ const {
     generateEwayForBill,
     lookupGstinFromGstzen,
 } = require('./resellerErpGstzen');
-const { trimMultilineStr, normalizeAddressField } = require('./erpCustomerAddressFormat');
+const { normalizeAddressField, resolveAddressFromBody } = require('./erpCustomerAddressFormat');
 const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
@@ -597,7 +597,14 @@ function parseCustomerShippingFields(body) {
         body?.hasShippingAddress === true ||
         body?.has_shipping_address === 'true' ||
         body?.hasShippingAddress === 'true';
-    const shippingRaw = trimMultilineStr(body?.shipping_address || body?.shippingAddress, 2000);
+    const shippingRaw = resolveAddressFromBody(
+        {
+            shipping_address: body?.shipping_address || body?.shippingAddress,
+            shipping_address_lines: body?.shipping_address_lines || body?.shippingAddressLines,
+        },
+        'shipping_address',
+        'shipping_address_lines',
+    );
     if (!hasShipping) {
         return { has_shipping_address: false, shipping_address: null };
     }
@@ -1112,6 +1119,7 @@ function registerResellerErpRoutes(app, deps) {
             const name = trimStr(req.body.name, 255);
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const shipping = parseCustomerShippingFields(req.body);
+            const billingAddress = resolveAddressFromBody(req.body);
             const rows = await query(
                 `INSERT INTO reseller_erp_customers (
                     reseller_user_id, name, mobile, email, gstin, pan, address, state,
@@ -1126,7 +1134,7 @@ function registerResellerErpRoutes(app, deps) {
                     trimStr(req.body.email, 255),
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
-                    trimMultilineStr(req.body.address, 2000),
+                    billingAddress,
                     trimStr(req.body.state, 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
@@ -1152,6 +1160,7 @@ function registerResellerErpRoutes(app, deps) {
             const name = trimStr(req.body.name, 255);
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const shipping = parseCustomerShippingFields(req.body);
+            const billingAddress = resolveAddressFromBody(req.body);
             const rows = await query(
                 `UPDATE reseller_erp_customers SET
                     name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6, state = $7,
@@ -1165,7 +1174,7 @@ function registerResellerErpRoutes(app, deps) {
                     trimStr(req.body.email, 255),
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
-                    trimMultilineStr(req.body.address, 2000),
+                    billingAddress,
                     trimStr(req.body.state, 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),

@@ -12,7 +12,10 @@ import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy, formatErpDateTime, toIsoDateInput } from '@/lib/erp-date-format'
-import { formatAddressToThreeLines, normalizeAddressField } from '@/lib/erp-customer-address-format'
+import {
+  addressPayloadFromTextarea,
+  normalizeAddressField,
+} from '@/lib/erp-customer-address-format'
 import { clearErpModuleSession } from '@/lib/erp-module-session'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
@@ -137,25 +140,13 @@ export function CustomersWorkspace() {
   })
   const [editingId, setEditingId] = useState<number | null>(null)
 
-  const sessionRestore = useErpModuleSession(
-    'customers',
-    () => ({ q, form, editingId }),
-    [q, form, editingId],
-  )
+  /** Persist search only — restoring draft form caused stale one-line addresses to overwrite edits. */
+  const sessionRestore = useErpModuleSession('customers', () => ({ q }), [q])
   const sessionAppliedRef = useRef(false)
   useEffect(() => {
     if (sessionAppliedRef.current || !sessionRestore) return
     sessionAppliedRef.current = true
     if (sessionRestore.q) setQ(sessionRestore.q)
-    if (sessionRestore.form) {
-      const f = sessionRestore.form as typeof form
-      setForm({
-        ...f,
-        address: normalizeAddressField(f.address || ''),
-        shipping_address: normalizeAddressField(f.shipping_address || ''),
-      })
-    }
-    if (sessionRestore.editingId != null) setEditingId(sessionRestore.editingId)
   }, [sessionRestore])
 
   const emptyForm = () => ({
@@ -174,8 +165,7 @@ export function CustomersWorkspace() {
     shipping_address: '',
   })
 
-  const loadCustomerIntoForm = (c: ErpCustomer) => {
-    setEditingId(c.id)
+  const applyCustomerToForm = (c: ErpCustomer) => {
     setForm({
       name: c.name || '',
       mobile: c.mobile || '',
@@ -191,7 +181,21 @@ export function CustomersWorkspace() {
       rate_slab: normalizeErpCustomerSlab(c.rate_slab),
       has_shipping_address: c.has_shipping_address === true,
     })
+  }
+
+  const loadCustomerIntoForm = async (c: ErpCustomer) => {
+    setEditingId(c.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+    clearErpModuleSession('customers')
+    try {
+      const res = await axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+        params: { id: c.id, limit: 1 },
+      })
+      const hit = (res.data.customers || []).find((row) => row.id === c.id) || c
+      applyCustomerToForm(hit)
+    } catch {
+      applyCustomerToForm(c)
+    }
   }
 
   const load = useCallback(async () => {
@@ -214,12 +218,16 @@ export function CustomersWorkspace() {
     setBusy(true)
     try {
       const wasEdit = editingId
+      const billing = addressPayloadFromTextarea(form.address)
+      const shipping = form.has_shipping_address
+        ? addressPayloadFromTextarea(form.shipping_address)
+        : { address: '', address_lines: [] as string[] }
       const payload = {
         ...form,
-        address: normalizeAddressField(form.address),
-        shipping_address: form.has_shipping_address
-          ? normalizeAddressField(form.shipping_address)
-          : '',
+        address: billing.address,
+        address_lines: billing.address_lines,
+        shipping_address: shipping.address,
+        shipping_address_lines: shipping.address_lines,
       }
       if (editingId) {
         await axios.put(`/api/reseller/erp/customers/${editingId}`, payload)
@@ -564,7 +572,7 @@ export function CustomersWorkspace() {
               <button
                 type="button"
                 className={`${erpCardCls} flex w-full items-start justify-between gap-3 py-3.5 text-left transition hover:border-[var(--kc-accent,#c41e3a)]/30`}
-                onClick={() => loadCustomerIntoForm(c)}
+                onClick={() => void loadCustomerIntoForm(c)}
               >
                 <div className="min-w-0">
                   <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{c.name}</p>
