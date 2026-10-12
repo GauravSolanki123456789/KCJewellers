@@ -1,10 +1,17 @@
-/** Normalize CRM / GST addresses to up to three printable lines (newline-separated). */
+function normalizeLineEndings(raw: string): string {
+  return String(raw || '')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+}
+
+/** Split a single-line comma-separated address into up to three lines. */
 export function formatAddressToThreeLines(raw: string | null | undefined): string {
-  const t = String(raw || '').trim()
+  const t = normalizeLineEndings(String(raw || '')).trim()
   if (!t) return ''
 
   const byNl = t
-    .split(/\r?\n/)
+    .split('\n')
     .map((s) => s.trim())
     .filter(Boolean)
   if (byNl.length >= 2) {
@@ -23,11 +30,30 @@ export function formatAddressToThreeLines(raw: string | null | undefined): strin
   return [parts[0], parts.slice(1, -1).join(', '), parts[parts.length - 1]].join('\n')
 }
 
+/**
+ * CRM / PDF storage: keep explicit user line breaks; only auto-split comma-separated single lines.
+ */
+export function normalizeAddressField(raw: string | null | undefined): string {
+  const t = normalizeLineEndings(String(raw ?? '')).trim()
+  if (!t) return ''
+
+  const explicitLines = t
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (explicitLines.length >= 2) {
+    return explicitLines.slice(0, 3).join('\n')
+  }
+
+  return formatAddressToThreeLines(t)
+}
+
 export function splitAddressLines(raw: string | null | undefined): string[] {
-  const formatted = formatAddressToThreeLines(raw)
+  const formatted = normalizeAddressField(raw)
   if (!formatted) return []
   return formatted
-    .split(/\r?\n/)
+    .split('\n')
     .map((s) => s.trim())
     .filter(Boolean)
 }

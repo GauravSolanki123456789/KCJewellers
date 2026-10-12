@@ -1,11 +1,18 @@
 /** @typedef {{ street?: string; loc?: string; district?: string; dst?: string; pincode?: string; state_in_address?: string }} GstPradr */
 
+function normalizeLineEndings(raw) {
+    return String(raw || '')
+        .replace(/\\n/g, '\n')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+}
+
 function formatAddressToThreeLines(raw) {
-    const t = String(raw || '').trim();
+    const t = normalizeLineEndings(raw).trim();
     if (!t) return '';
 
     const byNl = t
-        .split(/\r?\n/)
+        .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
     if (byNl.length >= 2) {
@@ -22,6 +29,27 @@ function formatAddressToThreeLines(raw) {
     if (parts.length === 2) return parts.join('\n');
     if (parts.length === 3) return parts.join('\n');
     return [parts[0], parts.slice(1, -1).join(', '), parts[parts.length - 1]].join('\n');
+}
+
+function normalizeAddressField(raw) {
+    const t = normalizeLineEndings(raw).trim();
+    if (!t) return null;
+    const explicitLines = t
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    if (explicitLines.length >= 2) {
+        return explicitLines.slice(0, 3).join('\n');
+    }
+    const formatted = formatAddressToThreeLines(t);
+    return formatted || null;
+}
+
+function trimMultilineStr(v, max = 2000) {
+    if (v == null) return null;
+    const normalized = normalizeAddressField(v);
+    if (!normalized) return null;
+    return normalized.slice(0, max);
 }
 
 function formatGstPradrToThreeLines(pradr, stateName, stateCode) {
@@ -48,4 +76,6 @@ function formatGstPradrToThreeLines(pradr, stateName, stateCode) {
 module.exports = {
     formatAddressToThreeLines,
     formatGstPradrToThreeLines,
+    normalizeAddressField,
+    trimMultilineStr,
 };

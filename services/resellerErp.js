@@ -24,6 +24,7 @@ const {
     generateEwayForBill,
     lookupGstinFromGstzen,
 } = require('./resellerErpGstzen');
+const { trimMultilineStr, normalizeAddressField } = require('./erpCustomerAddressFormat');
 const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
@@ -575,14 +576,16 @@ function mapCustomer(row) {
         email: row.email,
         gstin: row.gstin,
         pan: row.pan || null,
-        address: row.address,
+        address: row.address ? normalizeAddressField(row.address) || row.address : null,
         state: row.state || null,
         birthdate: row.birthdate,
         anniversary_date: row.anniversary_date,
         notes: row.notes,
         rate_slab: normalizeCustomerRateSlab(row.rate_slab),
         has_shipping_address: row.has_shipping_address === true,
-        shipping_address: row.shipping_address || null,
+        shipping_address: row.shipping_address
+            ? normalizeAddressField(row.shipping_address) || row.shipping_address
+            : null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -594,7 +597,7 @@ function parseCustomerShippingFields(body) {
         body?.hasShippingAddress === true ||
         body?.has_shipping_address === 'true' ||
         body?.hasShippingAddress === 'true';
-    const shippingRaw = trimStr(body?.shipping_address || body?.shippingAddress, 2000);
+    const shippingRaw = trimMultilineStr(body?.shipping_address || body?.shippingAddress, 2000);
     if (!hasShipping) {
         return { has_shipping_address: false, shipping_address: null };
     }
@@ -1123,7 +1126,7 @@ function registerResellerErpRoutes(app, deps) {
                     trimStr(req.body.email, 255),
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
-                    trimStr(req.body.address, 2000),
+                    trimMultilineStr(req.body.address, 2000),
                     trimStr(req.body.state, 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
@@ -1162,7 +1165,7 @@ function registerResellerErpRoutes(app, deps) {
                     trimStr(req.body.email, 255),
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
-                    trimStr(req.body.address, 2000),
+                    trimMultilineStr(req.body.address, 2000),
                     trimStr(req.body.state, 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),

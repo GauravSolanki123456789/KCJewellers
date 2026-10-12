@@ -9,7 +9,7 @@ import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { loadErpSettingsBundle, resolveEinvoiceQrImageSrc } from '@/lib/erp-invoice-settings'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { buildErpSalesPdfFilename } from '@/lib/erp-sales-invoice-template'
-import { formatAddressToThreeLines } from '@/lib/erp-customer-address-format'
+import { normalizeAddressField } from '@/lib/erp-customer-address-format'
 import { normalizeTaxInvoiceTemplate } from '@/lib/erp-tax-invoice-template'
 import { mrpInvoiceItemNames, fetchGstInvoiceItems } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 
@@ -159,13 +159,13 @@ export async function buildErpSalesPdfPayload(params: {
     gst,
     bank,
     customerName: params.customerName ?? params.bill.customer_name,
-    customerAddress: customerAddress ? formatAddressToThreeLines(customerAddress) : customerAddress,
+    customerAddress: customerAddress ? normalizeAddressField(customerAddress) : customerAddress,
     customerMobile,
     customerPan,
     customerGst,
     customerHasShippingAddress,
     customerShippingAddress: customerShippingAddress
-      ? formatAddressToThreeLines(customerShippingAddress)
+      ? normalizeAddressField(customerShippingAddress)
       : customerShippingAddress,
     compliance,
     ewayBillNo: params.ewayBillNo ?? params.bill.compliance?.eway?.ewb_no ?? null,

@@ -12,7 +12,8 @@ import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
 import { formatErpDateDdMmYyyy, formatErpDateTime, toIsoDateInput } from '@/lib/erp-date-format'
-import { formatAddressToThreeLines } from '@/lib/erp-customer-address-format'
+import { formatAddressToThreeLines, normalizeAddressField } from '@/lib/erp-customer-address-format'
+import { clearErpModuleSession } from '@/lib/erp-module-session'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { ErpWhatsAppCloudPanel } from '@/components/reseller/erp/ErpWhatsAppCloudPanel'
@@ -146,7 +147,14 @@ export function CustomersWorkspace() {
     if (sessionAppliedRef.current || !sessionRestore) return
     sessionAppliedRef.current = true
     if (sessionRestore.q) setQ(sessionRestore.q)
-    if (sessionRestore.form) setForm(sessionRestore.form)
+    if (sessionRestore.form) {
+      const f = sessionRestore.form as typeof form
+      setForm({
+        ...f,
+        address: normalizeAddressField(f.address || ''),
+        shipping_address: normalizeAddressField(f.shipping_address || ''),
+      })
+    }
     if (sessionRestore.editingId != null) setEditingId(sessionRestore.editingId)
   }, [sessionRestore])
 
@@ -174,8 +182,8 @@ export function CustomersWorkspace() {
       email: c.email || '',
       gstin: c.gstin || '',
       pan: c.pan || '',
-      address: formatAddressToThreeLines(c.address || ''),
-      shipping_address: formatAddressToThreeLines(c.shipping_address || ''),
+      address: normalizeAddressField(c.address || ''),
+      shipping_address: normalizeAddressField(c.shipping_address || ''),
       state: c.state || '',
       birthdate: toIsoDateInput(c.birthdate),
       anniversary_date: toIsoDateInput(c.anniversary_date),
@@ -208,9 +216,9 @@ export function CustomersWorkspace() {
       const wasEdit = editingId
       const payload = {
         ...form,
-        address: formatAddressToThreeLines(form.address),
+        address: normalizeAddressField(form.address),
         shipping_address: form.has_shipping_address
-          ? formatAddressToThreeLines(form.shipping_address)
+          ? normalizeAddressField(form.shipping_address)
           : '',
       }
       if (editingId) {
@@ -220,6 +228,7 @@ export function CustomersWorkspace() {
       }
       setForm(emptyForm())
       setEditingId(null)
+      clearErpModuleSession('customers')
       await load()
       setMsg(wasEdit ? 'Customer updated.' : 'Customer saved.')
     } catch (e) {
@@ -453,7 +462,7 @@ export function CustomersWorkspace() {
                   gstin: d.gstin,
                   name: d.name && !f.name.trim() ? d.name : f.name || d.name || '',
                   pan: d.pan || f.pan,
-                  address: formatAddressToThreeLines(d.address || f.address),
+                  address: normalizeAddressField(d.address || f.address),
                   state: matchGstStateName(d.state) || f.state,
                   mobile: d.mobile || f.mobile,
                 }))
@@ -466,9 +475,9 @@ export function CustomersWorkspace() {
           <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
             Billing address (up to 3 lines)
             <textarea
-              className={`${erpInputCls} mt-1 min-h-[72px] resize-y py-2.5`}
+              className={`${erpInputCls} mt-1 min-h-[72px] resize-y whitespace-pre-wrap py-2.5`}
               rows={3}
-              placeholder="Door / street / locality&#10;City — PIN&#10;State"
+              placeholder={'Door / street / locality\nCity — PIN\nState'}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
@@ -492,9 +501,9 @@ export function CustomersWorkspace() {
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2">
               Shipping address (up to 3 lines)
               <textarea
-                className={`${erpInputCls} mt-1 min-h-[72px] resize-y py-2.5`}
+                className={`${erpInputCls} mt-1 min-h-[72px] resize-y whitespace-pre-wrap py-2.5`}
                 rows={3}
-                placeholder="Door / street / locality&#10;City — PIN&#10;State"
+                placeholder={'Door / street / locality\nCity — PIN\nState'}
                 value={form.shipping_address}
                 onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
               />
