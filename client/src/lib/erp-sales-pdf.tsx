@@ -61,6 +61,8 @@ export async function buildErpSalesPdfPayload(params: {
   ewayBillNo?: string | null
   /** Delivery Challan [Issue] — no tax block / T&C; narration instead of payment label. */
   approvalIssue?: boolean
+  /** Which invoice copy page to render (0 = original). Download/print always use this single page. */
+  invoiceCopyIndex?: 0 | 1 | 2
 }): Promise<PdfShareSheetPayload> {
   const lines = params.bill.lines ?? []
   if (!lines.length) {
@@ -182,6 +184,16 @@ export async function buildErpSalesPdfPayload(params: {
   const isEinvoicePdf = params.taxInvoiceMode && !!compliance?.irn
   const pdfVariant = isApproval ? 'approval' : isEinvoicePdf ? 'einvoice' : 'bill'
   const approvalNarration = session.approvalNarration || null
+  const copyIndex = params.invoiceCopyIndex ?? 0
+
+  const activeTemplate = isEinvoicePdf ? einvoiceTemplateConfig : billTemplateConfig
+  const invoiceCopyLabels: [string, string, string] | undefined = useChallanTemplate
+    ? [
+        activeTemplate.copyLabels[0] || 'ORIGINAL FOR RECIPIENT',
+        activeTemplate.copyLabels[1] || 'DUPLICATE FOR RECIPIENT',
+        activeTemplate.copyLabels[2] || 'TRIPLICATE FOR SUPPLIER',
+      ]
+    : undefined
 
   const blob = await pdf(
     isApproval || useChallanTemplate ? (
@@ -191,12 +203,14 @@ export async function buildErpSalesPdfPayload(params: {
         variant={pdfVariant}
         approvalNarration={approvalNarration}
         showPurityInPdf={showPurityInPdf}
+        invoiceCopyIndex={copyIndex}
       />
     ) : (
       <ErpTaxInvoicePdfDocument
         {...docProps}
         mrpItemNames={mrpNames}
         showPurityInPdf={showPurityInPdf}
+        invoiceCopyIndex={copyIndex}
       />
     ),
   ).toBlob()
@@ -217,6 +231,8 @@ export async function buildErpSalesPdfPayload(params: {
     isTaxInvoice: !!compliance?.irn,
   })
 
+  const buildArgs = { ...params }
+
   return {
     blob,
     filename,
@@ -227,5 +243,12 @@ export async function buildErpSalesPdfPayload(params: {
     customerWhatsAppHref: erpCustomerWhatsAppHref(customerMobile, text),
     customerMobile: normalizeMobileDigits(customerMobile) || null,
     brandLabel,
+    invoiceCopyLabels,
+    rebuildWithCopyIndex: invoiceCopyLabels
+      ? (index: number) =>
+          buildErpSalesPdfPayload({ ...buildArgs, invoiceCopyIndex: index as 0 | 1 | 2 }).then(
+            (p) => p.blob,
+          )
+      : undefined,
   }
 }

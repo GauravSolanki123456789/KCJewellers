@@ -522,7 +522,9 @@ function InvoiceCopyPage({
   )
 }
 
-export function ErpTaxInvoicePdfDocument(props: ErpTaxInvoicePdfDocumentProps) {
+export function ErpTaxInvoicePdfDocument(
+  props: ErpTaxInvoicePdfDocumentProps & { invoiceCopyIndex?: 0 | 1 | 2 },
+) {
   const mrpNames = props.mrpItemNames || new Set<string>()
   const lines = useMemo(
     () => buildSettlementAdjustedInvoiceLines(props.bill, mrpNames),
@@ -530,10 +532,16 @@ export function ErpTaxInvoicePdfDocument(props: ErpTaxInvoicePdfDocumentProps) {
   )
   const pageProps = useMemo(() => ({ ...props, lines, mrpItemNames: mrpNames }), [props, lines, mrpNames])
 
+  const standardCopies: ['CUSTOMER COPY', 'OFFICE COPY', 'OFFICE COPY'] = [
+    'CUSTOMER COPY',
+    'OFFICE COPY',
+    'OFFICE COPY',
+  ]
+  const copyIdx = Math.min(2, Math.max(0, props.invoiceCopyIndex ?? 0))
+
   return (
     <Document>
-      <InvoiceCopyPage {...pageProps} copyLabel="CUSTOMER COPY" />
-      <InvoiceCopyPage {...pageProps} copyLabel="OFFICE COPY" />
+      <InvoiceCopyPage {...pageProps} copyLabel={standardCopies[copyIdx]} />
     </Document>
   )
 }

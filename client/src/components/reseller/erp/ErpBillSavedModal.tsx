@@ -33,6 +33,7 @@ import { validateGstin } from '@/lib/erp-gstin'
 import {
   downloadPdfBlob,
   openPdfBlobInViewer,
+  openPdfViewerOptionsFromPayload,
   printPdfBlob,
   sharePdfFileNative,
   type PdfShareSheetPayload,
@@ -94,16 +95,16 @@ export function ErpBillSavedModal({
 
   useEffect(() => {
     if (!open || !pdfPayload || autoOpenViewer === false || autoOpened) return
-    void openPdfBlobInViewer(pdfPayload.blob, {
-      filename: pdfPayload.filename,
-      title: pdfPayload.title,
-      text: pdfPayload.text,
-      fallbackWhatsAppText: pdfPayload.fallbackWhatsAppText,
-      fallbackWhatsAppHref: pdfPayload.fallbackWhatsAppHref,
-      customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || defaultMobile || null, pdfPayload.fallbackWhatsAppText),
-      customerMobile: mobile.trim() || defaultMobile || pdfPayload.customerMobile || null,
-      brandLabel: pdfPayload.brandLabel,
-    })
+    void openPdfBlobInViewer(
+      pdfPayload.blob,
+      openPdfViewerOptionsFromPayload(pdfPayload, {
+        customerWhatsAppHref: customerWhatsAppHref(
+          mobile.trim() || defaultMobile || null,
+          pdfPayload.fallbackWhatsAppText,
+        ),
+        customerMobile: mobile.trim() || defaultMobile || pdfPayload.customerMobile || null,
+      }),
+    )
     setAutoOpened(true)
   }, [open, pdfPayload, autoOpened, autoOpenViewer, mobile, defaultMobile])
 
@@ -119,16 +120,13 @@ export function ErpBillSavedModal({
 
   const handleOpenPdf = useCallback(() => {
     if (!pdfPayload) return
-    void openPdfBlobInViewer(pdfPayload.blob, {
-      filename: pdfPayload.filename,
-      title: pdfPayload.title,
-      text: pdfPayload.text,
-      fallbackWhatsAppText: pdfPayload.fallbackWhatsAppText,
-      fallbackWhatsAppHref: pdfPayload.fallbackWhatsAppHref,
-      customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || null, pdfPayload.fallbackWhatsAppText),
-      customerMobile: mobile.trim() || pdfPayload.customerMobile || null,
-      brandLabel: pdfPayload.brandLabel,
-    })
+    void openPdfBlobInViewer(
+      pdfPayload.blob,
+      openPdfViewerOptionsFromPayload(pdfPayload, {
+        customerWhatsAppHref: customerWhatsAppHref(mobile.trim() || null, pdfPayload.fallbackWhatsAppText),
+        customerMobile: mobile.trim() || pdfPayload.customerMobile || null,
+      }),
+    )
   }, [pdfPayload, mobile])
 
   const handleWhatsApp = useCallback(async () => {

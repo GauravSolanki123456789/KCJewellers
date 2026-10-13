@@ -5,6 +5,7 @@ import { Download, Loader2, MessageCircle, Printer, Share2, X } from 'lucide-rea
 import {
   closePdfOverlay,
   getPdfOverlayPayload,
+  replacePdfOverlayBlob,
   subscribePdfOverlay,
 } from '@/lib/pdf-viewer-overlay-store'
 import { downloadPdfBlob, printPdfBlob, sharePdfFileNative } from '@/lib/pdf-share'
@@ -32,6 +33,8 @@ export default function PdfViewerOverlay() {
   const [waStatus, setWaStatus] = useState<WhatsAppCloudStatus>({ configured: false })
   const [customerMobile, setCustomerMobile] = useState('')
   const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
+  const [copyBusy, setCopyBusy] = useState(false)
+  const [copyIndex, setCopyIndex] = useState(0)
 
   const opts = payload?.opts
   const blob = payload?.blob
@@ -49,6 +52,11 @@ export default function PdfViewerOverlay() {
     setPdfUrl(url)
     return () => URL.revokeObjectURL(url)
   }, [payload?.blob])
+
+  useEffect(() => {
+    if (!opts) return
+    setCopyIndex(opts.invoiceCopy?.index ?? 0)
+  }, [opts?.invoiceCopy?.index, payload?.blob])
 
   useEffect(() => {
     if (!opts) return
@@ -94,6 +102,24 @@ export default function PdfViewerOverlay() {
     const display = formatCustomerMobileDisplay(customerMobile)
     return display ? `Customer — ${display}` : 'Customer number (enter below)'
   }, [customerMobile])
+
+  const handleCopyChange = useCallback(
+    async (nextIndex: number) => {
+      if (!opts?.invoiceCopy || copyBusy) return
+      if (nextIndex === copyIndex) return
+      setCopyBusy(true)
+      try {
+        const nextBlob = await opts.invoiceCopy.regenerate(nextIndex)
+        replacePdfOverlayBlob(nextBlob, {
+          invoiceCopy: { ...opts.invoiceCopy, index: nextIndex },
+        })
+        setCopyIndex(nextIndex)
+      } finally {
+        setCopyBusy(false)
+      }
+    },
+    [opts?.invoiceCopy, copyBusy, copyIndex],
+  )
 
   const handleDownload = useCallback(() => {
     if (!blob || !opts?.filename) return
@@ -214,6 +240,29 @@ export default function PdfViewerOverlay() {
             </button>
           </div>
         </div>
+
+        {opts.invoiceCopy ? (
+          <div className="mx-auto mt-3 max-w-5xl">
+            <label className="block text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/50">
+              Invoice copy (preview)
+              <select
+                className="mt-1 block w-full max-w-md rounded-xl border border-[#e8e4df] bg-white px-3 py-2.5 text-sm font-medium text-[#1a1814] disabled:opacity-60"
+                value={copyIndex}
+                disabled={copyBusy}
+                onChange={(e) => void handleCopyChange(Number(e.target.value))}
+              >
+                {opts.invoiceCopy.labels.map((label, i) => (
+                  <option key={i} value={i}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-1 text-[11px] text-[#1a1814]/55">
+              Download, print, and WhatsApp send only this copy. Default is the first label above.
+            </p>
+          </div>
+        ) : null}
 
         <div className="mx-auto mt-3 grid max-w-5xl gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
           <label className="block text-[10px] font-bold uppercase tracking-wide text-[#1a1814]/50">

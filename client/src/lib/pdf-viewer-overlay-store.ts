@@ -24,6 +24,12 @@ export function closePdfOverlay(): void {
   listeners.forEach((fn) => fn())
 }
 
+export function replacePdfOverlayBlob(blob: Blob, patchOpts?: Partial<OpenPdfViewerOptions>): void {
+  if (!current) return
+  current = { blob, opts: { ...current.opts, ...patchOpts } }
+  listeners.forEach((fn) => fn())
+}
+
 export function subscribePdfOverlay(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)

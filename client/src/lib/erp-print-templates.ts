@@ -378,6 +378,8 @@ export type ErpPrintFormatsSettings = {
   showEstimatePdfPhotos?: boolean
   /** Purity column on bill, estimate, and approval PDFs (default off). Print formats. */
   showPurityInBillEstimatePdf?: boolean
+  /** When ON, silver ₹/g entered in wholesale/slab rate dialogs is stored as rate − 3%. Default off. */
+  minusThreePctSilverRate?: boolean
   shopName?: string
   shopAddress?: string
   shopPhone?: string

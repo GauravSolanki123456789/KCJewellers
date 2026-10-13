@@ -17,7 +17,7 @@ import {
 } from '@/components/reseller/erp/erp-ui'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
-import { openPdfBlobInViewer } from '@/lib/pdf-share'
+import { openPdfBlobInViewer, openPdfViewerOptionsFromPayload } from '@/lib/pdf-share'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { appAlert, appConfirm } from '@/lib/app-notice'
@@ -105,16 +105,7 @@ export function ErpApprovalIssueWorkspace() {
         slabSettingsRaw: auth.user,
         approvalIssue: true,
       })
-      await openPdfBlobInViewer(payload.blob, {
-        filename: payload.filename,
-        title: payload.title,
-        text: payload.text,
-        fallbackWhatsAppText: payload.fallbackWhatsAppText,
-        fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
-        customerWhatsAppHref: payload.customerWhatsAppHref,
-        customerMobile: payload.customerMobile,
-        brandLabel: payload.brandLabel,
-      })
+      await openPdfBlobInViewer(payload.blob, openPdfViewerOptionsFromPayload(payload))
     } catch (e) {
       alert(erpErr(e))
     } finally {

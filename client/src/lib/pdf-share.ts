@@ -85,6 +85,12 @@ export function printPdfBlob(blob: Blob): void {
   }, 120_000)
 }
 
+export type InvoiceCopyViewerControl = {
+  labels: [string, string, string]
+  index: number
+  regenerate: (index: number) => Promise<Blob>
+}
+
 export type OpenPdfViewerOptions = {
   filename: string
   title?: string
@@ -95,6 +101,51 @@ export type OpenPdfViewerOptions = {
   /** 10-digit customer mobile — shown in viewer and used for WhatsApp send */
   customerMobile?: string | null
   brandLabel?: string
+  /** Marlecha tax invoice: preview copy selector; download/print/share use the active copy only. */
+  invoiceCopy?: InvoiceCopyViewerControl
+}
+
+export type PdfShareSheetPayload = {
+  blob: Blob
+  filename: string
+  title: string
+  text: string
+  fallbackWhatsAppText: string
+  invoiceCopyLabels?: [string, string, string]
+  rebuildWithCopyIndex?: (index: number) => Promise<Blob>
+  fallbackWhatsAppHref?: string | null
+  customerWhatsAppHref?: string | null
+  customerMobile?: string | null
+  brandLabel?: string
+}
+
+export function invoiceCopyOptsFromPayload(payload: PdfShareSheetPayload): Pick<OpenPdfViewerOptions, 'invoiceCopy'> {
+  if (!payload.invoiceCopyLabels || !payload.rebuildWithCopyIndex) return {}
+  return {
+    invoiceCopy: {
+      labels: payload.invoiceCopyLabels,
+      index: 0,
+      regenerate: payload.rebuildWithCopyIndex,
+    },
+  }
+}
+
+export function openPdfViewerOptionsFromPayload(
+  payload: PdfShareSheetPayload,
+  extra?: Omit<OpenPdfViewerOptions, 'filename' | 'invoiceCopy'>,
+): OpenPdfViewerOptions {
+  return {
+    filename: payload.filename,
+    title: payload.title,
+    text: payload.text,
+    fallbackWhatsAppText: payload.fallbackWhatsAppText,
+    fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
+    customerWhatsAppHref: payload.customerWhatsAppHref,
+    customerMobile: payload.customerMobile,
+    brandLabel: payload.brandLabel,
+    ...invoiceCopyOptsFromPayload(payload),
+    ...extra,
+  }
 }
 
 /** Open PDF in an in-page overlay (same tab — no popup / sessionStorage issues). */
@@ -111,6 +162,7 @@ export async function openPdfBlobInViewer(blob: Blob, opts?: OpenPdfViewerOption
       customerWhatsAppHref: opts.customerWhatsAppHref ?? null,
       customerMobile: opts.customerMobile ?? null,
       brandLabel: opts.brandLabel,
+      invoiceCopy: opts.invoiceCopy,
     })
     return
   }
@@ -188,16 +240,4 @@ export async function shareCatalogPdfBlob(blob: Blob, filename: string): Promise
     text: 'KC Jewellers — catalogue PDF',
     fallbackWhatsAppText: `KC Jewellers — catalogue PDF (${filename}). Attach the file you just saved.`,
   })
-}
-
-export type PdfShareSheetPayload = {
-  blob: Blob
-  filename: string
-  title: string
-  text: string
-  fallbackWhatsAppText: string
-  fallbackWhatsAppHref?: string | null
-  customerWhatsAppHref?: string | null
-  customerMobile?: string | null
-  brandLabel?: string
 }

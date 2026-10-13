@@ -19,7 +19,7 @@ import { ErpBillSavedModal } from '@/components/reseller/erp/ErpBillSavedModal'
 import { ErpComplianceDialog, type ErpComplianceSuccessMeta } from '@/components/reseller/erp/ErpComplianceDialog'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
-import { openPdfBlobInViewer, type PdfShareSheetPayload } from '@/lib/pdf-share'
+import { openPdfBlobInViewer, openPdfViewerOptionsFromPayload, type PdfShareSheetPayload } from '@/lib/pdf-share'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
@@ -341,16 +341,7 @@ export function ErpSalesBillsWorkspace() {
         slabSettingsRaw: auth.user,
         taxInvoiceMode: false,
       })
-      await openPdfBlobInViewer(payload.blob, {
-        filename: payload.filename,
-        title: payload.title,
-        text: payload.text,
-        fallbackWhatsAppText: payload.fallbackWhatsAppText,
-        fallbackWhatsAppHref: payload.fallbackWhatsAppHref,
-        customerWhatsAppHref: payload.customerWhatsAppHref,
-        customerMobile: payload.customerMobile,
-        brandLabel: payload.brandLabel,
-      })
+      await openPdfBlobInViewer(payload.blob, openPdfViewerOptionsFromPayload(payload))
     } catch (e) {
       alert(erpErr(e))
     } finally {

@@ -70,6 +70,7 @@ import PdfShareSheet from '@/components/shared-catalog/PdfShareSheet'
 import type { PdfShareSheetPayload } from '@/lib/pdf-share'
 import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
 import { migratePrintFormats } from '@/lib/erp-print-templates'
+import { applyMinusThreePctSilverRateInput } from '@/lib/erp-silver-rate-discount'
 import {
   normalizeQuoteOutputMode,
   printErpEstimateThermal,
@@ -486,6 +487,7 @@ export function ErpBillingWorkspace() {
   const [workstation] = useErpWorkstationSelection()
   const [shopQuoteOutputMode, setShopQuoteOutputMode] = useState<ErpQuoteOutputMode>('pdf')
   const [goldSlabRShowMc, setGoldSlabRShowMc] = useState(true)
+  const [minusThreePctSilver, setMinusThreePctSilver] = useState(false)
   const [gstEnabled, setGstEnabled] = useState(true)
   const [pdfLayoutMode, setPdfLayoutMode] = useState<'detailed' | 'summary'>('detailed')
   const [quoteOutputOverride, setQuoteOutputOverride] = useState<ErpQuoteOutputMode | null>(null)
@@ -836,6 +838,7 @@ export function ErpBillingWorkspace() {
         )
         setShopQuoteOutputMode(normalizeQuoteOutputMode(pf.defaultQuoteOutputMode))
         setGoldSlabRShowMc(pf.goldSlabRShowMc !== false)
+        setMinusThreePctSilver(pf.minusThreePctSilverRate === true)
         const pos = String(res.data.settings?.gst?.placeOfSupply || '').trim()
         if (pos) {
           setDefaultPlaceOfSupply(pos)
@@ -1806,10 +1809,12 @@ export function ErpBillingWorkspace() {
       alert('Enter a valid silver ₹/g')
       return
     }
+    const silverStored =
+      hasSilver && s != null && minusThreePctSilver ? applyMinusThreePctSilverRateInput(s) : s
     const gVal = hasGold ? g : wholesaleGold
-    const sVal = hasSilver ? s : wholesaleSilver
+    const sVal = hasSilver ? silverStored : wholesaleSilver
     if (hasGold) setWholesaleGold(g)
-    if (hasSilver) setWholesaleSilver(s)
+    if (hasSilver && silverStored != null) setWholesaleSilver(silverStored)
     const nextSlab = pendingSlab ?? rateSlab
     if (pendingSlab) setRateSlab(pendingSlab)
     setLines((prev) =>
@@ -1845,9 +1850,10 @@ export function ErpBillingWorkspace() {
       alert('Enter valid gold and silver rates')
       return
     }
+    const silverStored = minusThreePctSilver ? applyMinusThreePctSilverRateInput(s) : s
     setGoldPerG(g)
-    setSilverPerG(s)
-    setDisplayRates(perGramToDisplayRates(g, s))
+    setSilverPerG(silverStored)
+    setDisplayRates(perGramToDisplayRates(g, silverStored))
     setLines((prev) => unlockLineRates(prev))
     setShowRateEdit(false)
   }

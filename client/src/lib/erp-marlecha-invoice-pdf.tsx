@@ -1120,7 +1120,9 @@ function InvoicePage({
   )
 }
 
-export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoiceProps) {
+export function ErpConfigurableTaxInvoicePdfDocument(
+  props: ConfigurableTaxInvoiceProps & { invoiceCopyIndex?: 0 | 1 | 2 },
+) {
   const mrpNames = props.mrpItemNames || new Set<string>()
   const lines = useMemo(
     () => buildSettlementAdjustedInvoiceLines(props.bill, mrpNames),
@@ -1145,25 +1147,13 @@ export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoi
     template.copyLabels[2] || 'TRIPLICATE FOR SUPPLIER',
   ]
 
+  const copyIdx = Math.min(2, Math.max(0, props.invoiceCopyIndex ?? 0))
+
   return (
     <Document>
       <InvoicePage
         {...pageProps}
-        copyLabel={copies[0]}
-        variant={props.variant || 'bill'}
-        approvalNarration={props.approvalNarration}
-        showPurityInPdf={props.showPurityInPdf === true}
-      />
-      <InvoicePage
-        {...pageProps}
-        copyLabel={copies[1]}
-        variant={props.variant || 'bill'}
-        approvalNarration={props.approvalNarration}
-        showPurityInPdf={props.showPurityInPdf === true}
-      />
-      <InvoicePage
-        {...pageProps}
-        copyLabel={copies[2]}
+        copyLabel={copies[copyIdx]}
         variant={props.variant || 'bill'}
         approvalNarration={props.approvalNarration}
         showPurityInPdf={props.showPurityInPdf === true}

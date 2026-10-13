@@ -385,6 +385,43 @@ export function ErpPrintFormatsWorkspace() {
         </div>
       </div>
 
+      <div className={erpCardCls}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Silver rate — minus 3% on entry
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+              When ON, any silver ₹/g typed in wholesale/slab rate dialogs (Slab W, R1, F, or Edit wholesale
+              rates) is stored as 3% less (e.g. 226 → 219.22). Applies to billing lines and estimate PDFs.
+              Default is OFF. Not shown on Scan &amp; bill.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pf.minusThreePctSilverRate === true}
+            className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${
+              pf.minusThreePctSilverRate === true
+                ? 'bg-emerald-700'
+                : 'bg-[var(--color-slate-700,#d4cfc8)]'
+            }`}
+            onClick={() =>
+              setPf((p) => ({
+                ...p,
+                minusThreePctSilverRate: p.minusThreePctSilverRate !== true,
+              }))
+            }
+          >
+            <span
+              className={`inline-block size-6 transform rounded-full bg-white shadow transition ${
+                pf.minusThreePctSilverRate === true ? 'translate-x-7' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
       {tab === 'label' || tab === 'labelZebra' ? (
         <>
           <div className={erpCardCls}>
