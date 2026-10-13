@@ -429,12 +429,29 @@ function lineGrossGm(line: ErpBillLine): number {
   return lineNetGm(line)
 }
 
-/** Pre-GST taxable for weight rows (lineTotalInr includes 3% GST on standard jewellery). */
-function lineTaxableInr(line: ErpBillLine, gstOffOnBill: boolean): number {
+type LineTaxableAlloc = { subtotal: number; net: number }
+
+/**
+ * Pre-GST taxable for the Amount column.
+ * GST-on bills: line totals are GST-inclusive → divide by 1.03.
+ * GST-off bills: lines often still store GST-inclusive net → allocate header taxable pro-rata.
+ */
+function lineTaxableInr(
+  line: ErpBillLine,
+  gstOffOnBill: boolean,
+  alloc?: LineTaxableAlloc,
+): number {
   const total = Number(line.lineTotalInr) || 0
   if (total <= 0) return 0
-  if (gstOffOnBill || line.manualCategory === 'shipping') return total
-  return Math.round((total / 1.03) * 100) / 100
+  if (line.manualCategory === 'shipping') return total
+  if (gstOffOnBill && alloc && alloc.net > 0 && alloc.subtotal > 0) {
+    const gstGap = alloc.net - alloc.subtotal
+    if (gstGap > 0.5) {
+      return roundInr2(total * (alloc.subtotal / alloc.net))
+    }
+    return roundInr2(total)
+  }
+  return roundInr2(total / 1.03)
 }
 
 function lineRatePerGram(line: ErpBillLine, amountInr: number, useTotalNet = false): number {
@@ -746,6 +763,11 @@ function InvoicePage({
   const approvalNetDisplay =
     Math.round(Number(bill.total_inr) || totals.net || roundedTotal || 0)
   const approvalWeightDisplay = totals.weight > 0 ? totals.weight : 0
+  const displayNetForAlloc = Math.round(Number(bill.total_inr) || totals.net || roundedTotal)
+  const lineTaxAlloc: LineTaxableAlloc | undefined =
+    gstOffOnBill && displayNetForAlloc > 0 && taxable > 0 && displayNetForAlloc - taxable > 0.5
+      ? { subtotal: taxable, net: displayNetForAlloc }
+      : undefined
 
   const unifiedRows: string[][] = lines.map((line, idx) => {
     const slNo = `${idx + 1}.`
@@ -771,7 +793,7 @@ function InvoicePage({
     }
     const lineAmtInr = isApproval
       ? Number(line.lineTotalInr) || 0
-      : lineTaxableInr(line, !!gstOffOnBill)
+      : lineTaxableInr(line, !!gstOffOnBill, lineTaxAlloc)
     const grossTotal = lineTotalGrossGm(line)
     const netTotal = lineTotalNetGm(line)
     const rate = lineRatePerGram(line, lineAmtInr, true)
