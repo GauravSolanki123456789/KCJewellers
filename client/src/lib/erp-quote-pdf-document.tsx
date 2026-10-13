@@ -107,7 +107,7 @@ function buildPdfColumns(
     ...(showSlabPct ? [{ key: 'slabPct', label: 'Metal(%)', w: '4%' }] : []),
     { key: 'wast', label: 'W%', w: '3%' },
     { key: 'wt', label: showSlabPct ? 'Pure Wt' : 'PureWt', w: '5%' },
-    ...(showPurityColumn ? [{ key: 'purity', label: 'Pur', w: '4%' }] : []),
+    ...(showPurityColumn ? [{ key: 'purity', label: 'Purity', w: '5%' }] : []),
     { key: 'rate', label: 'Rate', w: '5%' },
     { key: 'mc', label: 'MC', w: '5%' },
     ...(showMcR ? [{ key: 'mcR', label: 'MC R', w: '4%' }] : []),
@@ -122,7 +122,7 @@ function buildPdfColumns(
     { key: 'amt', label: 'Amount', w: '7%' },
   ]
 
-  return candidates.filter((col) => {
+  const visible = candidates.filter((col) => {
     if (col.key === 'purity' && showPurityColumn) return true
     if (ratesUnfixed && rateUnfixAlways.has(col.key)) return true
     if (col.key === 'rate' && hasMetalRate) return true
@@ -130,9 +130,19 @@ function buildPdfColumns(
       const val = cell(line, col.key, rateSlab, ratesUnfixed, slabSettings)
       return !isEmptyPdfCell(val, col.key)
     })
-  }).map((col, _, arr) => {
-    const total = arr.reduce((s, c) => s + parseFloat(c.w), 0)
-    if (total <= 0) return col
+  })
+
+  /** Row # uses 3%; spread remaining width evenly when purity column is on (many cols stay readable). */
+  const indexColPct = 3
+  const widthBudget = 100 - indexColPct
+  if (showPurityColumn && visible.length > 0) {
+    const each = widthBudget / visible.length
+    return visible.map((col) => ({ ...col, w: `${each.toFixed(2)}%` }))
+  }
+
+  const total = visible.reduce((s, c) => s + parseFloat(c.w), 0)
+  if (total <= 0) return visible
+  return visible.map((col) => {
     const pct = (parseFloat(col.w) / total) * 100
     return { ...col, w: `${pct.toFixed(1)}%` }
   })
@@ -486,7 +496,14 @@ export function ErpQuotePdfDocument({
                 <Text style={styles.headCellStackLine}>Value</Text>
               </View>
             ) : (
-              <Text key={c.key} style={[styles.headCell, { width: c.w }]}>
+              <Text
+                key={c.key}
+                style={[
+                  styles.headCell,
+                  { width: c.w },
+                  ...(c.key === 'purity' ? [{ textAlign: 'center' as const }] : []),
+                ]}
+              >
                 {c.label}
               </Text>
             ),
@@ -498,12 +515,14 @@ export function ErpQuotePdfDocument({
             {cols.map((c) => {
               const text = sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed, slabSettings))
               const dense = c.key === 'barcode' || c.key === 'sku' || c.key === 'style' || c.key === 'name'
+              const centered = c.key === 'purity' || c.key === 'pcs' || c.key === 'wast'
               return (
                 <View key={c.key} style={[styles.bodyCellWrap, { width: c.w }]}>
                   <Text
                     style={[
                       c.key === 'amt' ? styles.bodyCellAmt : styles.bodyCell,
                       ...(dense ? [{ fontSize: 5.5, lineHeight: 1.15 }] : []),
+                      ...(centered ? [{ textAlign: 'center' as const }] : []),
                     ]}
                   >
                     {text}
