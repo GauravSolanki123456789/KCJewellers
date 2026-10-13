@@ -310,13 +310,28 @@ const styles = StyleSheet.create({
     lineHeight: 1.4,
     alignItems: 'flex-start',
   },
-  bankLine: {
-    fontFamily: 'Courier-Bold',
+  bankLineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  /** Left-aligned labels; fixed width keeps colons and values in straight columns (Helvetica prints cleaner than Courier on IFSC). */
+  bankLabel: {
+    width: 44,
+    fontSize: 9.5,
     fontWeight: 'bold',
     color: '#000',
-    fontSize: 9.5,
-    letterSpacing: 0,
     textAlign: 'left',
+  },
+  bankColon: {
+    fontSize: 9.5,
+    color: '#000',
+    width: 11,
+    textAlign: 'left',
+  },
+  bankValue: {
+    fontSize: 9.5,
+    color: '#000',
+    flexShrink: 0,
   },
   signColTop: {
     fontSize: 8.5,
@@ -536,15 +551,6 @@ function renderColumnTable(
 
 type MarlechaBankDetailRow = { label: string; value: string }
 
-/** Fixed character width before colon so bank rows line up in Courier. */
-const BANK_LABEL_FIELD_CHARS = 9
-
-function formatAlignedBankRowText(label: string, value: string): string {
-  const lab = String(label || '').trim()
-  const val = String(value || '').trim()
-  return `${lab.padEnd(BANK_LABEL_FIELD_CHARS, ' ')} : ${val}`
-}
-
 function parseMarlechaBankTemplateLine(line: string): MarlechaBankDetailRow | null {
   const t = String(line || '').trim()
   if (!t) return null
@@ -586,9 +592,11 @@ function BankDetailsBlock({
     <View style={styles.bankBlockWrap}>
       <View style={styles.bankCol}>
         {rows.map((row, i) => (
-          <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
-            {sanitizePdfText(formatAlignedBankRowText(row.label, row.value))}
-          </Text>
+          <View key={`bank-line-${i}`} style={[styles.bankLineRow, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
+            <Text style={styles.bankLabel}>{sanitizePdfText(row.label)}</Text>
+            <Text style={styles.bankColon}> : </Text>
+            <Text style={styles.bankValue}>{sanitizePdfText(row.value)}</Text>
+          </View>
         ))}
       </View>
     </View>
