@@ -1972,7 +1972,7 @@ export function ErpBillingWorkspace() {
     jainavModeUnlocked: shadowUnlocked,
   })
   const previewLane = previewLedgerLane(paymentMethod, collectedAmountInr, shadowUnlocked)
-  const effectiveGstEnabled = isOfficialGstBill ? gstEnabled : false
+  const effectiveGstEnabled = gstEnabled
 
   const jainavMetalOwedGm = useMemo(
     () => (isOfficialGstBill ? 0 : sumJainavMetalOwedGm(lines, rateSlab)),
@@ -2007,10 +2007,6 @@ export function ErpBillingWorkspace() {
       goldSlabRShowMc,
     ],
   )
-
-  useEffect(() => {
-    if (!isOfficialGstBill && gstEnabled) setGstEnabled(false)
-  }, [isOfficialGstBill, gstEnabled])
 
   const resolveBillTotal = (billType: 'sale' | 'estimate') =>
     resolveErpBillTotalInr({
@@ -2840,7 +2836,6 @@ export function ErpBillingWorkspace() {
             <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               GST (3%)
             </span>
-            {isOfficialGstBill ? (
             <label
               className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 ${
                 gstEnabled
@@ -2858,12 +2853,6 @@ export function ErpBillingWorkspace() {
                 {gstEnabled ? 'On' : 'Off'}
               </span>
             </label>
-            ) : (
-              <div className="flex min-h-[44px] items-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[#faf8f4] px-3 py-2">
-                <span className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Off</span>
-                <span className="ml-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">Cash bill</span>
-              </div>
-            )}
           </div>
           <div>
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
