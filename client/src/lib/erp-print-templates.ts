@@ -579,7 +579,6 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   if (!pf.estimatePrintMode) pf.estimatePrintMode = 'rough'
   if (pf.estimateDuplicateCopy == null) pf.estimateDuplicateCopy = true
   if (pf.showEstimatePdfPhotos == null) pf.showEstimatePdfPhotos = false
-  if (pf.showPurityInBillEstimatePdf == null) pf.showPurityInBillEstimatePdf = false
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }

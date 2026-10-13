@@ -470,6 +470,8 @@ export function ErpBillingWorkspace() {
   const [soldStockOpen, setSoldStockOpen] = useState(false)
   const [soldStockMessage, setSoldStockMessage] = useState('')
   const scanRef = useRef<HTMLInputElement>(null)
+  const modalWhSilverRef = useRef<HTMLInputElement>(null)
+  const rateEditSilverRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
   const duplicateBannerRef = useRef<HTMLDivElement>(null)
   const billLoadGen = useRef(0)
@@ -1773,6 +1775,18 @@ export function ErpBillingWorkspace() {
     setShowWholesaleModal(true)
   }
 
+  useEffect(() => {
+    if (!showWholesaleModal) return
+    const t = window.setTimeout(() => modalWhSilverRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [showWholesaleModal])
+
+  useEffect(() => {
+    if (!showRateEdit) return
+    const t = window.setTimeout(() => rateEditSilverRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [showRateEdit])
+
   const applyWholesaleSlab = () => {
     const gRaw = modalWhGold.trim()
     const sRaw = modalWhSilver.trim()
@@ -2693,7 +2707,18 @@ export function ErpBillingWorkspace() {
               </label>
               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
                 Silver ₹/g
-                <input className={`${erpInputCls} mt-1`} value={editSilver} onChange={(e) => setEditSilver(e.target.value)} />
+                <input
+                  ref={rateEditSilverRef}
+                  className={`${erpInputCls} mt-1`}
+                  value={editSilver}
+                  onChange={(e) => setEditSilver(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      applyRateEdit()
+                    }
+                  }}
+                />
               </label>
             </div>
             <div className="mt-4 flex gap-2">
@@ -2721,7 +2746,19 @@ export function ErpBillingWorkspace() {
               </label>
               <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
                 Silver ₹/g
-                <input className={`${erpInputCls} mt-1`} placeholder="e.g. 220" value={modalWhSilver} onChange={(e) => setModalWhSilver(e.target.value)} />
+                <input
+                  ref={modalWhSilverRef}
+                  className={`${erpInputCls} mt-1`}
+                  placeholder="e.g. 220"
+                  value={modalWhSilver}
+                  onChange={(e) => setModalWhSilver(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      applyWholesaleSlab()
+                    }
+                  }}
+                />
               </label>
             </div>
             <div className="mt-4 flex gap-2">

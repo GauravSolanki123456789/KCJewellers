@@ -16,7 +16,7 @@ import { ErpQuotePdfButton } from '@/components/reseller/erp/ErpQuotePdfShare'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { appConfirm } from '@/lib/app-notice'
+import { appAlert, appConfirm } from '@/lib/app-notice'
 import { downloadBillDetailExcel, downloadEstimatesDetailExcel } from '@/lib/erp-bill-excel-export'
 import {
   formatDuplicateBarcodeMessage,
@@ -183,14 +183,25 @@ export function ErpEstimationsWorkspace() {
 
   const issueApproval = async (narration: string) => {
     if (!issueBill) return
+    const estimateNo = String(issueBill.bill_number || '').trim()
     setIssueBusy(true)
     try {
-      await axios.post('/api/reseller/erp/approvals/issue', {
-        estimate_id: issueBill.id,
-        narration,
-      })
+      const res = await axios.post<{ success?: boolean; bill?: ErpBill }>(
+        '/api/reseller/erp/approvals/issue',
+        {
+          estimate_id: issueBill.id,
+          narration,
+        },
+      )
+      const approvalNo = String(res.data.bill?.bill_number || '').trim()
       setIssueBill(null)
       await load()
+      appAlert(
+        approvalNo
+          ? `Estimate ${estimateNo || '—'} converted to approval ${approvalNo}.`
+          : `Estimate ${estimateNo || '—'} issued as approval.`,
+        'success',
+      )
     } catch (e) {
       alert(erpErr(e))
     } finally {

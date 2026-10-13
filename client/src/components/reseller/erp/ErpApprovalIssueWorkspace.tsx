@@ -20,7 +20,7 @@ import { buildErpSalesPdfPayload } from '@/lib/erp-sales-pdf'
 import { openPdfBlobInViewer } from '@/lib/pdf-share'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { resellerErpModulePath } from '@/lib/reseller-erp-modules'
-import { appConfirm } from '@/lib/app-notice'
+import { appAlert, appConfirm } from '@/lib/app-notice'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { ClipboardList, FileText, Loader2, RotateCcw, ShoppingCart, Trash2 } from 'lucide-react'
@@ -128,9 +128,20 @@ export function ErpApprovalIssueWorkspace() {
     )
     if (!ok) return
     setActionId(b.id)
+    const approvalNo = String(b.bill_number || '').trim()
     try {
-      await axios.post(`/api/reseller/erp/approvals/${b.id}/return`, {})
+      const res = await axios.post<{ success?: boolean; bill?: ErpBill }>(
+        `/api/reseller/erp/approvals/${b.id}/return`,
+        {},
+      )
+      const estimateNo = String(res.data.bill?.bill_number || '').trim()
       await load()
+      appAlert(
+        estimateNo
+          ? `Approval ${approvalNo || '—'} converted back to estimate ${estimateNo}.`
+          : `Approval ${approvalNo || '—'} converted back to an estimate.`,
+        'success',
+      )
     } catch (e) {
       alert(erpErr(e))
     } finally {
