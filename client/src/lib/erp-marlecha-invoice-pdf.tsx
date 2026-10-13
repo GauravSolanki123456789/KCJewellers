@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     color: '#000',
   },
-  footerRow: { flexDirection: 'row', marginTop: 20, minHeight: 76, paddingTop: 2 },
+  footerRow: { flexDirection: 'row', marginTop: 26, minHeight: 86, paddingTop: 2 },
   termsCol: { width: '48%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 8 },
   bankCol: {
     width: '28%',
@@ -292,13 +292,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   bankLine: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000', fontSize: 9.5 },
+  bankLabelCol: { width: 46, textAlign: 'right' as const },
+  bankValueCol: { flexShrink: 1 },
   signCol: { width: '24%', fontSize: 8.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
   signCompanyLine: {
     fontWeight: 'bold',
-    marginTop: -9,
+    marginTop: -25,
     textAlign: 'center',
   },
-  signLine: { borderTopWidth: PDF_BORDER, borderTopColor: '#000', marginTop: 42, paddingTop: 3, textAlign: 'center' },
+  signLine: { borderTopWidth: PDF_BORDER, borderTopColor: '#000', marginTop: 52, paddingTop: 3, textAlign: 'center' },
   eRef: { marginTop: 6, fontSize: 7 },
   qr: { width: 88, height: 88, objectFit: 'contain' },
   qrPlaceholder: {
@@ -494,19 +496,34 @@ function renderColumnTable(
   )
 }
 
-function buildMarlechaBankDetailLines(
+type MarlechaBankDetailRow = { label: string; value: string }
+
+function parseMarlechaBankTemplateLine(line: string): MarlechaBankDetailRow | null {
+  const t = String(line || '').trim()
+  if (!t) return null
+  const idx = t.indexOf(':')
+  if (idx <= 0) return null
+  const label = t.slice(0, idx).trim()
+  const value = t.slice(idx + 1).trim()
+  if (!label || !value) return null
+  return { label, value }
+}
+
+function buildMarlechaBankDetailRows(
   bank?: ErpBankSettings | null,
   templateLines?: string[],
-): string[] {
+): MarlechaBankDetailRow[] {
   if (bank?.bankName || bank?.accountNo || bank?.ifsc || bank?.branch) {
     return [
-      bank.bankName ? `Bank : ${bank.bankName}` : '',
-      bank.accountNo ? `A/C No : ${bank.accountNo}` : '',
-      bank.ifsc ? `IFSC : ${bank.ifsc}` : '',
-      bank.branch ? `Branch : ${bank.branch}` : '',
-    ].filter(Boolean)
+      bank.bankName ? { label: 'Bank', value: bank.bankName } : null,
+      bank.accountNo ? { label: 'A/C No', value: bank.accountNo } : null,
+      bank.ifsc ? { label: 'IFSC', value: bank.ifsc } : null,
+      bank.branch ? { label: 'Branch', value: bank.branch } : null,
+    ].filter((row): row is MarlechaBankDetailRow => !!row)
   }
-  return (templateLines || []).filter(Boolean)
+  return (templateLines || [])
+    .map((line) => parseMarlechaBankTemplateLine(line))
+    .filter((row): row is MarlechaBankDetailRow => !!row)
 }
 
 function BankDetailsBlock({
@@ -516,14 +533,18 @@ function BankDetailsBlock({
   bank?: ErpBankSettings | null
   templateLines?: string[]
 }) {
-  const lines = buildMarlechaBankDetailLines(bank, templateLines)
-  if (!lines.length) return null
+  const rows = buildMarlechaBankDetailRows(bank, templateLines)
+  if (!rows.length) return null
   return (
     <View>
-      {lines.map((line, i) => (
-        <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
-          {sanitizePdfText(line)}
-        </Text>
+      {rows.map((row, i) => (
+        <View
+          key={`bank-line-${i}`}
+          style={{ flexDirection: 'row', alignItems: 'flex-start', ...(i > 0 ? { marginTop: 2 } : {}) }}
+        >
+          <Text style={[styles.bankLine, styles.bankLabelCol]}>{sanitizePdfText(row.label)}</Text>
+          <Text style={[styles.bankLine, styles.bankValueCol]}> : {sanitizePdfText(row.value)}</Text>
+        </View>
       ))}
     </View>
   )
