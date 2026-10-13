@@ -280,8 +280,18 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     color: '#000',
   },
-  footerRow: { flexDirection: 'row', marginTop: 26, minHeight: 86, paddingTop: 2 },
+  footerWrap: { marginTop: 26, paddingTop: 2 },
+  footerMainRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  footerBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 4,
+  },
   termsCol: { width: '48%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 8 },
+  jurisdictionLine: { fontSize: 6.5, fontStyle: 'italic', lineHeight: 1.35 },
   bankCol: {
     width: '28%',
     fontSize: 9.5,
@@ -290,17 +300,36 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     marginLeft: -10,
     alignItems: 'flex-start',
+    paddingBottom: 2,
   },
-  bankLine: { fontFamily: 'Helvetica-Bold', fontWeight: 'bold', color: '#000', fontSize: 9.5 },
-  bankLabelCol: { width: 46, textAlign: 'right' as const },
-  bankValueCol: { flexShrink: 1 },
-  signCol: { width: '24%', fontSize: 8.5, textAlign: 'center', justifyContent: 'flex-start', paddingTop: 0 },
+  bankLine: {
+    fontFamily: 'Courier-Bold',
+    fontWeight: 'bold',
+    color: '#000',
+    fontSize: 9.5,
+    letterSpacing: 0,
+  },
+  signColTop: {
+    width: '24%',
+    fontSize: 8.5,
+    textAlign: 'center',
+    flexDirection: 'column',
+    paddingTop: 0,
+  },
+  signColBottom: { width: '24%', fontSize: 8.5, textAlign: 'center' },
   signCompanyLine: {
     fontWeight: 'bold',
-    marginTop: -25,
+    marginTop: -20,
     textAlign: 'center',
   },
-  signLine: { borderTopWidth: PDF_BORDER, borderTopColor: '#000', marginTop: 52, paddingTop: 3, textAlign: 'center' },
+  signLine: {
+    borderTopWidth: PDF_BORDER,
+    borderTopColor: '#000',
+    marginTop: 0,
+    paddingTop: 4,
+    textAlign: 'center',
+    width: '100%',
+  },
   eRef: { marginTop: 6, fontSize: 7 },
   qr: { width: 88, height: 88, objectFit: 'contain' },
   qrPlaceholder: {
@@ -498,6 +527,15 @@ function renderColumnTable(
 
 type MarlechaBankDetailRow = { label: string; value: string }
 
+/** Fixed character width before colon so bank rows line up in Courier. */
+const BANK_LABEL_FIELD_CHARS = 9
+
+function formatAlignedBankRowText(label: string, value: string): string {
+  const lab = String(label || '').trim()
+  const val = String(value || '').trim()
+  return `${lab.padEnd(BANK_LABEL_FIELD_CHARS, ' ')} : ${val}`
+}
+
 function parseMarlechaBankTemplateLine(line: string): MarlechaBankDetailRow | null {
   const t = String(line || '').trim()
   if (!t) return null
@@ -538,13 +576,9 @@ function BankDetailsBlock({
   return (
     <View>
       {rows.map((row, i) => (
-        <View
-          key={`bank-line-${i}`}
-          style={{ flexDirection: 'row', alignItems: 'flex-start', ...(i > 0 ? { marginTop: 2 } : {}) }}
-        >
-          <Text style={[styles.bankLine, styles.bankLabelCol]}>{sanitizePdfText(row.label)}</Text>
-          <Text style={[styles.bankLine, styles.bankValueCol]}> : {sanitizePdfText(row.value)}</Text>
-        </View>
+        <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
+          {sanitizePdfText(formatAlignedBankRowText(row.label, row.value))}
+        </Text>
       ))}
     </View>
   )
@@ -930,33 +964,54 @@ function InvoicePage({
         </View>
       </View>
 
-      <View style={styles.footerRow}>
-        <View style={styles.termsCol}>
-          {isApproval ? null : (
-            <>
-          <Text style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: 3 }}>
-            {sanitizePdfText(template.termsTitle)}
-          </Text>
-          {template.termsLines.map((t, i) => (
-            <Text key={`term-${i}`}>
-              {i + 1}. {sanitizePdfText(t)}
+      <View style={styles.footerWrap}>
+        <View style={styles.footerMainRow}>
+          <View style={styles.termsCol}>
+            {isApproval ? null : (
+              <>
+                <Text style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: 3 }}>
+                  {sanitizePdfText(template.termsTitle)}
+                </Text>
+                {template.termsLines.map((t, i) => (
+                  <Text key={`term-${i}`}>
+                    {i + 1}. {sanitizePdfText(t)}
+                  </Text>
+                ))}
+              </>
+            )}
+          </View>
+          <View style={styles.bankCol}>
+            <BankDetailsBlock bank={bank} templateLines={template.bankLines} />
+          </View>
+          <View style={styles.signColTop}>
+            <Text style={styles.signCompanyLine}>
+              {template.authorisedForPrefix} {sanitizePdfText(shopDisplay)}
             </Text>
-          ))}
-          <Text style={{ marginTop: 4, fontStyle: 'italic' }}>{sanitizePdfText(template.jurisdictionLine)}</Text>
-            </>
-          )}
-        </View>
-        <View style={styles.bankCol}>
-          <BankDetailsBlock bank={bank} templateLines={template.bankLines} />
-        </View>
-        <View style={styles.signCol}>
-          <Text style={styles.signCompanyLine}>
-            {template.authorisedForPrefix} {sanitizePdfText(shopDisplay)}
-          </Text>
-          <View style={styles.signLine}>
-            <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
           </View>
         </View>
+        {!isApproval ? (
+          <View style={styles.footerBottomRow}>
+            <View style={styles.termsCol}>
+              <Text style={styles.jurisdictionLine}>{sanitizePdfText(template.jurisdictionLine)}</Text>
+            </View>
+            <View style={{ width: '28%' }} />
+            <View style={styles.signColBottom}>
+              <View style={styles.signLine}>
+                <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.footerBottomRow}>
+            <View style={{ width: '48%' }} />
+            <View style={{ width: '28%' }} />
+            <View style={styles.signColBottom}>
+              <View style={styles.signLine}>
+                <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
 
       {variant === 'einvoice' ? (
