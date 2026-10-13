@@ -85,6 +85,7 @@ export async function shareErpQuotePdf(params: {
   const resolvedMobile = await resolveBillCustomerMobile(params.bill, params.mobile)
   let showEstimatePdfPhotos = false
   let showPurityInPdf = false
+  let hideTotalDiscountOnEstimatePdf = false
   try {
     const settingsRes = await axios.get<{ settings?: { printFormats?: unknown } }>(
       '/api/reseller/erp/settings',
@@ -94,6 +95,7 @@ export async function shareErpQuotePdf(params: {
     )
     showEstimatePdfPhotos = pf.showEstimatePdfPhotos === true
     showPurityInPdf = pf.showPurityInBillEstimatePdf === true
+    hideTotalDiscountOnEstimatePdf = pf.minusThreePctSilverRate === true
   } catch {
     /* default off */
   }
@@ -112,6 +114,7 @@ export async function shareErpQuotePdf(params: {
       slabSettingsRaw={params.slabSettingsRaw}
       showEstimatePdfPhotos={showEstimatePdfPhotos}
       showPurityInPdf={showPurityInPdf}
+      hideTotalDiscountOnEstimatePdf={hideTotalDiscountOnEstimatePdf}
     />,
   ).toBlob()
 

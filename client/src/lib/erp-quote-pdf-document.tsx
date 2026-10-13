@@ -399,6 +399,8 @@ export type ErpQuotePdfDocumentProps = {
   showEstimatePdfPhotos?: boolean
   /** From Print formats — purity column (default false). */
   showPurityInPdf?: boolean
+  /** When minus 3% silver on entry is ON — hide total discount chips on estimate PDF. */
+  hideTotalDiscountOnEstimatePdf?: boolean
 }
 
 export function ErpQuotePdfDocument({
@@ -416,6 +418,7 @@ export function ErpQuotePdfDocument({
   slabSettingsRaw,
   showEstimatePdfPhotos = false,
   showPurityInPdf = false,
+  hideTotalDiscountOnEstimatePdf = false,
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
@@ -567,7 +570,7 @@ export function ErpQuotePdfDocument({
               </View>
             </>
           ) : null}
-          {!ratesUnfixed && totals.mcDiscount != null && totals.mcDiscount > 0 ? (
+          {!hideTotalDiscountOnEstimatePdf && !ratesUnfixed && totals.mcDiscount != null && totals.mcDiscount > 0 ? (
             <View style={styles.summaryChip}>
               <Text style={styles.summaryLabel}>MC discount</Text>
               <Text style={styles.summaryValue}>
@@ -575,14 +578,14 @@ export function ErpQuotePdfDocument({
               </Text>
             </View>
           ) : null}
-          {!ratesUnfixed && totals.billingDiscount != null && totals.billingDiscount !== 0 ? (
+          {!hideTotalDiscountOnEstimatePdf && !ratesUnfixed && totals.billingDiscount != null && totals.billingDiscount !== 0 ? (
             <View style={styles.summaryChip}>
               <Text style={styles.summaryLabel}>Total discount</Text>
               <Text style={styles.summaryValue}>
                 Rs.{Math.round(totals.billingDiscount).toLocaleString('en-IN')}
               </Text>
             </View>
-          ) : !ratesUnfixed && totals.mcDiscount != null && totals.mcDiscount > 0 ? (
+          ) : !hideTotalDiscountOnEstimatePdf && !ratesUnfixed && totals.mcDiscount != null && totals.mcDiscount > 0 ? (
             <View style={styles.summaryChip}>
               <Text style={styles.summaryLabel}>Total discount</Text>
               <Text style={styles.summaryValue}>
