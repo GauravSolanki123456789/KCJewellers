@@ -290,17 +290,20 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginTop: 4,
   },
-  termsCol: { width: '48%', fontSize: 6.5, lineHeight: 1.35, paddingRight: 8 },
+  footerColLeft: { flex: 1, fontSize: 6.5, lineHeight: 1.35, paddingRight: 8 },
+  footerColCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 0,
+    paddingBottom: 2,
+  },
+  footerColRight: { flex: 1, alignItems: 'center', justifyContent: 'flex-start' },
   jurisdictionLine: { fontSize: 6.5, fontStyle: 'italic', lineHeight: 1.35 },
   bankCol: {
-    width: '28%',
     fontSize: 9.5,
     lineHeight: 1.4,
-    paddingTop: 0,
-    paddingLeft: 0,
-    marginLeft: -10,
-    alignItems: 'flex-start',
-    paddingBottom: 2,
+    alignItems: 'center',
   },
   bankLine: {
     fontFamily: 'Courier-Bold',
@@ -310,13 +313,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   signColTop: {
-    width: '24%',
     fontSize: 8.5,
     textAlign: 'center',
     flexDirection: 'column',
     paddingTop: 0,
+    width: '100%',
   },
-  signColBottom: { width: '24%', fontSize: 8.5, textAlign: 'center' },
+  signColBottom: { fontSize: 8.5, textAlign: 'center', width: '100%' },
   signCompanyLine: {
     fontWeight: 'bold',
     marginTop: -20,
@@ -574,7 +577,7 @@ function BankDetailsBlock({
   const rows = buildMarlechaBankDetailRows(bank, templateLines)
   if (!rows.length) return null
   return (
-    <View>
+    <View style={styles.bankCol}>
       {rows.map((row, i) => (
         <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
           {sanitizePdfText(formatAlignedBankRowText(row.label, row.value))}
@@ -966,7 +969,7 @@ function InvoicePage({
 
       <View style={styles.footerWrap}>
         <View style={styles.footerMainRow}>
-          <View style={styles.termsCol}>
+          <View style={styles.footerColLeft}>
             {isApproval ? null : (
               <>
                 <Text style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: 3 }}>
@@ -980,34 +983,40 @@ function InvoicePage({
               </>
             )}
           </View>
-          <View style={styles.bankCol}>
+          <View style={styles.footerColCenter}>
             <BankDetailsBlock bank={bank} templateLines={template.bankLines} />
           </View>
-          <View style={styles.signColTop}>
-            <Text style={styles.signCompanyLine}>
-              {template.authorisedForPrefix} {sanitizePdfText(shopDisplay)}
-            </Text>
+          <View style={styles.footerColRight}>
+            <View style={styles.signColTop}>
+              <Text style={styles.signCompanyLine}>
+                {template.authorisedForPrefix} {sanitizePdfText(shopDisplay)}
+              </Text>
+            </View>
           </View>
         </View>
         {!isApproval ? (
           <View style={styles.footerBottomRow}>
-            <View style={styles.termsCol}>
+            <View style={styles.footerColLeft}>
               <Text style={styles.jurisdictionLine}>{sanitizePdfText(template.jurisdictionLine)}</Text>
             </View>
-            <View style={{ width: '28%' }} />
-            <View style={styles.signColBottom}>
-              <View style={styles.signLine}>
-                <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+            <View style={styles.footerColCenter} />
+            <View style={styles.footerColRight}>
+              <View style={styles.signColBottom}>
+                <View style={styles.signLine}>
+                  <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+                </View>
               </View>
             </View>
           </View>
         ) : (
           <View style={styles.footerBottomRow}>
-            <View style={{ width: '48%' }} />
-            <View style={{ width: '28%' }} />
-            <View style={styles.signColBottom}>
-              <View style={styles.signLine}>
-                <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+            <View style={styles.footerColLeft} />
+            <View style={styles.footerColCenter} />
+            <View style={styles.footerColRight}>
+              <View style={styles.signColBottom}>
+                <View style={styles.signLine}>
+                  <Text>{sanitizePdfText(template.authorisedSignatoryLabel)}</Text>
+                </View>
               </View>
             </View>
           </View>
