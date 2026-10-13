@@ -355,10 +355,6 @@ export function ErpPrintFormatsWorkspace() {
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Bill, estimate &amp; approval PDF — purity column
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-              When ON, tax invoice, Marlecha bill, delivery challan, and estimate PDFs include a Purity column (80,
-              92.5, 925, etc.). Default is OFF. Save print formats after changing.
-            </p>
           </div>
           <button
             type="button"
@@ -390,11 +386,6 @@ export function ErpPrintFormatsWorkspace() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Silver rate — minus 3% on entry
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-              When ON, any silver ₹/g typed in wholesale/slab rate dialogs (Slab W, R1, F, or Edit wholesale
-              rates) is stored as 3% less (e.g. 226 → 219.22). Applies to billing lines and estimate PDFs.
-              Default is OFF. Not shown on Scan &amp; bill.
             </p>
           </div>
           <button

@@ -258,9 +258,6 @@ export default function PdfViewerOverlay() {
                 ))}
               </select>
             </label>
-            <p className="mt-1 text-[11px] text-[#1a1814]/55">
-              Download, print, and WhatsApp send only this copy. Default is the first label above.
-            </p>
           </div>
         ) : null}
 
