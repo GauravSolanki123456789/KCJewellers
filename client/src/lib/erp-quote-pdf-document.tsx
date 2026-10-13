@@ -22,6 +22,7 @@ import {
 } from '@/lib/erp-quote-pdf-summary'
 import { isPiecePricedBillLine, parseSlabSettingsFromUser } from '@/lib/erp-billing-pricing'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
+import { formatErpPdfPurity } from '@/lib/erp-pdf-purity'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
@@ -36,10 +37,6 @@ function paymentMethodPdfLabel(method?: string | null): string {
   if (m === 'card') return 'Card'
   if (m === 'mixed') return 'Mixed'
   return method ? String(method) : '—'
-}
-
-function isSilverMetal(line: ErpBillLine): boolean {
-  return String(line.metal_type || '').toLowerCase().startsWith('silver')
 }
 
 /** Pure weight for PDF: Net Wt × Metal(%). */
@@ -82,8 +79,8 @@ function buildPdfColumns(
   rateSlab: ErpRateSlab,
   ratesUnfixed: boolean,
   slabSettings?: ResellerSlabSettings | null,
+  showPurityColumn = false,
 ): PdfCol[] {
-  const hasGold = lines.some((l) => !isSilverMetal(l))
   const showSlabPct = lines.some((l) => lineHasMetalSlabPctInput(l, rateSlab))
 
   const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
@@ -110,7 +107,7 @@ function buildPdfColumns(
     ...(showSlabPct ? [{ key: 'slabPct', label: 'Metal(%)', w: '4%' }] : []),
     { key: 'wast', label: 'W%', w: '3%' },
     { key: 'wt', label: showSlabPct ? 'Pure Wt' : 'PureWt', w: '5%' },
-    ...(hasGold ? [{ key: 'purity', label: 'Pur', w: '4%' }] : []),
+    ...(showPurityColumn ? [{ key: 'purity', label: 'Pur', w: '4%' }] : []),
     { key: 'rate', label: 'Rate', w: '5%' },
     { key: 'mc', label: 'MC', w: '5%' },
     ...(showMcR ? [{ key: 'mcR', label: 'MC R', w: '4%' }] : []),
@@ -126,6 +123,7 @@ function buildPdfColumns(
   ]
 
   return candidates.filter((col) => {
+    if (col.key === 'purity' && showPurityColumn) return true
     if (ratesUnfixed && rateUnfixAlways.has(col.key)) return true
     if (col.key === 'rate' && hasMetalRate) return true
     return lines.some((line) => {
@@ -316,8 +314,7 @@ function cell(
       if (lineHasMetalSlabPctInput(line, rateSlab)) return pdfPureWtDisplay(line, rateSlab)
       return pdfBillWtGrossDisplay(line, rateSlab)
     case 'purity':
-      if (isSilverMetal(line)) return '—'
-      return line.purity != null ? String(line.purity) : '—'
+      return formatErpPdfPurity(line.purity) || ''
     case 'wast':
       return String(billingWastageDisplay(line, rateSlab) || '—')
     case 'rate': {
@@ -390,6 +387,8 @@ export type ErpQuotePdfDocumentProps = {
   slabSettingsRaw?: unknown
   /** From Print formats → Estimate (default false). */
   showEstimatePdfPhotos?: boolean
+  /** From Print formats — purity column (default false). */
+  showPurityInPdf?: boolean
 }
 
 export function ErpQuotePdfDocument({
@@ -406,6 +405,7 @@ export function ErpQuotePdfDocument({
   layoutMode = 'detailed',
   slabSettingsRaw,
   showEstimatePdfPhotos = false,
+  showPurityInPdf = false,
 }: ErpQuotePdfDocumentProps) {
   const palette = useMemo(() => getKcPdfPalette(kcThemeId || undefined), [kcThemeId])
   const styles = useMemo(() => buildStyles(palette), [palette])
@@ -420,8 +420,8 @@ export function ErpQuotePdfDocument({
     return groupBillLinesForSummaryPdf(rawLines, rateSlab)
   }, [rawLines, layoutMode, rateSlab])
   const cols = useMemo(
-    () => buildPdfColumns(lines, rateSlab, ratesUnfixed, slabSettings),
-    [lines, rateSlab, ratesUnfixed, slabSettings],
+    () => buildPdfColumns(lines, rateSlab, ratesUnfixed, slabSettings, showPurityInPdf),
+    [lines, rateSlab, ratesUnfixed, slabSettings, showPurityInPdf],
   )
   const isInvoice = documentKind === 'invoice'
   const docLabel = isInvoice ? 'Tax Invoice' : 'Quotation'

@@ -7,6 +7,7 @@ import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatPdfAddressLines } from '@/lib/erp-customer-address-format'
+import { billLinePdfPurityText } from '@/lib/erp-pdf-purity'
 
 export type ErpGstSettings = {
   gstin?: string | null
@@ -51,6 +52,8 @@ export type ErpTaxInvoicePdfDocumentProps = {
   mrpItemNames?: Set<string>
   /** customer | office — render one copy per page */
   copyLabel?: 'CUSTOMER COPY' | 'OFFICE COPY'
+  /** Print formats — show purity column (default false). */
+  showPurityInPdf?: boolean
 }
 
 const styles = StyleSheet.create({
@@ -225,18 +228,19 @@ const COL_WIDTHS = {
   total: '23%',
 } as const
 
+const COL_WIDTHS_NO_PURITY = {
+  sl: '5%',
+  item: '27%',
+  hsn: '11%',
+  pcs: '8%',
+  wt: '14%',
+  rate: '14%',
+  total: '21%',
+} as const
+
 function formatBillDate(bill: ErpBill): string {
   const raw = bill.bill_date || bill.created_at
   return formatErpDateDdMmYyyy(raw).replace(/\//g, '-')
-}
-
-function formatPurityDisplay(purity: number | null | undefined): string {
-  if (purity == null) return '—'
-  const n = Number(purity)
-  if (!Number.isFinite(n)) return String(purity)
-  if (n >= 100) return String(n / 10)
-  if (n <= 99.9 && n >= 10) return String(n)
-  return String(n)
 }
 
 function lineItemName(line: ErpBillLine): string {
@@ -270,7 +274,9 @@ function InvoiceCopyPage({
   compliance,
   lines,
   mrpItemNames,
+  showPurityInPdf = false,
 }: ErpTaxInvoicePdfDocumentProps & { lines: ErpBillLine[] }) {
+  const colW = showPurityInPdf ? COL_WIDTHS : COL_WIDTHS_NO_PURITY
   const gstValue = totals.subtotal
   const cgst = totals.gst / 2
   const sgst = totals.gst / 2
@@ -349,14 +355,14 @@ function InvoiceCopyPage({
       <View style={styles.table}>
         <View style={styles.tableHead}>
           {[
-            { w: COL_WIDTHS.sl, label: 'Sl' },
-            { w: COL_WIDTHS.item, label: 'ITEM' },
-            { w: COL_WIDTHS.hsn, label: 'HSN' },
-            { w: COL_WIDTHS.pcs, label: 'PCS' },
-            { w: COL_WIDTHS.wt, label: 'Weight\nIn Gms' },
-            { w: COL_WIDTHS.purity, label: 'Purity' },
-            { w: COL_WIDTHS.rate, label: 'Rate' },
-            { w: COL_WIDTHS.total, label: 'TOTAL' },
+            { w: colW.sl, label: 'Sl' },
+            { w: colW.item, label: 'ITEM' },
+            { w: colW.hsn, label: 'HSN' },
+            { w: colW.pcs, label: 'PCS' },
+            { w: colW.wt, label: 'Weight\nIn Gms' },
+            ...(showPurityInPdf ? [{ w: COL_WIDTHS.purity, label: 'Purity' }] : []),
+            { w: colW.rate, label: 'Rate' },
+            { w: colW.total, label: 'TOTAL' },
           ].map((c, idx, arr) => (
             <View
               key={c.label}
@@ -384,40 +390,44 @@ function InvoiceCopyPage({
                 : null
           return (
             <View key={`line-${i}`} style={styles.tableRow}>
-              <Text style={[styles.tableCell, { width: COL_WIDTHS.sl }]}>{i + 1}</Text>
-              <Text style={[styles.tableCell, styles.tableCellLeft, { width: COL_WIDTHS.item }]}>
+              <Text style={[styles.tableCell, { width: colW.sl }]}>{i + 1}</Text>
+              <Text style={[styles.tableCell, styles.tableCellLeft, { width: colW.item }]}>
                 {sanitizePdfText(lineItemName(line))}
               </Text>
-              <Text style={[styles.tableCell, { width: COL_WIDTHS.hsn }]}>{sanitizePdfText(lineHsn(line))}</Text>
-              <Text style={[styles.tableCell, { width: COL_WIDTHS.pcs }]}>{mrp ? qty : '—'}</Text>
-              <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.wt }]}>
+              <Text style={[styles.tableCell, { width: colW.hsn }]}>{sanitizePdfText(lineHsn(line))}</Text>
+              <Text style={[styles.tableCell, { width: colW.pcs }]}>{mrp ? qty : '—'}</Text>
+              <Text style={[styles.tableCell, styles.tableCellRight, { width: colW.wt }]}>
                 {!mrp && netGm > 0 ? netGm.toFixed(3) : '—'}
               </Text>
-              <Text style={[styles.tableCell, { width: COL_WIDTHS.purity }]}>
-                {mrp ? '—' : formatPurityDisplay(line.purity)}
-              </Text>
-              <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.rate }]}>
+              {showPurityInPdf ? (
+                <Text style={[styles.tableCell, { width: COL_WIDTHS.purity }]}>
+                  {mrp ? '' : billLinePdfPurityText(line, lines)}
+                </Text>
+              ) : null}
+              <Text style={[styles.tableCell, styles.tableCellRight, { width: colW.rate }]}>
                 {rate != null && Number.isFinite(rate) ? rate.toFixed(2) : '—'}
               </Text>
-              <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.total, borderRightWidth: 0 }]}>
+              <Text style={[styles.tableCell, styles.tableCellRight, { width: colW.total, borderRightWidth: 0 }]}>
                 {taxable.toFixed(2)}
               </Text>
             </View>
           )
         })}
         <View style={[styles.tableRow, { backgroundColor: '#faf8f4' }]}>
-          <Text style={[styles.tableCell, { width: COL_WIDTHS.sl, borderRightWidth: 0 }]} />
-          <Text style={[styles.tableCell, styles.tableCellLeft, { width: COL_WIDTHS.item, fontWeight: 'bold' }]}>
+          <Text style={[styles.tableCell, { width: colW.sl, borderRightWidth: 0 }]} />
+          <Text style={[styles.tableCell, styles.tableCellLeft, { width: colW.item, fontWeight: 'bold' }]}>
             Total
           </Text>
-          <Text style={[styles.tableCell, { width: COL_WIDTHS.hsn }]} />
-          <Text style={[styles.tableCell, { width: COL_WIDTHS.pcs, fontWeight: 'bold' }]}>{totalPcs}</Text>
-          <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.wt, fontWeight: 'bold' }]}>
+          <Text style={[styles.tableCell, { width: colW.hsn }]} />
+          <Text style={[styles.tableCell, { width: colW.pcs, fontWeight: 'bold' }]}>{totalPcs}</Text>
+          <Text style={[styles.tableCell, styles.tableCellRight, { width: colW.wt, fontWeight: 'bold' }]}>
             {totalWeight.toFixed(3)}
           </Text>
-          <Text style={[styles.tableCell, { width: COL_WIDTHS.purity, borderRightWidth: 0 }]} />
-          <Text style={[styles.tableCell, { width: COL_WIDTHS.rate, borderRightWidth: 0 }]} />
-          <Text style={[styles.tableCell, styles.tableCellRight, { width: COL_WIDTHS.total, borderRightWidth: 0, fontWeight: 'bold' }]}>
+          {showPurityInPdf ? (
+            <Text style={[styles.tableCell, { width: COL_WIDTHS.purity, borderRightWidth: 0 }]} />
+          ) : null}
+          <Text style={[styles.tableCell, { width: colW.rate, borderRightWidth: 0 }]} />
+          <Text style={[styles.tableCell, styles.tableCellRight, { width: colW.total, borderRightWidth: 0, fontWeight: 'bold' }]}>
             {gstValue.toFixed(2)}
           </Text>
         </View>

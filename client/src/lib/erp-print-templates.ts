@@ -376,6 +376,8 @@ export type ErpPrintFormatsSettings = {
   estimateDuplicateCopy?: boolean
   /** Photo grid on quotation PDF (default off). Set in Print formats → Estimate tab. */
   showEstimatePdfPhotos?: boolean
+  /** Purity column on bill, estimate, and approval PDFs (default off). Print formats. */
+  showPurityInBillEstimatePdf?: boolean
   shopName?: string
   shopAddress?: string
   shopPhone?: string
@@ -577,6 +579,7 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   if (!pf.estimatePrintMode) pf.estimatePrintMode = 'rough'
   if (pf.estimateDuplicateCopy == null) pf.estimateDuplicateCopy = true
   if (pf.showEstimatePdfPhotos == null) pf.showEstimatePdfPhotos = false
+  if (pf.showPurityInBillEstimatePdf == null) pf.showPurityInBillEstimatePdf = false
   if (!pf.shopName) pf.shopName = 'B N MARLECHA SILVER'
   return pf
 }

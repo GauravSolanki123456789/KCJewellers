@@ -11,6 +11,7 @@ import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { buildErpSalesPdfFilename } from '@/lib/erp-sales-invoice-template'
 import { normalizeAddressField } from '@/lib/erp-customer-address-format'
 import { normalizeTaxInvoiceTemplate } from '@/lib/erp-tax-invoice-template'
+import { migratePrintFormats } from '@/lib/erp-print-templates'
 import { mrpInvoiceItemNames, fetchGstInvoiceItems } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 
 function normalizeMobileDigits(raw: string | null | undefined): string {
@@ -67,6 +68,8 @@ export async function buildErpSalesPdfPayload(params: {
   }
 
   const settings = await loadErpSettingsBundle()
+  const printFormats = migratePrintFormats(settings.printFormats)
+  const showPurityInPdf = printFormats.showPurityInBillEstimatePdf === true
   const session = (params.bill.session || {}) as ErpBillSession
   const gst = {
     gstin: params.gstin ?? settings.gst?.gstin ?? null,
@@ -187,9 +190,14 @@ export async function buildErpSalesPdfPayload(params: {
         templateConfig={isEinvoicePdf ? einvoiceTemplateConfig : billTemplateConfig}
         variant={pdfVariant}
         approvalNarration={approvalNarration}
+        showPurityInPdf={showPurityInPdf}
       />
     ) : (
-      <ErpTaxInvoicePdfDocument {...docProps} mrpItemNames={mrpNames} />
+      <ErpTaxInvoicePdfDocument
+        {...docProps}
+        mrpItemNames={mrpNames}
+        showPurityInPdf={showPurityInPdf}
+      />
     ),
   ).toBlob()
 

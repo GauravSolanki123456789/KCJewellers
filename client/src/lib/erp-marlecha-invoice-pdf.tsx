@@ -9,6 +9,7 @@ import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlemen
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import { formatPdfAddressLines } from '@/lib/erp-customer-address-format'
+import { billLinePdfPurityText } from '@/lib/erp-pdf-purity'
 import {
   isInterstateSupply,
   paymentMethodInvoiceLabel,
@@ -37,9 +38,12 @@ export type ConfigurableTaxInvoiceProps = ErpTaxInvoicePdfDocumentProps & {
   /** Printed in place of payment method on approval challans. */
   approvalNarration?: string | null
   mrpItemNames?: Set<string>
+  /** From Print formats — purity column on bill / approval PDF. */
+  showPurityInPdf?: boolean
 }
 
 const UNIFIED_COL_W = ['5%', '22%', '10%', '8%', '12%', '12%', '12%', '19%'] as const
+const UNIFIED_COL_W_WITH_PURITY = ['5%', '20%', '9%', '7%', '10%', '10%', '8%', '10%', '21%'] as const
 const UNIFIED_COLS = [
   'SINO',
   'Description of\nGoods',
@@ -47,6 +51,17 @@ const UNIFIED_COLS = [
   'Qty',
   'Gross Wt\n(g)',
   'Net Wt\n(g)',
+  'Rate',
+  'Amount\n(in Rs.)',
+] as const
+const UNIFIED_COLS_WITH_PURITY = [
+  'SINO',
+  'Description of\nGoods',
+  'HSN\nCode',
+  'Qty',
+  'Gross Wt\n(g)',
+  'Net Wt\n(g)',
+  'Purity',
   'Rate',
   'Amount\n(in Rs.)',
 ] as const
@@ -330,6 +345,7 @@ const styles = StyleSheet.create({
   },
   bankValue: {
     fontSize: 9.5,
+    fontWeight: 'bold',
     color: '#000',
     flexShrink: 0,
   },
@@ -449,7 +465,12 @@ function roundInr2(n: number): number {
 type ColumnAlign = 'left' | 'center' | 'right'
 
 function columnAlignments(count: number, kind: 'weight' | 'mrp' | 'unified'): ColumnAlign[] {
-  if (kind === 'unified' || count >= 8) {
+  if (kind === 'unified' || count >= 9) {
+    return (
+      ['center', 'left', 'center', 'center', 'right', 'right', 'center', 'right', 'right'] as ColumnAlign[]
+    ).slice(0, count)
+  }
+  if (count >= 8) {
     return (['center', 'left', 'center', 'center', 'right', 'right', 'right', 'right'] as ColumnAlign[]).slice(
       0,
       count,
@@ -470,7 +491,7 @@ function renderColumnTable(
   opts?: { fillRemaining?: boolean; footerCells?: string[] },
 ) {
   const kind: 'weight' | 'mrp' | 'unified' =
-    widths.length >= 8 ? 'unified' : widths.length >= 7 ? 'weight' : 'mrp'
+    widths.length >= 9 ? 'unified' : widths.length >= 8 ? 'unified' : widths.length >= 7 ? 'weight' : 'mrp'
   const aligns = columnAlignments(widths.length, kind)
   const last = widths.length - 1
   const rowStyle = opts?.fillRemaining ? styles.tableColumnsRow : styles.tableColumnsRowFixed
@@ -657,6 +678,7 @@ function InvoicePage({
   mrpItemNames,
   variant = 'bill',
   approvalNarration,
+  showPurityInPdf = false,
 }: {
   copyLabel: string
   template: ErpTaxInvoiceTemplateConfig
@@ -678,6 +700,7 @@ function InvoicePage({
   mrpItemNames?: Set<string>
   variant?: 'bill' | 'einvoice' | 'approval'
   approvalNarration?: string | null
+  showPurityInPdf?: boolean
 }) {
   const placeOfSupply =
     String(session.placeOfSupply || gst.placeOfSupply || '').trim() || 'Tamil Nadu'
@@ -729,10 +752,11 @@ function InvoicePage({
     const desc = line.invoice_item_name || line.name || 'JEWELLERY'
     const hsn = line.hsn_code || '711311'
     const qty = lineQty(line)
+    const purityCell = showPurityInPdf ? billLinePdfPurityText(line, lines) : ''
     if (marlechaFlatMrpRow(line, mrpItemNames)) {
       const amt = Number(line.lineTotalInr) || 0
       const rate = linePieceRate(line)
-      return [
+      const base = [
         slNo,
         desc,
         hsn,
@@ -742,6 +766,8 @@ function InvoicePage({
         rate > 0 ? rate.toFixed(2) : '—',
         amt.toFixed(2),
       ]
+      if (!showPurityInPdf) return base
+      return [slNo, desc, hsn, String(qty), '—', '—', purityCell, rate > 0 ? rate.toFixed(2) : '—', amt.toFixed(2)]
     }
     const lineAmtInr = isApproval
       ? Number(line.lineTotalInr) || 0
@@ -749,6 +775,17 @@ function InvoicePage({
     const grossTotal = lineTotalGrossGm(line)
     const netTotal = lineTotalNetGm(line)
     const rate = lineRatePerGram(line, lineAmtInr, true)
+    const base = [
+      slNo,
+      desc,
+      hsn,
+      String(qty),
+      grossTotal > 0 ? grossTotal.toFixed(2) : '—',
+      netTotal > 0 ? netTotal.toFixed(2) : '—',
+      rate > 0 ? rate.toFixed(2) : '—',
+      lineAmtInr > 0 ? lineAmtInr.toFixed(2) : '—',
+    ]
+    if (!showPurityInPdf) return base
     return [
       slNo,
       desc,
@@ -756,6 +793,7 @@ function InvoicePage({
       String(qty),
       grossTotal > 0 ? grossTotal.toFixed(2) : '—',
       netTotal > 0 ? netTotal.toFixed(2) : '—',
+      purityCell,
       rate > 0 ? rate.toFixed(2) : '—',
       lineAmtInr > 0 ? lineAmtInr.toFixed(2) : '—',
     ]
@@ -777,18 +815,32 @@ function InvoicePage({
     String(customerShippingAddress || '').trim().length > 0
   const totalQty = lines.reduce((sum, line) => sum + lineQty(line), 0)
   const totalNetWt = roundInr2(lines.reduce((sum, line) => sum + lineTotalNetGm(line), 0))
+  const unifiedCols = showPurityInPdf ? [...UNIFIED_COLS_WITH_PURITY] : [...UNIFIED_COLS]
+  const unifiedWidths = showPurityInPdf ? [...UNIFIED_COL_W_WITH_PURITY] : [...UNIFIED_COL_W]
   const tableFooterCells =
     !isApproval && unifiedRows.length > 0
-      ? [
-          '',
-          'Total',
-          '',
-          String(totalQty),
-          '',
-          totalNetWt > 0 ? totalNetWt.toFixed(3) : '—',
-          '',
-          taxable > 0 ? taxable.toFixed(2) : '—',
-        ]
+      ? showPurityInPdf
+        ? [
+            '',
+            'Total',
+            '',
+            String(totalQty),
+            '',
+            totalNetWt > 0 ? totalNetWt.toFixed(3) : '—',
+            '',
+            '',
+            taxable > 0 ? taxable.toFixed(2) : '—',
+          ]
+        : [
+            '',
+            'Total',
+            '',
+            String(totalQty),
+            '',
+            totalNetWt > 0 ? totalNetWt.toFixed(3) : '—',
+            '',
+            taxable > 0 ? taxable.toFixed(2) : '—',
+          ]
       : undefined
 
   return (
@@ -903,7 +955,7 @@ function InvoicePage({
 
       <View style={styles.table}>
         {unifiedRows.length > 0
-          ? renderColumnTable('unified', [...UNIFIED_COLS], [...UNIFIED_COL_W], unifiedRows, {
+          ? renderColumnTable('unified', unifiedCols, unifiedWidths, unifiedRows, {
               fillRemaining: true,
               footerCells: tableFooterCells,
             })
@@ -1073,9 +1125,27 @@ export function ErpConfigurableTaxInvoicePdfDocument(props: ConfigurableTaxInvoi
 
   return (
     <Document>
-      <InvoicePage {...pageProps} copyLabel={copies[0]} variant={props.variant || 'bill'} approvalNarration={props.approvalNarration} />
-      <InvoicePage {...pageProps} copyLabel={copies[1]} variant={props.variant || 'bill'} approvalNarration={props.approvalNarration} />
-      <InvoicePage {...pageProps} copyLabel={copies[2]} variant={props.variant || 'bill'} approvalNarration={props.approvalNarration} />
+      <InvoicePage
+        {...pageProps}
+        copyLabel={copies[0]}
+        variant={props.variant || 'bill'}
+        approvalNarration={props.approvalNarration}
+        showPurityInPdf={props.showPurityInPdf === true}
+      />
+      <InvoicePage
+        {...pageProps}
+        copyLabel={copies[1]}
+        variant={props.variant || 'bill'}
+        approvalNarration={props.approvalNarration}
+        showPurityInPdf={props.showPurityInPdf === true}
+      />
+      <InvoicePage
+        {...pageProps}
+        copyLabel={copies[2]}
+        variant={props.variant || 'bill'}
+        approvalNarration={props.approvalNarration}
+        showPurityInPdf={props.showPurityInPdf === true}
+      />
     </Document>
   )
 }

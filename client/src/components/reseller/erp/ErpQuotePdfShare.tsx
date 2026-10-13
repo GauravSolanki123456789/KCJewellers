@@ -84,14 +84,16 @@ export async function shareErpQuotePdf(params: {
   const ratesUnfixed = billRatesUnfixed(billForPdf)
   const resolvedMobile = await resolveBillCustomerMobile(params.bill, params.mobile)
   let showEstimatePdfPhotos = false
+  let showPurityInPdf = false
   try {
     const settingsRes = await axios.get<{ settings?: { printFormats?: unknown } }>(
       '/api/reseller/erp/settings',
     )
-    showEstimatePdfPhotos =
-      migratePrintFormats(
-        settingsRes.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
-      ).showEstimatePdfPhotos === true
+    const pf = migratePrintFormats(
+      settingsRes.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
+    )
+    showEstimatePdfPhotos = pf.showEstimatePdfPhotos === true
+    showPurityInPdf = pf.showPurityInBillEstimatePdf === true
   } catch {
     /* default off */
   }
@@ -109,6 +111,7 @@ export async function shareErpQuotePdf(params: {
       layoutMode={params.layoutMode ?? 'detailed'}
       slabSettingsRaw={params.slabSettingsRaw}
       showEstimatePdfPhotos={showEstimatePdfPhotos}
+      showPurityInPdf={showPurityInPdf}
     />,
   ).toBlob()
 

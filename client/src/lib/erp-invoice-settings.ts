@@ -144,6 +144,7 @@ export type ErpSettingsBundle = {
   }
   taxInvoiceTemplate?: import('@/lib/erp-tax-invoice-template').ErpTaxInvoiceTemplateConfig
   einvoiceTaxInvoiceTemplate?: import('@/lib/erp-tax-invoice-template').ErpTaxInvoiceTemplateConfig
+  printFormats?: import('@/lib/erp-print-templates').ErpPrintFormatsSettings
 }
 
 export async function loadErpSettingsBundle(): Promise<ErpSettingsBundle> {
