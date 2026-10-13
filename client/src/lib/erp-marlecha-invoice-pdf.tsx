@@ -300,10 +300,15 @@ const styles = StyleSheet.create({
   },
   footerColRight: { flex: 1, alignItems: 'center', justifyContent: 'flex-start' },
   jurisdictionLine: { fontSize: 6.5, fontStyle: 'italic', lineHeight: 1.35 },
+  /** Centers the bank block in the footer column without centering each line separately. */
+  bankBlockWrap: {
+    alignSelf: 'center',
+    alignItems: 'flex-start',
+  },
   bankCol: {
     fontSize: 9.5,
     lineHeight: 1.4,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   bankLine: {
     fontFamily: 'Courier-Bold',
@@ -311,6 +316,7 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 9.5,
     letterSpacing: 0,
+    textAlign: 'left',
   },
   signColTop: {
     fontSize: 8.5,
@@ -577,12 +583,14 @@ function BankDetailsBlock({
   const rows = buildMarlechaBankDetailRows(bank, templateLines)
   if (!rows.length) return null
   return (
-    <View style={styles.bankCol}>
-      {rows.map((row, i) => (
-        <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
-          {sanitizePdfText(formatAlignedBankRowText(row.label, row.value))}
-        </Text>
-      ))}
+    <View style={styles.bankBlockWrap}>
+      <View style={styles.bankCol}>
+        {rows.map((row, i) => (
+          <Text key={`bank-line-${i}`} style={[styles.bankLine, ...(i > 0 ? [{ marginTop: 2 }] : [])]}>
+            {sanitizePdfText(formatAlignedBankRowText(row.label, row.value))}
+          </Text>
+        ))}
+      </View>
     </View>
   )
 }
