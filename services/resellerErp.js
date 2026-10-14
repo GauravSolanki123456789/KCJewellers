@@ -1228,7 +1228,7 @@ function registerResellerErpRoutes(app, deps) {
         try {
             const rawRows = Array.isArray(req.body.rows) ? req.body.rows : [];
             if (!rawRows.length) return res.status(400).json({ error: 'rows required' });
-            if (rawRows.length > 2000) return res.status(400).json({ error: 'Max 2000 rows' });
+            if (rawRows.length > 5000) return res.status(400).json({ error: 'Max 5000 rows' });
 
             let inserted = 0;
             let skipped = 0;

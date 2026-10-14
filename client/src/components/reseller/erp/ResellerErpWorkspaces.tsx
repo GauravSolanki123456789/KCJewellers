@@ -16,6 +16,7 @@ import {
   addressPayloadFromTextarea,
   normalizeAddressField,
 } from '@/lib/erp-customer-address-format'
+import { mapBulkCustomerSpreadsheetRow } from '@/lib/erp-customer-bulk-import'
 import { clearErpModuleSession } from '@/lib/erp-module-session'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
@@ -252,8 +253,6 @@ export function CustomersWorkspace() {
     await load()
   }
 
-  const CUSTOMER_COLS = ['Name', 'Mobile', 'Email', 'GSTIN', 'PAN', 'Address', 'Birthday', 'Anniversary', 'Notes', 'Slab'] as const
-
   const downloadAllExcel = async () => {
     setBusy(true)
     setMsg(null)
@@ -291,13 +290,28 @@ export function CustomersWorkspace() {
         Name: 'Sample Customer',
         Mobile: '9876543210',
         Email: 'sample@example.com',
-        GSTIN: '',
+        GSTIN: '33AAAAA0000A1Z5',
         PAN: 'ABCDE1234F',
-        Address: 'City, State',
+        Address: 'NO. 5E ANNA STREET,\nGANDHI NAGAR,\nCHENNAI - 600093',
         Birthday: '15/01/1990',
         Anniversary: '20/06/2015',
         Notes: 'Optional notes',
-        Slab: 'W',
+        Slab: 'R',
+      },
+      {
+        Name: 'Split address columns (e.g. ACCOUNTS export)',
+        Mobile: '9884078024',
+        Email: '',
+        GSTIN: '33ACUFS1681H1ZQ',
+        PAN: 'ACUFS1681H',
+        Address1: 'NO.142',
+        Address2: 'NSC BOSE ROAD, 1ST FLOOR',
+        Place: 'CHENNAI',
+        Pincode: '600079',
+        Birthday: '',
+        Anniversary: '',
+        Notes: '',
+        Slab: 'R1',
       },
     ]
     const ws = XLSX.utils.json_to_sheet(sample)
@@ -316,19 +330,16 @@ export function CustomersWorkspace() {
       const sheet = wb.Sheets[wb.SheetNames[0]]
       const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
       if (!raw.length) throw new Error('No rows in file')
-      const rows = raw.map((row) => {
-        const out: Record<string, string> = {}
-        for (const col of CUSTOMER_COLS) {
-          const v = row[col] ?? row[col.toLowerCase()] ?? row[col.toUpperCase()]
-          if (v != null && String(v).trim() !== '') out[col] = String(v).trim()
-        }
-        const slabVal = row.Slab ?? row.SLAB ?? row.slab ?? row.rate_slab
-        if (slabVal != null && String(slabVal).trim() !== '') {
-          out.Slab = String(slabVal).trim()
-          out.rate_slab = String(slabVal).trim()
-        }
-        return out
-      })
+      const rows = raw
+        .map((row) => mapBulkCustomerSpreadsheetRow(row))
+        .filter((row) => row.Name.trim())
+        .map((row) => {
+          const out: Record<string, string> = {}
+          for (const [k, v] of Object.entries(row)) {
+            if (v != null && String(v).trim() !== '') out[k] = String(v).trim()
+          }
+          return out
+        })
       const res = await axios.post<{ inserted: number; skipped: number }>('/api/reseller/erp/customers/bulk', { rows })
       setMsg(`Bulk upload: ${res.data.inserted} added, ${res.data.skipped} skipped.`)
       await load()
@@ -434,6 +445,14 @@ export function CustomersWorkspace() {
           }}
         />
       </div>
+      <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+        <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/75">Address in Excel:</span>{' '}
+        use one <span className="font-medium">Address</span> cell with up to 3 lines (Alt+Enter), or columns{' '}
+        <span className="font-medium">Address1</span>, <span className="font-medium">Address2</span>,{' '}
+        <span className="font-medium">Place</span>, <span className="font-medium">Pincode</span> (same as ACCOUNTS.xls:{' '}
+        <span className="font-medium">aname</span>, <span className="font-medium">address1</span>, etc.). Line 3 becomes{' '}
+        Place — Pincode. Max 5000 rows per file.
+      </p>
       {msg ? (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
       ) : null}
