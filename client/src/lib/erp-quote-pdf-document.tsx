@@ -149,6 +149,14 @@ function buildPdfColumns(
   })
 }
 
+/** Estimate line table: show SKU/metal/MC type in caps; keep currency lines as-is. */
+function formatEstimatePdfTableCell(text: string, colKey: string): string {
+  const s = String(text ?? '').trim()
+  if (!s || s === '—') return text
+  if (colKey === 'amt') return text
+  return s.toLocaleUpperCase('en-IN')
+}
+
 function buildStyles(p: KcPdfPalette) {
   return StyleSheet.create({
     page: {
@@ -205,11 +213,25 @@ function buildStyles(p: KcPdfPalette) {
       marginBottom: 0,
     },
     tableTitleText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
+    estimateTableOuter: {
+      borderWidth: 1,
+      borderColor: p.textPrimary,
+    },
+    estimateGridCell: {
+      borderRightWidth: 0.75,
+      borderBottomWidth: 0.75,
+      borderColor: p.textPrimary,
+    },
     headRow: {
       flexDirection: 'row',
       backgroundColor: p.cardBg,
       borderBottomWidth: 1.5,
       borderBottomColor: p.accent,
+    },
+    headRowGrid: {
+      flexDirection: 'row',
+      backgroundColor: p.cardBg,
+      borderBottomWidth: 0,
     },
     headCell: {
       paddingVertical: 4,
@@ -233,6 +255,10 @@ function buildStyles(p: KcPdfPalette) {
       flexDirection: 'row',
       borderBottomWidth: 0.5,
       borderBottomColor: p.cardBorder,
+    },
+    bodyRowGrid: {
+      flexDirection: 'row',
+      borderBottomWidth: 0,
     },
     bodyRowAlt: { backgroundColor: p.cardBg },
     bodyCell: {
@@ -524,51 +550,100 @@ export function ErpQuotePdfDocument({
         <View style={styles.tableTitle}>
           <Text style={styles.tableTitleText}>{tableTitle}</Text>
         </View>
-        <View style={styles.headRow}>
-          <Text style={[styles.headCell, { width: '3%' }]}>#</Text>
-          {cols.map((c) =>
-            c.key === 'mcValue' ? (
-              <View key={c.key} style={[styles.headCellStack, { width: c.w }]}>
-                <Text style={styles.headCellStackLine}>MC</Text>
-                <Text style={styles.headCellStackLine}>Value</Text>
-              </View>
-            ) : (
-              <Text
-                key={c.key}
-                style={[
-                  styles.headCell,
-                  { width: c.w },
-                  ...(c.key === 'purity' ? [{ textAlign: 'center' as const }] : []),
-                ]}
-              >
-                {c.label}
-              </Text>
-            ),
-          )}
-        </View>
-        {lines.map((line, i) => (
-          <View key={`row-${i}`} style={[styles.bodyRow, i % 2 === 1 ? styles.bodyRowAlt : {}]}>
-            <Text style={[styles.bodyCell, { width: '3%' }]}>{i + 1}</Text>
-            {cols.map((c) => {
-              const text = sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed, slabSettings))
-              const dense = c.key === 'barcode' || c.key === 'sku' || c.key === 'style' || c.key === 'name'
-              const centered = c.key === 'purity' || c.key === 'pcs' || c.key === 'wast'
-              return (
-                <View key={c.key} style={[styles.bodyCellWrap, { width: c.w }]}>
-                  <Text
-                    style={[
-                      c.key === 'amt' ? styles.bodyCellAmt : styles.bodyCell,
-                      ...(dense ? [{ fontSize: 5.5, lineHeight: 1.15 }] : []),
-                      ...(centered ? [{ textAlign: 'center' as const }] : []),
-                    ]}
-                  >
-                    {text}
+        <View style={!isInvoice ? styles.estimateTableOuter : undefined}>
+          <View style={!isInvoice ? styles.headRowGrid : styles.headRow}>
+            <Text
+              style={[
+                styles.headCell,
+                { width: '3%' },
+                ...(!isInvoice ? [styles.estimateGridCell, { fontSize: 8 }] : []),
+              ]}
+            >
+              #
+            </Text>
+            {cols.map((c) =>
+              c.key === 'mcValue' ? (
+                <View
+                  key={c.key}
+                  style={[
+                    styles.headCellStack,
+                    { width: c.w },
+                    ...(!isInvoice ? [styles.estimateGridCell] : []),
+                  ]}
+                >
+                  <Text style={[styles.headCellStackLine, ...(!isInvoice ? [{ fontSize: 7.5 }] : [])]}>
+                    MC
+                  </Text>
+                  <Text style={[styles.headCellStackLine, ...(!isInvoice ? [{ fontSize: 7.5 }] : [])]}>
+                    Value
                   </Text>
                 </View>
-              )
-            })}
+              ) : (
+                <Text
+                  key={c.key}
+                  style={[
+                    styles.headCell,
+                    { width: c.w },
+                    ...(c.key === 'purity' ? [{ textAlign: 'center' as const }] : []),
+                    ...(!isInvoice ? [styles.estimateGridCell, { fontSize: 8 }] : []),
+                  ]}
+                >
+                  {c.label}
+                </Text>
+              ),
+            )}
           </View>
-        ))}
+          {lines.map((line, i) => (
+            <View
+              key={`row-${i}`}
+              style={[
+                !isInvoice ? styles.bodyRowGrid : styles.bodyRow,
+                i % 2 === 1 ? styles.bodyRowAlt : {},
+              ]}
+            >
+              <Text
+                style={[
+                  styles.bodyCell,
+                  { width: '3%' },
+                  ...(!isInvoice ? [styles.estimateGridCell, { fontSize: 7 }] : []),
+                ]}
+              >
+                {i + 1}
+              </Text>
+              {cols.map((c) => {
+                const raw = sanitizePdfText(cell(line, c.key, rateSlab, ratesUnfixed, slabSettings))
+                const text = !isInvoice ? formatEstimatePdfTableCell(raw, c.key) : raw
+                const dense = c.key === 'barcode' || c.key === 'sku' || c.key === 'style' || c.key === 'name'
+                const centered = c.key === 'purity' || c.key === 'pcs' || c.key === 'wast'
+                return (
+                  <View
+                    key={c.key}
+                    style={[
+                      styles.bodyCellWrap,
+                      { width: c.w },
+                      ...(!isInvoice ? [styles.estimateGridCell] : []),
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        c.key === 'amt' ? styles.bodyCellAmt : styles.bodyCell,
+                        ...(dense
+                          ? [{ fontSize: !isInvoice ? 6.5 : 5.5, lineHeight: 1.15 }]
+                          : !isInvoice
+                            ? [{ fontSize: 7 }]
+                            : []),
+                        ...(c.key === 'amt' && !isInvoice ? [{ fontSize: 8 }] : []),
+                        ...(centered ? [{ textAlign: 'center' as const }] : []),
+                      ]}
+                    >
+                      {text}
+                    </Text>
+                  </View>
+                )
+              })}
+            </View>
+          ))}
+        </View>
 
         <View style={styles.summaryWrap}>
           {[
