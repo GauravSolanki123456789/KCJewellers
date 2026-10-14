@@ -8,6 +8,7 @@ import { Loader2, MessageCircle, Plus, Search, Trash2, ScanLine, Download, Uploa
 import { RESELLER_ERP_PATH, RESELLER_MC_SLABS_PATH, RESELLER_RATES_PATH } from '@/lib/routes'
 import { GST_STATE_OPTIONS } from '@/lib/erp-place-of-supply'
 import { ErpGstinFetchField } from '@/components/reseller/erp/ErpGstinFetchField'
+import { ErpCustomerSuggestField } from '@/components/reseller/erp/ErpCustomerSuggestField'
 import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
@@ -117,7 +118,6 @@ export function CustomersWorkspace() {
     when: 'today' | 'tomorrow'
   }
 
-  const [customers, setCustomers] = useState<ErpCustomer[]>([])
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
@@ -200,18 +200,12 @@ export function CustomersWorkspace() {
   }
 
   const load = useCallback(async () => {
-    const [list, up] = await Promise.all([
-      axios.get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
-        params: q.trim() ? { q: q.trim() } : {},
-      }),
-      axios.get<{ events: UpcomingEvent[] }>('/api/reseller/erp/customers/upcoming'),
-    ])
-    setCustomers(list.data.customers || [])
+    const up = await axios.get<{ events: UpcomingEvent[] }>('/api/reseller/erp/customers/upcoming')
     setUpcomingEvents(up.data.events || [])
-  }, [q])
+  }, [])
 
   useEffect(() => {
-    void load().catch(() => setCustomers([]))
+    void load().catch(() => setUpcomingEvents([]))
   }, [load])
 
   const save = async () => {
@@ -250,6 +244,10 @@ export function CustomersWorkspace() {
   const remove = async (id: number) => {
     if (!(await appConfirm('Delete this customer?'))) return
     await axios.delete(`/api/reseller/erp/customers/${id}`)
+    if (editingId === id) {
+      setEditingId(null)
+      setForm(emptyForm())
+    }
     await load()
   }
 
@@ -318,6 +316,33 @@ export function CustomersWorkspace() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Customers')
     XLSX.writeFile(wb, 'erp-customers-sample.xlsx')
+  }
+
+  const undoBulkImport = async () => {
+    if (
+      !(await appConfirm(
+        'Remove customers from your last Excel bulk import? Customers added in the last 72 hours will be removed if this upload was not tracked. This cannot be undone.',
+      ))
+    ) {
+      return
+    }
+    setBulkBusy(true)
+    setMsg(null)
+    try {
+      const res = await axios.post<{ deleted: number }>('/api/reseller/erp/customers/bulk-undo', {
+        confirm: 'UNDO BULK',
+        fallbackRecentImport: true,
+      })
+      if (editingId) {
+        setEditingId(null)
+        setForm(emptyForm())
+      }
+      setMsg(`Removed ${res.data.deleted} customer(s) from bulk import.`)
+    } catch (e) {
+      alert(erpErr(e))
+    } finally {
+      setBulkBusy(false)
+    }
   }
 
   const onBulkFile = async (file: File) => {
@@ -434,6 +459,15 @@ export function CustomersWorkspace() {
           {bulkBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
           Bulk Upload
         </button>
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-60"
+          disabled={bulkBusy}
+          onClick={() => void undoBulkImport()}
+        >
+          {bulkBusy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          Undo Excel import
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -445,14 +479,6 @@ export function CustomersWorkspace() {
           }}
         />
       </div>
-      <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-        <span className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/75">Address in Excel:</span>{' '}
-        use one <span className="font-medium">Address</span> cell with up to 3 lines (Alt+Enter), or columns{' '}
-        <span className="font-medium">Address1</span>, <span className="font-medium">Address2</span>,{' '}
-        <span className="font-medium">Place</span>, <span className="font-medium">Pincode</span> (same as ACCOUNTS.xls:{' '}
-        <span className="font-medium">aname</span>, <span className="font-medium">address1</span>, etc.). Line 3 becomes{' '}
-        Place — Pincode. Max 5000 rows per file.
-      </p>
       {msg ? (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
       ) : null}
@@ -463,16 +489,26 @@ export function CustomersWorkspace() {
             {editingId ? 'Edit customer' : 'Add customer'}
           </p>
           {editingId ? (
-            <button
-              type="button"
-              className={erpBtnGhost}
-              onClick={() => {
-                setEditingId(null)
-                setForm(emptyForm())
-              }}
-            >
-              Cancel edit
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                onClick={() => void remove(editingId)}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </button>
+              <button
+                type="button"
+                className={erpBtnGhost}
+                onClick={() => {
+                  setEditingId(null)
+                  setForm(emptyForm())
+                }}
+              >
+                Cancel edit
+              </button>
+            </div>
           ) : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -578,56 +614,22 @@ export function CustomersWorkspace() {
         </button>
       </div>
 
-      <input className={erpInputCls} placeholder="Search name, mobile, GSTIN…" value={q} onChange={(e) => setQ(e.target.value)} />
-
-      <ul className="space-y-2">
-        {customers.length === 0 ? (
-          <li className="rounded-2xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-white/70 px-4 py-10 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
-            No customers yet.
-          </li>
-        ) : (
-          customers.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className={`${erpCardCls} flex w-full items-start justify-between gap-3 py-3.5 text-left transition hover:border-[var(--kc-accent,#c41e3a)]/30`}
-                onClick={() => void loadCustomerIntoForm(c)}
-              >
-                <div className="min-w-0">
-                  <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{c.name}</p>
-                  <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                    {[c.mobile, c.gstin, c.pan, c.email, `Slab ${normalizeErpCustomerSlab(c.rate_slab)}`].filter(Boolean).join(' · ') || '—'}
-                  </p>
-                  {(c.birthdate || c.anniversary_date) && (
-                    <p className="mt-1 text-[11px] text-[var(--kc-accent,#c41e3a)]">
-                      {[c.birthdate ? `Birthday ${formatErpDateDdMmYyyy(c.birthdate)}` : null, c.anniversary_date ? `Anniversary ${formatErpDateDdMmYyyy(c.anniversary_date)}` : null].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
-                </div>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className="rounded-lg p-2 text-[var(--color-jewelry-black,#1a1814)]/40 hover:bg-rose-50 hover:text-rose-600"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void remove(c.id)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      void remove(c.id)
-                    }
-                  }}
-                  aria-label="Delete"
-                >
-                  <Trash2 className="size-4" />
-                </span>
-              </button>
-            </li>
-          ))
-        )}
-      </ul>
+      <div className={erpCardCls}>
+        <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Find customer</p>
+        <ErpCustomerSuggestField
+          customerId={null}
+          customerName=""
+          onQueryChange={(v) => setQ(v)}
+          onSelect={(c) => void loadCustomerIntoForm(c)}
+          placeholder="Search name, mobile, GSTIN, PAN, address…"
+          className="w-full"
+        />
+        {!q.trim() ? (
+          <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+            Type to see matches. Use Download All for a full Excel list.
+          </p>
+        ) : null}
+      </div>
     </div>
   )
 }

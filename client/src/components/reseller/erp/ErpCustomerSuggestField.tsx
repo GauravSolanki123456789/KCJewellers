@@ -36,7 +36,11 @@ export function ErpCustomerSuggestField({
   const displayValue = customerId != null && customerName ? customerName : query || customerName
 
   const loadCustomers = useCallback(async (q: string) => {
-    const params = q.trim() ? { q: q.trim() } : {}
+    if (!q.trim()) {
+      setCustomers([])
+      return
+    }
+    const params = { q: q.trim(), limit: 25 }
     const cacheKey = `/api/reseller/erp/customers?${JSON.stringify(params)}`
     try {
       const res = await cachedGet(cacheKey, () =>
@@ -118,10 +122,10 @@ export function ErpCustomerSuggestField({
                   onAfterSelect?.()
                 }}
               >
-                {c.name}
-                {c.mobile ? (
-                  <span className="text-[var(--color-jewelry-black,#1a1814)]/45"> · {c.mobile}</span>
-                ) : null}
+                <span className="block font-medium">{c.name}</span>
+                <span className="block text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
+                  {[c.mobile, c.gstin, c.pan, c.email].filter(Boolean).join(' · ') || '—'}
+                </span>
               </button>
             </li>
           ))}

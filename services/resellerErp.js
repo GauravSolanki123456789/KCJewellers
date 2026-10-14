@@ -524,6 +524,34 @@ async function suggestManualBillNumber(query, userId, preferredPrefix) {
     return `${prefix}${String(n).padStart(width, '0')}`;
 }
 
+async function loadResellerErpSettingsRow(query, userId) {
+    const existing = await query(`SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`, [
+        userId,
+    ]);
+    let prev = existing[0]?.settings ?? {};
+    if (typeof prev === 'string') {
+        try {
+            prev = JSON.parse(prev);
+        } catch {
+            prev = {};
+        }
+    }
+    return prev && typeof prev === 'object' ? prev : {};
+}
+
+async function patchResellerErpSettings(query, userId, patch) {
+    const prev = await loadResellerErpSettingsRow(query, userId);
+    const merged = { ...(prev && typeof prev === 'object' ? prev : {}), ...(patch && typeof patch === 'object' ? patch : {}) };
+    await query(
+        `INSERT INTO reseller_erp_settings (reseller_user_id, settings, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (reseller_user_id) DO UPDATE
+         SET settings = $2::jsonb, updated_at = NOW()`,
+        [userId, JSON.stringify(merged)],
+    );
+    return merged;
+}
+
 async function rememberManualBillPrefix(query, userId, billNumber) {
     const bn = String(billNumber || '').trim().toUpperCase();
     const m = /^([A-Z]+)(\d+)$/.exec(bn);
@@ -1074,11 +1102,29 @@ function registerResellerErpRoutes(app, deps) {
                 const exactIdx = params.length;
                 params.push(`%${q}%`);
                 const likeIdx = params.length;
-                sql += ` AND (
+                const digitsOnly = q.replace(/\D/g, '');
+                if (digitsOnly.length >= 4) {
+                    params.push(`%${digitsOnly}%`);
+                    const mobileLikeIdx = params.length;
+                    sql += ` AND (
                     name ILIKE $${likeIdx} OR COALESCE(mobile,'') ILIKE $${likeIdx}
                     OR COALESCE(email,'') ILIKE $${likeIdx} OR COALESCE(gstin,'') ILIKE $${likeIdx}
                     OR COALESCE(pan,'') ILIKE $${likeIdx}
+                    OR COALESCE(address,'') ILIKE $${likeIdx}
+                    OR COALESCE(notes,'') ILIKE $${likeIdx}
+                    OR COALESCE(state,'') ILIKE $${likeIdx}
+                    OR regexp_replace(COALESCE(mobile,''), '[^0-9]', '', 'g') LIKE $${mobileLikeIdx}
                 )`;
+                } else {
+                    sql += ` AND (
+                    name ILIKE $${likeIdx} OR COALESCE(mobile,'') ILIKE $${likeIdx}
+                    OR COALESCE(email,'') ILIKE $${likeIdx} OR COALESCE(gstin,'') ILIKE $${likeIdx}
+                    OR COALESCE(pan,'') ILIKE $${likeIdx}
+                    OR COALESCE(address,'') ILIKE $${likeIdx}
+                    OR COALESCE(notes,'') ILIKE $${likeIdx}
+                    OR COALESCE(state,'') ILIKE $${likeIdx}
+                )`;
+                }
                 sql += ` ORDER BY
                     CASE
                         WHEN lower(trim(name)) = lower(trim($${exactIdx})) THEN 0
@@ -1232,17 +1278,19 @@ function registerResellerErpRoutes(app, deps) {
 
             let inserted = 0;
             let skipped = 0;
+            const insertedIds = [];
             for (const row of rawRows) {
                 const name = trimStr(row.name || row.Name, 255);
                 if (!name) {
                     skipped++;
                     continue;
                 }
-                await query(
+                const ins = await query(
                     `INSERT INTO reseller_erp_customers (
                         reseller_user_id, name, mobile, email, gstin, pan, address,
                         birthdate, anniversary_date, notes, rate_slab
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                     RETURNING id`,
                     [
                         req.user.id,
                         name,
@@ -1259,12 +1307,68 @@ function registerResellerErpRoutes(app, deps) {
                         ),
                     ],
                 );
+                if (ins[0]?.id) insertedIds.push(ins[0].id);
                 inserted++;
             }
-            res.json({ success: true, inserted, skipped });
+            if (insertedIds.length) {
+                await patchResellerErpSettings(query, req.user.id, {
+                    lastCustomerBulkImport: {
+                        at: new Date().toISOString(),
+                        ids: insertedIds,
+                        count: insertedIds.length,
+                    },
+                });
+            }
+            res.json({ success: true, inserted, skipped, trackedIds: insertedIds.length });
         } catch (e) {
             console.error('erp customers bulk:', e);
             res.status(500).json({ error: e.message || 'Bulk upload failed' });
+        }
+    });
+
+    app.post('/api/reseller/erp/customers/bulk-undo', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const confirm = String(req.body?.confirm || '').trim();
+            if (confirm !== 'UNDO BULK') {
+                return res.status(400).json({ error: 'Type confirm: UNDO BULK' });
+            }
+            const settings = await loadResellerErpSettingsRow(query, req.user.id);
+            const batch = settings.lastCustomerBulkImport;
+            const ids = Array.isArray(batch?.ids)
+                ? batch.ids.map((id) => parseInt(String(id), 10)).filter((id) => Number.isFinite(id) && id > 0)
+                : [];
+
+            let deletedRows = [];
+            if (ids.length) {
+                deletedRows = await query(
+                    `DELETE FROM reseller_erp_customers
+                     WHERE reseller_user_id = $1 AND id = ANY($2::int[])
+                     AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') <> 'jainav2'
+                     RETURNING id`,
+                    [req.user.id, ids],
+                );
+            }
+            if (!deletedRows.length && req.body.fallbackRecentImport === true) {
+                deletedRows = await query(
+                    `DELETE FROM reseller_erp_customers
+                     WHERE reseller_user_id = $1
+                     AND created_at >= NOW() - INTERVAL '72 hours'
+                     AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') <> 'jainav2'
+                     RETURNING id`,
+                    [req.user.id],
+                );
+            }
+            if (!deletedRows.length) {
+                return res.status(400).json({
+                    error: 'No customers found to remove. Re-upload Excel to track imports, or try again within 72 hours of import.',
+                });
+            }
+
+            await patchResellerErpSettings(query, req.user.id, { lastCustomerBulkImport: null });
+            res.json({ success: true, deleted: deletedRows.length });
+        } catch (e) {
+            console.error('erp customers bulk-undo:', e);
+            res.status(500).json({ error: e.message || 'Bulk undo failed' });
         }
     });
 
