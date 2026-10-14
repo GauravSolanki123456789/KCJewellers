@@ -1741,21 +1741,29 @@ export function ErpBillingWorkspace() {
         setLines((prev) => (prev.length ? transitionLinesForSlab(prev, next) : prev))
         return
       }
-      if (erpSlabUsesWholesaleMetal(next)) {
-        const hasWh =
-          (wholesaleGold != null && wholesaleGold > 0) ||
-          (wholesaleSilver != null && wholesaleSilver > 0)
-        if (hasWh) {
-          setRateSlab(next)
-          setLines((prev) => (prev.length ? transitionLinesForSlab(prev, next) : prev))
-          return
-        }
+
+      const fromWholesale = erpSlabUsesWholesaleMetal(rateSlab)
+      const toWholesale = erpSlabUsesWholesaleMetal(next)
+
+      if (toWholesale) {
         setPendingSlab(next)
-        setModalWhGold(wholesaleGold != null ? String(wholesaleGold) : '')
-        setModalWhSilver(wholesaleSilver != null ? String(wholesaleSilver) : '')
+        setModalWhGold('')
+        setModalWhSilver('')
         setShowWholesaleModal(true)
         return
       }
+
+      if (fromWholesale) {
+        setPendingSlab(next)
+        void loadDisplayRates().then((rates) => {
+          const pg = displayRatesToPerGram(rates)
+          setEditGold(String(pg.gold || ''))
+          setEditSilver(String(pg.silver || ''))
+          setShowRateEdit(true)
+        })
+        return
+      }
+
       void loadDisplayRates().then((rates) => {
         const pg = displayRatesToPerGram(rates)
         setRateSlab(next)
@@ -1764,12 +1772,15 @@ export function ErpBillingWorkspace() {
         )
       })
     },
-    [rateSlab, wholesaleGold, wholesaleSilver, transitionLinesForSlab, loadDisplayRates],
+    [rateSlab, transitionLinesForSlab, loadDisplayRates],
   )
 
   const onSlabChange = (next: ErpRateSlab) => {
     requestSlabTransition(next)
   }
+
+  const slabSelectValue =
+    (showWholesaleModal || showRateEdit) && pendingSlab ? pendingSlab : rateSlab
 
   const openEditWholesale = () => {
     setPendingSlab(null)
@@ -1851,11 +1862,23 @@ export function ErpBillingWorkspace() {
       return
     }
     const silverStored = minusThreePctSilver ? applyMinusThreePctSilverRateInput(s) : s
+    const rates = perGramToDisplayRates(g, silverStored)
+    const nextSlab = pendingSlab ?? rateSlab
+    if (pendingSlab) {
+      setRateSlab(pendingSlab)
+      setWholesaleGold(null)
+      setWholesaleSilver(null)
+    }
     setGoldPerG(g)
     setSilverPerG(silverStored)
-    setDisplayRates(perGramToDisplayRates(g, silverStored))
-    setLines((prev) => unlockLineRates(prev))
+    setDisplayRates(rates)
+    setLines((prev) => {
+      const unlocked = unlockLineRates(prev)
+      if (!prev.length) return unlocked
+      return transitionLinesForSlab(unlocked, nextSlab, rates, g, silverStored)
+    })
     setShowRateEdit(false)
+    setPendingSlab(null)
   }
 
   const rateUnfix = () => {
@@ -2727,7 +2750,14 @@ export function ErpBillingWorkspace() {
               <button type="button" className={erpBtnPrimary} onClick={applyRateEdit}>
                 Apply
               </button>
-              <button type="button" className={erpBtnGhost} onClick={() => setShowRateEdit(false)}>
+              <button
+                type="button"
+                className={erpBtnGhost}
+                onClick={() => {
+                  setShowRateEdit(false)
+                  setPendingSlab(null)
+                }}
+              >
                 Cancel
               </button>
             </div>
@@ -2824,7 +2854,11 @@ export function ErpBillingWorkspace() {
             <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
               Slab
             </label>
-            <select className={`${erpInputCls} py-2 text-sm`} value={rateSlab} onChange={(e) => onSlabChange(e.target.value as ErpRateSlab)}>
+            <select
+              className={`${erpInputCls} py-2 text-sm`}
+              value={slabSelectValue}
+              onChange={(e) => onSlabChange(e.target.value as ErpRateSlab)}
+            >
               {ERP_BILLING_SLAB_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
