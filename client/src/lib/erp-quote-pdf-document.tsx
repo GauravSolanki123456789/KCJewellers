@@ -23,6 +23,7 @@ import {
 import { isPiecePricedBillLine, parseSlabSettingsFromUser } from '@/lib/erp-billing-pricing'
 import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { formatErpPdfPurity } from '@/lib/erp-pdf-purity'
+import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 export type ErpQuotePdfLayoutMode = 'detailed' | 'summary'
 
@@ -183,6 +184,20 @@ function buildStyles(p: KcPdfPalette) {
     },
     brand: { fontSize: 15, color: p.brand, fontWeight: 'bold' },
     sub: { fontSize: 8.5, color: p.subMuted, marginTop: 3 },
+    headerAside: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+    headerDocMeta: { alignItems: 'flex-end', maxWidth: 220 },
+    headerDocMetaBold: {
+      fontSize: 9.5,
+      fontWeight: 'bold',
+      color: p.textPrimary,
+      textAlign: 'right',
+    },
+    headerDocMetaLine: {
+      fontSize: 8,
+      color: p.textSecondary,
+      textAlign: 'right',
+      marginTop: 2,
+    },
     tableTitle: {
       backgroundColor: p.accent,
       paddingVertical: 4,
@@ -456,6 +471,9 @@ export function ErpQuotePdfDocument({
     return ''
   }, [customerName, customerMobile, bill.customer_name, bill.session?.mobile])
 
+  const estimateBillNo = sanitizePdfText(String(bill.bill_number || '').trim())
+  const estimateDate = formatErpDateDdMmYyyy(bill.created_at ?? null)
+
   const photoEntries = useMemo(
     () =>
       products
@@ -470,21 +488,37 @@ export function ErpQuotePdfDocument({
         <View style={styles.header}>
           <View style={styles.headerMain}>
             <Text style={styles.brand}>{sanitizePdfText(brandName)}</Text>
-            <Text style={styles.sub}>
-              {docLabel} {bill.bill_number}
-              {customerHeader ? ` · ${customerHeader}` : ''}
-              {isInvoice && gstin ? ` · GSTIN ${sanitizePdfText(gstin)}` : ''}
-            </Text>
+            {isInvoice ? (
+              <Text style={styles.sub}>
+                {docLabel} {bill.bill_number}
+                {customerHeader ? ` · ${customerHeader}` : ''}
+                {gstin ? ` · GSTIN ${sanitizePdfText(gstin)}` : ''}
+              </Text>
+            ) : customerHeader ? (
+              <Text style={styles.sub}>{customerHeader}</Text>
+            ) : null}
           </View>
-          {ratesUnfixed ? (
-            <View style={styles.rateUnfixBadge}>
-              <Text style={styles.rateUnfixText}>RATE UNFIX</Text>
-            </View>
-          ) : totals.advancePaid != null && totals.advancePaid > 0 ? (
-            <View style={styles.rateUnfixBadge}>
-              <Text style={styles.rateUnfixText}>ADVANCE PAID</Text>
-            </View>
-          ) : null}
+          <View style={styles.headerAside}>
+            {ratesUnfixed ? (
+              <View style={styles.rateUnfixBadge}>
+                <Text style={styles.rateUnfixText}>RATE UNFIX</Text>
+              </View>
+            ) : totals.advancePaid != null && totals.advancePaid > 0 ? (
+              <View style={styles.rateUnfixBadge}>
+                <Text style={styles.rateUnfixText}>ADVANCE PAID</Text>
+              </View>
+            ) : null}
+            {!isInvoice ? (
+              <View style={styles.headerDocMeta}>
+                {estimateBillNo ? (
+                  <Text style={styles.headerDocMetaBold}>{estimateBillNo}</Text>
+                ) : null}
+                {estimateDate && estimateDate !== '—' ? (
+                  <Text style={styles.headerDocMetaBold}>DATE : {estimateDate}</Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.tableTitle}>

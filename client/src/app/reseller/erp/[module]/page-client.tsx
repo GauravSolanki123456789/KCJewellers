@@ -123,6 +123,13 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
               { key: 'phone', label: 'Phone / contact', placeholder: '044-43593474' },
               { key: 'email', label: 'E-mail (on invoice)', placeholder: 'bnmarlechasilver@gmail.com' },
               { key: 'placeOfSupply', label: 'Default place of supply (optional — enter per bill in billing)' },
+              { key: 'businessIsLlp', label: 'Is business a LLP?', variant: 'toggle' },
+              {
+                key: 'llpNo',
+                label: 'LLP NO.',
+                placeholder: 'ACP-0955',
+                showIf: { field: 'businessIsLlp', value: 'true' },
+              },
             ]}
           />
           <ErpTaxInvoiceTemplatePanel variant="bill" />

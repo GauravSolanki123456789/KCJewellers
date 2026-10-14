@@ -308,11 +308,11 @@ function InvoiceCopyPage({
       <View style={styles.metaRow}>
         <Text>
           <Text style={styles.metaStrong}>INVOICE No. : </Text>
-          {sanitizePdfText(bill.bill_number)}
+          <Text style={styles.metaStrong}>{sanitizePdfText(bill.bill_number)}</Text>
         </Text>
         <Text>
           <Text style={styles.metaStrong}>BILL DATE </Text>
-          {formatBillDate(bill)}
+          <Text style={styles.metaStrong}>{formatBillDate(bill)}</Text>
         </Text>
       </View>
 

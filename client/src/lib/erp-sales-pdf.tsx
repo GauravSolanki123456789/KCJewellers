@@ -80,6 +80,8 @@ export async function buildErpSalesPdfPayload(params: {
     phone: settings.gst?.phone ?? null,
     email: settings.gst?.email ?? null,
     placeOfSupply: session.placeOfSupply ?? settings.gst?.placeOfSupply ?? null,
+    businessIsLlp: settings.gst?.businessIsLlp ?? null,
+    llpNo: settings.gst?.llpNo ?? null,
   }
   const bank = {
     bankName: settings.bank?.bankName ?? null,

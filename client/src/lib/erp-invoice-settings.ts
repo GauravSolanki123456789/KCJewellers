@@ -134,6 +134,8 @@ export type ErpSettingsBundle = {
     phone?: string
     email?: string
     invoiceTemplate?: string
+    businessIsLlp?: boolean | string
+    llpNo?: string
   }
   bank?: {
     bankName?: string

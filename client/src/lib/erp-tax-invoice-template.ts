@@ -310,7 +310,15 @@ export function normalizeTaxInvoiceTemplate(raw: unknown): ErpTaxInvoiceTemplate
 
 export function mergeTemplateWithGstSettings(
   template: ErpTaxInvoiceTemplateConfig,
-  gst?: { legalName?: string | null; address?: string | null; phone?: string | null; email?: string | null; gstin?: string | null } | null,
+  gst?: {
+    legalName?: string | null
+    address?: string | null
+    phone?: string | null
+    email?: string | null
+    gstin?: string | null
+    businessIsLlp?: boolean | string | null
+    llpNo?: string | null
+  } | null,
   bank?: { bankName?: string | null; branch?: string | null; ifsc?: string | null; accountNo?: string | null } | null,
 ): ErpTaxInvoiceTemplateConfig {
   const t = { ...template, addressLines: [...template.addressLines], bankLines: [...template.bankLines] }
@@ -327,7 +335,15 @@ export function mergeTemplateWithGstSettings(
   if (gst?.gstin) {
     const pan = gst.gstin.length >= 12 ? gst.gstin.slice(2, 12) : ''
     if (pan) t.panLine = `PAN : ${pan}`
-    t.gstinLine = `GSTIN : ${gst.gstin}`
+    const llpOn =
+      gst.businessIsLlp === true ||
+      String(gst.businessIsLlp || '').trim().toLowerCase() === 'yes' ||
+      String(gst.businessIsLlp || '').trim().toLowerCase() === 'true'
+    const llpNo = String(gst.llpNo || '').trim()
+    t.gstinLine =
+      llpOn && llpNo
+        ? `GSTIN : ${gst.gstin}  LLP No : ${llpNo}`
+        : `GSTIN : ${gst.gstin}`
   }
   if (bank?.bankName || bank?.accountNo) {
     t.bankLines = [

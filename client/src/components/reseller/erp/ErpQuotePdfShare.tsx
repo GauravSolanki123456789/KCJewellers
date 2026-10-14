@@ -87,9 +87,9 @@ export async function shareErpQuotePdf(params: {
   let showPurityInPdf = false
   let hideTotalDiscountOnEstimatePdf = false
   try {
-    const settingsRes = await axios.get<{ settings?: { printFormats?: unknown } }>(
-      '/api/reseller/erp/settings',
-    )
+    const settingsRes = await axios.get<{
+      settings?: { printFormats?: unknown }
+    }>('/api/reseller/erp/settings')
     const pf = migratePrintFormats(
       settingsRes.data.settings?.printFormats as Parameters<typeof migratePrintFormats>[0],
     )

@@ -954,11 +954,11 @@ function InvoicePage({
         <View style={styles.billingRight}>
           <Text style={{ fontSize: 9, marginBottom: 4 }}>
             <Text style={styles.fieldLabel}>{sanitizePdfText(template.billNoLabel)} </Text>
-            {sanitizePdfText(bill.bill_number)}
+            <Text style={styles.fieldLabel}>{sanitizePdfText(bill.bill_number)}</Text>
           </Text>
           <Text style={{ fontSize: 9, marginBottom: 12 }}>
             <Text style={styles.fieldLabel}>{sanitizePdfText(template.dateLabel)} </Text>
-            {formatBillDate(bill)}
+            <Text style={styles.fieldLabel}>{formatBillDate(bill)}</Text>
           </Text>
           {variant === 'einvoice' || ewayBillNo ? (
             <Text style={{ fontSize: 9, marginBottom: 8 }}>

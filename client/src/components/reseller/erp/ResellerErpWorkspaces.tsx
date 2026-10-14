@@ -1007,12 +1007,22 @@ export function ReportsWorkspace({ percentagesOnly = false }: { percentagesOnly?
   )
 }
 
+type SettingsFieldDef = {
+  key: string
+  label: string
+  placeholder?: string
+  type?: string
+  multiline?: boolean
+  variant?: 'toggle'
+  showIf?: { field: string; value: string }
+}
+
 export function SettingsWorkspace({
   settingsKey,
   fields,
 }: {
   settingsKey: string
-  fields: { key: string; label: string; placeholder?: string; type?: string; multiline?: boolean }[]
+  fields: SettingsFieldDef[]
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
@@ -1022,9 +1032,17 @@ export function SettingsWorkspace({
     void axios
       .get<{ settings: Record<string, unknown> }>('/api/reseller/erp/settings')
       .then((res) => {
-        const block = (res.data.settings?.[settingsKey] as Record<string, string>) || {}
+        const block = (res.data.settings?.[settingsKey] as Record<string, unknown>) || {}
         const next: Record<string, string> = {}
-        for (const f of fields) next[f.key] = block[f.key] != null ? String(block[f.key]) : ''
+        for (const f of fields) {
+          const raw = block[f.key]
+          if (f.variant === 'toggle') {
+            next[f.key] =
+              raw === true || String(raw || '').toLowerCase() === 'true' || raw === 'yes' ? 'true' : 'false'
+          } else {
+            next[f.key] = raw != null ? String(raw) : ''
+          }
+        }
         setValues(next)
       })
       .catch(() => {})
@@ -1035,7 +1053,18 @@ export function SettingsWorkspace({
     setBusy(true)
     setSaved(false)
     try {
-      await axios.put('/api/reseller/erp/settings', { settings: { [settingsKey]: values } })
+      const prevRes = await axios.get<{ settings: Record<string, unknown> }>(
+        '/api/reseller/erp/settings',
+      )
+      const prevBlock =
+        (prevRes.data.settings?.[settingsKey] as Record<string, unknown> | undefined) || {}
+      const payload: Record<string, unknown> = { ...prevBlock, ...values }
+      for (const f of fields) {
+        if (f.variant === 'toggle') payload[f.key] = values[f.key] === 'true'
+      }
+      await axios.put('/api/reseller/erp/settings', {
+        settings: { [settingsKey]: payload },
+      })
       setSaved(true)
     } catch {
       alert('Could not save settings')
@@ -1047,27 +1076,60 @@ export function SettingsWorkspace({
   return (
     <div className={erpCardCls}>
       <div className="grid gap-3">
-        {fields.map((f) => (
-          <label key={f.key} className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-            {f.label}
-            {f.multiline ? (
-              <textarea
-                className={`${erpInputCls} mt-1 min-h-[88px] py-2.5`}
-                placeholder={f.placeholder}
-                value={values[f.key] || ''}
-                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-              />
+        {fields
+          .filter((f) => !f.showIf || values[f.showIf.field] === f.showIf.value)
+          .map((f) =>
+            f.variant === 'toggle' ? (
+              <div
+                key={f.key}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/[0.06] bg-white/60 px-3 py-3"
+              >
+                <span className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">{f.label}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={values[f.key] === 'true'}
+                  className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${
+                    values[f.key] === 'true'
+                      ? 'bg-emerald-700'
+                      : 'bg-[var(--color-slate-700,#d4cfc8)]'
+                  }`}
+                  onClick={() =>
+                    setValues((v) => ({
+                      ...v,
+                      [f.key]: v[f.key] === 'true' ? 'false' : 'true',
+                    }))
+                  }
+                >
+                  <span
+                    className={`inline-block size-6 transform rounded-full bg-white shadow transition ${
+                      values[f.key] === 'true' ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             ) : (
-              <input
-                type={f.type || 'text'}
-                className={`${erpInputCls} mt-1`}
-                placeholder={f.placeholder}
-                value={values[f.key] || ''}
-                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-              />
-            )}
-          </label>
-        ))}
+              <label key={f.key} className="block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                {f.label}
+                {f.multiline ? (
+                  <textarea
+                    className={`${erpInputCls} mt-1 min-h-[88px] py-2.5`}
+                    placeholder={f.placeholder}
+                    value={values[f.key] || ''}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                  />
+                ) : (
+                  <input
+                    type={f.type || 'text'}
+                    className={`${erpInputCls} mt-1`}
+                    placeholder={f.placeholder}
+                    value={values[f.key] || ''}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                  />
+                )}
+              </label>
+            ),
+          )}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void save()}>
