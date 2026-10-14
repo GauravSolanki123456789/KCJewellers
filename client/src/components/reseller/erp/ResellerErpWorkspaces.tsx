@@ -18,6 +18,7 @@ import {
   normalizeAddressField,
 } from '@/lib/erp-customer-address-format'
 import { mapBulkCustomerSpreadsheetRow } from '@/lib/erp-customer-bulk-import'
+import { isInternalErpCustomer } from '@/lib/erp-internal-customers'
 import { clearErpModuleSession } from '@/lib/erp-module-session'
 import { customerWhatsAppHref } from '@/lib/catalog-inquiry-shared'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
@@ -256,7 +257,7 @@ export function CustomersWorkspace() {
     setMsg(null)
     try {
       const res = await axios.get<{ customers: Record<string, unknown>[] }>('/api/reseller/erp/customers/export')
-      const rows = (res.data.customers || []).map((c) => ({
+      const rows = (res.data.customers || []).filter((c) => !isInternalErpCustomer(c)).map((c) => ({
         Name: c.name ?? '',
         Mobile: c.mobile ?? '',
         Email: c.email ?? '',
@@ -316,33 +317,6 @@ export function CustomersWorkspace() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Customers')
     XLSX.writeFile(wb, 'erp-customers-sample.xlsx')
-  }
-
-  const undoBulkImport = async () => {
-    if (
-      !(await appConfirm(
-        'Remove customers from your last Excel bulk import? Customers added in the last 72 hours will be removed if this upload was not tracked. This cannot be undone.',
-      ))
-    ) {
-      return
-    }
-    setBulkBusy(true)
-    setMsg(null)
-    try {
-      const res = await axios.post<{ deleted: number }>('/api/reseller/erp/customers/bulk-undo', {
-        confirm: 'UNDO BULK',
-        fallbackRecentImport: true,
-      })
-      if (editingId) {
-        setEditingId(null)
-        setForm(emptyForm())
-      }
-      setMsg(`Removed ${res.data.deleted} customer(s) from bulk import.`)
-    } catch (e) {
-      alert(erpErr(e))
-    } finally {
-      setBulkBusy(false)
-    }
   }
 
   const onBulkFile = async (file: File) => {
@@ -458,15 +432,6 @@ export function CustomersWorkspace() {
         >
           {bulkBusy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
           Bulk Upload
-        </button>
-        <button
-          type="button"
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-60"
-          disabled={bulkBusy}
-          onClick={() => void undoBulkImport()}
-        >
-          {bulkBusy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-          Undo Excel import
         </button>
         <input
           ref={fileRef}

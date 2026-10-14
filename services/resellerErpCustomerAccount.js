@@ -49,13 +49,24 @@ function totalWeightGmFromLines(linesJson) {
 }
 
 function cashBookKind(name) {
-    const n = String(name || '')
-        .trim()
-        .toLowerCase()
-        .replace(/[\s._-]+/g, '');
+    const n = compactCustomerName(name);
     if (n === 'cash' || n === 'cashbook') return 'cash';
     if (n === 'jainav2') return 'jainav2';
     return null;
+}
+
+function isInternalErpCustomerRow(row) {
+    if (cashBookKind(row?.name)) return true;
+    const notes = String(row?.notes || '').toLowerCase();
+    if (/lane\s*cash|official\s*cash|cash\s*book/i.test(notes)) return true;
+    return false;
+}
+
+/** SQL fragment — hide lane/cash system customers unless lane_books=1 (Jainav). */
+function sqlExcludeInternalErpCustomers(nameCol = 'name', notesCol = 'notes') {
+    return ` AND regexp_replace(lower(trim(${nameCol})), '[\\s._-]+', '', 'g') NOT IN ('cash', 'cashbook', 'jainav2')
+        AND COALESCE(lower(${notesCol}), '') NOT LIKE '%lane cash%'
+        AND COALESCE(lower(${notesCol}), '') NOT LIKE '%official cash%'`;
 }
 
 function compactCustomerName(name) {
@@ -959,6 +970,8 @@ module.exports = {
     customerAccountToCsv,
     daybookToCsv,
     cashBookKind,
+    isInternalErpCustomerRow,
+    sqlExcludeInternalErpCustomers,
     ensureCashBookCustomers,
     compactCustomerName,
     getCustomerBalancesBeforeLedgerEntry,

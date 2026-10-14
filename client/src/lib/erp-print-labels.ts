@@ -1,6 +1,7 @@
 import axios from '@/lib/axios'
 import {
   getPrinterProfileById,
+  isTvsLp46LabelProfile,
   migrateHardwareSettings,
   normalizeComPort,
   type ErpHardwareSettings,
@@ -135,11 +136,14 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
           printerProfile?.windowsPrinter?.name ||
           ''
         const zebra = /Zebra|GC420|EPL/i.test(winName)
+        const tvs = isTvsLp46LabelProfile(printerProfile)
         return {
           ok: false,
           message: zebra
             ? `Zebra raw print failed for “${winName}”. Check Settings → Printers, USB002 port, and restart START-KC-Label-Print.bat.`
-            : 'TSC printer not installed in Windows. Install TSC TTP-244 driver so it appears in Settings → Printers. Run CHECK-TSC-Printer.bat on this PC.',
+            : tvs
+              ? `TVS LP46 print failed for “${winName}”. Install the TVS LP 46 NEO driver, match the name in Hardware, and restart START-KC-Label-Print.bat.`
+              : 'TSC printer not installed in Windows. Install TSC TTP-244 driver so it appears in Settings → Printers. Run CHECK-TSC-Printer.bat on this PC.',
         }
       }
       return { ok: false, message: msg }

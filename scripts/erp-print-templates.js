@@ -99,6 +99,60 @@ function isZebraLabelProfile(profile) {
     return /Zebra|ZDesigner|GC420|EPL/i.test(blob);
 }
 
+function isTvsLp46LabelProfile(profile) {
+    if (profile?.labelFormat === 'tvs') return true;
+    const blob = `${profile?.name || ''} ${profile?.windowsPrinter?.name || ''}`;
+    return /LP\s*46|LP46|TVS.*NEO|NEO.*TPS|LP\s*46\s*NEO/i.test(blob);
+}
+
+function migrateLabelTvsLp46PrnRules(pf) {
+    const raw = pf?.labelTvsLp46PrnRules;
+    if (!Array.isArray(raw) || !raw.length) return [];
+    return raw
+        .map((rule) => ({
+            id: String(rule.id || newRuleId()),
+            name: String(rule.name || 'Label rule').trim() || 'Label rule',
+            enabled: rule.enabled !== false,
+            priority: Number(rule.priority) || 0,
+            metalTypes: Array.isArray(rule.metalTypes)
+                ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
+                : [],
+            requireAny: rule.requireAny || [],
+            requireAll: rule.requireAll || [],
+            requireNone: rule.requireNone || [],
+            template: normalizePrnTemplate(
+                rule.template || pf.labelTvsLp46PrnTemplate || pf.labelPrnTemplate || DEFAULT_LABEL_PRN,
+            ),
+        }))
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+}
+
+function resolveLabelTvsLp46PrnTemplate(piece, printFormats) {
+    const pf = printFormats || {};
+    const rules = migrateLabelTvsLp46PrnRules(pf);
+    for (const rule of rules) {
+        if (ruleMatchesPiece(piece, rule)) {
+            return {
+                template: normalizePrnTemplate(
+                    rule.template ||
+                        pf.labelTvsLp46PrnTemplate ||
+                        pf.labelPrnTemplate ||
+                        DEFAULT_LABEL_PRN,
+                ),
+                ruleId: rule.id,
+                ruleName: rule.name,
+            };
+        }
+    }
+    return {
+        template: normalizePrnTemplate(
+            pf.labelTvsLp46PrnTemplate || pf.labelPrnTemplate || DEFAULT_LABEL_PRN,
+        ),
+        ruleId: null,
+        ruleName: 'Default',
+    };
+}
+
 /** Map Zebra Designer / third-party angle-bracket fields to ERP {{placeholders}}. */
 function migrateZplPlaceholders(raw) {
     let s = String(raw || '');
@@ -834,9 +888,12 @@ function renderPrnLabel(template, piece, hw, profile) {
 
 function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
     const isZebra = isZebraLabelProfile(profile);
+    const isTvs = !isZebra && isTvsLp46LabelProfile(profile);
     const resolved = isZebra
         ? resolveLabelZebraPrnTemplate(piece, printFormats)
-        : resolveLabelPrnTemplate(piece, printFormats);
+        : isTvs
+          ? resolveLabelTvsLp46PrnTemplate(piece, printFormats)
+          : resolveLabelPrnTemplate(piece, printFormats);
     const vars = buildLabelTemplateVars(piece, hw, profile);
     const tspl = renderTemplate(resolved.template, vars, {
         plainText: isZebra || isZplLabelTemplate(resolved.template),
@@ -2461,6 +2518,14 @@ function shouldUsePrnTemplate(profile, printFormats) {
             (Array.isArray(pf.labelZebraPrnRules) && pf.labelZebraPrnRules.length)
         );
     }
+    if (isTvsLp46LabelProfile(profile)) {
+        if (pf.labelUseTvsLp46Prn === false) return false;
+        return !!(
+            String(pf.labelTvsLp46PrnTemplate || '').trim() ||
+            String(pf.labelPrnTemplate || '').trim() ||
+            (Array.isArray(pf.labelTvsLp46PrnRules) && pf.labelTvsLp46PrnRules.length)
+        );
+    }
     if (profile?.labelFormat === 'prn') return true;
     return pf.labelUsePrn !== false;
 }
@@ -2486,6 +2551,9 @@ module.exports = {
     migrateLabelZebraPrnRules,
     isZplLabelTemplate,
     isZebraLabelProfile,
+    isTvsLp46LabelProfile,
+    resolveLabelTvsLp46PrnTemplate,
+    migrateLabelTvsLp46PrnRules,
     migrateZplPlaceholders,
     preserveZplTemplate,
     normalizeLabelTemplate,

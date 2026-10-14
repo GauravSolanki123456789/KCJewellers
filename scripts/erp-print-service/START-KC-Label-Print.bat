@@ -21,7 +21,7 @@ echo ========================================
 echo  KC ERP Print Service
 echo ========================================
 echo  Keep this window OPEN while printing.
-echo  Labels (TSC) + Epson receipts use this agent.
+echo  Labels (TSC / TVS LP46 / Zebra) + Epson receipts use this agent.
 echo.
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0erp-local-print-agent.ps1"

@@ -111,9 +111,16 @@ export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'label' | 'labelZebra' | 'bill' | 'estimate'>('label')
+  const [tab, setTab] = useState<'label' | 'labelTvs' | 'labelZebra' | 'bill' | 'estimate'>('label')
   const labelZebra = tab === 'labelZebra'
-  const labelRules = labelZebra ? pf.labelZebraPrnRules : pf.labelPrnRules
+  const labelTvs = tab === 'labelTvs'
+  const labelRulesKey = labelZebra
+    ? 'labelZebraPrnRules'
+    : labelTvs
+      ? 'labelTvsLp46PrnRules'
+      : 'labelPrnRules'
+  const labelRules =
+    labelZebra ? pf.labelZebraPrnRules : labelTvs ? pf.labelTvsLp46PrnRules : pf.labelPrnRules
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const ruleFileRef = useRef<HTMLInputElement>(null)
@@ -133,6 +140,7 @@ export function ErpPrintFormatsWorkspace() {
       const payload = migratePrintFormats({
         ...pf,
         labelPrnTemplate: preservePrnTemplate(pf.labelPrnTemplate),
+        labelTvsLp46PrnTemplate: preservePrnTemplate(pf.labelTvsLp46PrnTemplate),
         labelPrnRules: (pf.labelPrnRules || []).map((rule) => ({
           ...rule,
           template: preservePrnTemplate(rule.template),
@@ -157,7 +165,7 @@ export function ErpPrintFormatsWorkspace() {
   }
 
   const updateRule = (id: string, patch: Partial<LabelPrnRule>) => {
-    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
+    const key = labelRulesKey
     setPf((p) => ({
       ...p,
       [key]: ((p[key] as LabelPrnRule[] | undefined) || []).map((r) =>
@@ -167,7 +175,7 @@ export function ErpPrintFormatsWorkspace() {
   }
 
   const removeRule = (id: string) => {
-    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
+    const key = labelRulesKey
     setPf((p) => ({
       ...p,
       [key]: ((p[key] as LabelPrnRule[] | undefined) || []).filter((r) => r.id !== id),
@@ -219,7 +227,7 @@ export function ErpPrintFormatsWorkspace() {
       requireNone: presets.requireNone || [],
       template: templates[preset || 'blank'] || DEFAULT_LABEL_PRN,
     }
-    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
+    const key = labelRulesKey
     const fallbackTpl = labelZebra ? DEFAULT_LABEL_ZPL : DEFAULT_LABEL_PRN
     const ruleWithTpl = {
       ...rule,
@@ -244,6 +252,15 @@ export function ErpPrintFormatsWorkspace() {
       setExpandedRuleId('zebra-gold')
       return
     }
+    if (labelTvs) {
+      if ((pf.labelTvsLp46PrnRules || []).length) return
+      setPf((p) => ({
+        ...p,
+        labelTvsLp46PrnRules: buildDefaultLabelPrnRules(p.labelTvsLp46PrnTemplate || p.labelPrnTemplate),
+      }))
+      setExpandedRuleId('gold')
+      return
+    }
     if ((pf.labelPrnRules || []).length) return
     setPf((p) => ({
       ...p,
@@ -257,7 +274,7 @@ export function ErpPrintFormatsWorkspace() {
     listKey: 'requireAny' | 'requireAll' | 'requireNone',
     field: LabelRuleFieldKey,
   ) => {
-    const key = labelZebra ? 'labelZebraPrnRules' : 'labelPrnRules'
+    const key = labelRulesKey
     setPf((p) => ({
       ...p,
       [key]: ((p[key] as LabelPrnRule[] | undefined) || []).map((r) => {
@@ -309,6 +326,18 @@ export function ErpPrintFormatsWorkspace() {
           >
             <Tag className="mr-1 inline size-4" />
             Label (TSC)
+          </button>
+          <button
+            type="button"
+            className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
+              tab === 'labelTvs'
+                ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+            }`}
+            onClick={() => setTab('labelTvs')}
+          >
+            <Tag className="mr-1 inline size-4" />
+            Label (TVS LP46)
           </button>
           <button
             type="button"
@@ -413,14 +442,16 @@ export function ErpPrintFormatsWorkspace() {
         </div>
       </div>
 
-      {tab === 'label' || tab === 'labelZebra' ? (
+      {tab === 'label' || tab === 'labelTvs' || tab === 'labelZebra' ? (
         <>
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                 {labelZebra
                   ? 'Zebra label template (ZPL / EPL / .prn)'
-                  : 'TSC label PRN template'}
+                  : labelTvs
+                    ? 'TVS LP46 NEO TPS label PRN template'
+                    : 'TSC label PRN template'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -445,7 +476,9 @@ export function ErpPrintFormatsWorkspace() {
                     setPf((p) =>
                       labelZebra
                         ? { ...p, labelZebraPrnTemplate: DEFAULT_LABEL_ZPL }
-                        : { ...p, labelPrnTemplate: DEFAULT_LABEL_PRN },
+                        : labelTvs
+                          ? { ...p, labelTvsLp46PrnTemplate: DEFAULT_LABEL_PRN }
+                          : { ...p, labelPrnTemplate: DEFAULT_LABEL_PRN },
                     )
                   }
                 >
@@ -458,19 +491,27 @@ export function ErpPrintFormatsWorkspace() {
               <input
                 type="checkbox"
                 checked={
-                  labelZebra ? pf.labelUseZebraPrn !== false : pf.labelUsePrn !== false
+                  labelZebra
+                    ? pf.labelUseZebraPrn !== false
+                    : labelTvs
+                      ? pf.labelUseTvsLp46Prn !== false
+                      : pf.labelUsePrn !== false
                 }
                 onChange={(e) =>
                   setPf((p) =>
                     labelZebra
                       ? { ...p, labelUseZebraPrn: e.target.checked }
-                      : { ...p, labelUsePrn: e.target.checked },
+                      : labelTvs
+                        ? { ...p, labelUseTvsLp46Prn: e.target.checked }
+                        : { ...p, labelUsePrn: e.target.checked },
                   )
                 }
               />
               {labelZebra
                 ? 'Use this template for Zebra/USB labels (GC420t — Hardware label format must be ZPL)'
-                : 'Use this PRN template for barcode labels (TTP-244)'}
+                : labelTvs
+                  ? 'Use this PRN template for TVS LP46 NEO TPS (TSPL — set matching Windows printer name in Hardware)'
+                  : 'Use this PRN template for barcode labels (TTP-244)'}
             </label>
             {labelZebra ? (
               <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
@@ -481,7 +522,9 @@ export function ErpPrintFormatsWorkspace() {
                 horizontally (no soft-wrap). Blank lines between commands are kept when you save.
               </p>
             ) : null}
-            {!labelZebra && isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
+            {!labelZebra &&
+            !labelTvs &&
+            isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
               <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                 Line breaks in this PRN look corrupted (commands glued together). TSC needs one command per line.
                 <button
@@ -505,12 +548,20 @@ export function ErpPrintFormatsWorkspace() {
                   ? 'whitespace-pre overflow-x-auto [overflow-wrap:normal] [word-break:normal]'
                   : 'whitespace-pre-wrap'
               }`}
-              value={labelZebra ? pf.labelZebraPrnTemplate || '' : pf.labelPrnTemplate || ''}
+              value={
+                labelZebra
+                  ? pf.labelZebraPrnTemplate || ''
+                  : labelTvs
+                    ? pf.labelTvsLp46PrnTemplate || ''
+                    : pf.labelPrnTemplate || ''
+              }
               onChange={(e) =>
                 setPf((p) =>
                   labelZebra
                     ? { ...p, labelZebraPrnTemplate: e.target.value }
-                    : { ...p, labelPrnTemplate: e.target.value },
+                    : labelTvs
+                      ? { ...p, labelTvsLp46PrnTemplate: e.target.value }
+                      : { ...p, labelPrnTemplate: e.target.value },
                 )
               }
               onBlur={() => {
@@ -528,7 +579,11 @@ export function ErpPrintFormatsWorkspace() {
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                {labelZebra ? 'Zebra smart label rules' : 'Smart label rules'}
+                {labelZebra
+                  ? 'Zebra smart label rules'
+                  : labelTvs
+                    ? 'TVS LP46 smart label rules'
+                    : 'Smart label rules'}
               </p>
               <div className="flex flex-wrap gap-2">
                 {!labelRules?.length ? (

@@ -31,7 +31,11 @@ const {
     createCollectedCashLedgerEntry,
     deleteLedgerEntriesForOfficialBills,
 } = require('./resellerErpLedger');
-const { ensureCashBookCustomers } = require('./resellerErpCustomerAccount');
+const {
+    ensureCashBookCustomers,
+    isInternalErpCustomerRow,
+    sqlExcludeInternalErpCustomers,
+} = require('./resellerErpCustomerAccount');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
 const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
 const { registerResellerErpOfflineRoutes } = require('./resellerErpOffline');
@@ -1091,7 +1095,7 @@ function registerResellerErpRoutes(app, deps) {
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_customers WHERE reseller_user_id = $1`;
             if (!laneBooks) {
-                sql += ` AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') <> 'jainav2'`;
+                sql += sqlExcludeInternalErpCustomers('name', 'notes');
             }
             if (customerId) {
                 params.push(customerId);
@@ -1260,6 +1264,7 @@ function registerResellerErpRoutes(app, deps) {
             const rows = await query(
                 `SELECT name, mobile, email, gstin, pan, address, birthdate, anniversary_date, notes, rate_slab
                  FROM reseller_erp_customers WHERE reseller_user_id = $1
+                 ${sqlExcludeInternalErpCustomers('name', 'notes')}
                  ORDER BY name ASC LIMIT 5000`,
                 [req.user.id],
             );
@@ -2532,6 +2537,7 @@ function registerResellerErpRoutes(app, deps) {
             );
             const events = [];
             for (const c of rows) {
+                if (isInternalErpCustomerRow(c)) continue;
                 if (c.birthdate) {
                     const d = daysUntilAnnualEvent(c.birthdate);
                     if (d === 0 || d === 1) {

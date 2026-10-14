@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   DEFAULT_SERIAL,
+  DEFAULT_TVS_LP46_WINDOWS_PRINTER,
   migrateHardwareSettings,
   newProfileId,
   normalizeComPort,
@@ -193,6 +194,18 @@ export function ErpHardwareWorkspace() {
       connection: 'usb',
       windowsPrinter: { name: 'Zebra GC420t - EPL', portHint: 'USB002' },
       labelFormat: 'zpl',
+      isDefault: !(hw.printerProfiles?.length || 0),
+    }
+    setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
+  }
+
+  const addTvsLp46Neo = () => {
+    const p: ErpPrinterProfile = {
+      id: newProfileId(),
+      name: 'TVS LP46 NEO TPS',
+      connection: 'usb',
+      windowsPrinter: { ...DEFAULT_TVS_LP46_WINDOWS_PRINTER },
+      labelFormat: 'tvs',
       isDefault: !(hw.printerProfiles?.length || 0),
     }
     setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
@@ -497,6 +510,9 @@ export function ErpHardwareWorkspace() {
           <button type="button" className={erpBtnGhost} onClick={addZebraGc420t}>
             + Zebra GC420t
           </button>
+          <button type="button" className={erpBtnGhost} onClick={addTvsLp46Neo}>
+            + TVS LP46 NEO
+          </button>
           <button type="button" className={erpBtnPrimary} onClick={addPrinter}>
             <Plus className="size-4" />
             Add printer
@@ -582,12 +598,15 @@ export function ErpHardwareWorkspace() {
                     className={`${erpInputCls} mt-1`}
                     value={p.labelFormat || 'tspl'}
                     onChange={(e) =>
-                      updatePrinter(p.id, { labelFormat: e.target.value as 'tspl' | 'prn' | 'zpl' })
+                      updatePrinter(p.id, {
+                        labelFormat: e.target.value as 'tspl' | 'prn' | 'zpl' | 'tvs',
+                      })
                     }
                   >
                     <option value="tspl">TSPL (TSC / thermal)</option>
                     <option value="zpl">ZPL (Zebra GC420t)</option>
                     <option value="prn">PRN template (TSC · Print formats)</option>
+                    <option value="tvs">PRN template (TVS LP46 · Print formats)</option>
                   </select>
                   {p.labelFormat === 'prn' &&
                   /Zebra|GC420|EPL/i.test(

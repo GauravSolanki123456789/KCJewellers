@@ -20,7 +20,7 @@ export type ErpPrinterProfile = {
   windowsPrinter?: { name: string; portHint?: string }
   companyCode?: string
   /** TSPL (default) or PRN template when you upload formats later */
-  labelFormat?: 'tspl' | 'prn' | 'zpl'
+  labelFormat?: 'tspl' | 'prn' | 'zpl' | 'tvs'
   prnTemplateName?: string
   isDefault?: boolean
 }
@@ -107,6 +107,18 @@ export function isZebraLabelProfile(profile: ErpPrinterProfile | null | undefine
   return /Zebra|ZDesigner|GC420|EPL/i.test(blob)
 }
 
+export function isTvsLp46LabelProfile(profile: ErpPrinterProfile | null | undefined): boolean {
+  if (!profile) return false
+  if (profile.labelFormat === 'tvs') return true
+  const blob = `${profile.name || ''} ${profile.windowsPrinter?.name || ''}`
+  return /LP\s*46|LP46|TVS.*NEO|NEO.*TPS|LP\s*46\s*NEO/i.test(blob)
+}
+
+export const DEFAULT_TVS_LP46_WINDOWS_PRINTER = {
+  name: 'TVS LP 46 NEO',
+  portHint: 'USB001',
+}
+
 export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefined): ErpHardwareSettings {
   const hw: ErpHardwareSettings = { ...(raw || {}) }
   if (!hw.companyCode) hw.companyCode = 'KC925'
@@ -177,6 +189,9 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
   for (const p of hw.printerProfiles || []) {
     if (isZebraLabelProfile(p) && p.labelFormat !== 'zpl') {
       p.labelFormat = 'zpl'
+    }
+    if (isTvsLp46LabelProfile(p) && p.labelFormat !== 'tvs' && p.labelFormat !== 'prn') {
+      p.labelFormat = 'tvs'
     }
   }
 

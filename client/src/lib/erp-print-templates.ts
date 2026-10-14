@@ -363,6 +363,9 @@ export type ErpPrintFormatsSettings = {
   labelZebraPrnTemplate?: string
   labelZebraPrnRules?: LabelPrnRule[]
   labelUseZebraPrn?: boolean
+  labelTvsLp46PrnTemplate?: string
+  labelTvsLp46PrnRules?: LabelPrnRule[]
+  labelUseTvsLp46Prn?: boolean
   billTemplate?: string
   estimateTemplateGold?: string
   estimateTemplateSilver?: string
@@ -542,6 +545,10 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
   pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
   pf.labelPrnRules = migrateLabelPrnRules(pf)
+  pf.labelTvsLp46PrnTemplate = normalizePrnTemplate(
+    pf.labelTvsLp46PrnTemplate || pf.labelPrnTemplate || DEFAULT_LABEL_PRN,
+  )
+  if (pf.labelUseTvsLp46Prn == null) pf.labelUseTvsLp46Prn = true
   pf.labelZebraPrnTemplate = formatZplForEditor(
     normalizeLabelTemplate(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL, 'zpl'),
   )
@@ -577,6 +584,14 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   }
   if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf'
   if (pf.labelUsePrn == null) pf.labelUsePrn = true
+  if (Array.isArray(pf.labelTvsLp46PrnRules) && pf.labelTvsLp46PrnRules.length) {
+    pf.labelTvsLp46PrnRules = pf.labelTvsLp46PrnRules.map((rule) => ({
+      ...rule,
+      template: normalizePrnTemplate(
+        rule.template || pf.labelTvsLp46PrnTemplate || pf.labelPrnTemplate || DEFAULT_LABEL_PRN,
+      ),
+    }))
+  }
   if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true
   if (!pf.estimatePrintMode) pf.estimatePrintMode = 'rough'
   if (pf.estimateDuplicateCopy == null) pf.estimateDuplicateCopy = true
