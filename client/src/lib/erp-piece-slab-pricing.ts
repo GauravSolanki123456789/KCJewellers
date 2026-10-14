@@ -111,8 +111,6 @@ export function resolveErpLineSilverMetalRatePerG(
   wholesaleSilver?: number | null,
   silverRateOffsetPerG = 0,
 ): number {
-  const explicit = Number(line.ratePerGram)
-  if (Number.isFinite(explicit) && explicit > 0) return explicit
   const locked = Number(line.ratePerGram)
   if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
   return resolveErpSilverMetalRatePerG(

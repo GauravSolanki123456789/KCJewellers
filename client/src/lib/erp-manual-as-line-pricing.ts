@@ -1,5 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import {
+  erpSlabUsesWholesaleMetal,
   isRetailQuoteSlab,
   mcSlabFieldForBillingSlab,
   type ErpRateSlab,
@@ -111,19 +112,17 @@ function resolveManualRowRatePerG(
   wholesaleSilver?: number | null,
   wholesaleGold?: number | null,
 ): number {
-  const explicit = Number(line.ratePerGram)
-  if (Number.isFinite(explicit) && explicit > 0) return explicit
   const locked = Number(line.ratePerGram)
   if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
   const metal = String(line.metal_type || 'silver').toLowerCase()
   if (metal.startsWith('gold')) {
-    if (slab === 'W' || slab === 'F') {
+    if (erpSlabUsesWholesaleMetal(slab)) {
       const wh = Number(wholesaleGold ?? goldPerG) || 0
       return wh > 0 ? wh : goldPerG > 0 ? goldPerG : 0
     }
     return goldPerG > 0 ? goldPerG : 0
   }
-  if (slab === 'W' || slab === 'F') {
+  if (erpSlabUsesWholesaleMetal(slab)) {
     const wh = Number(wholesaleSilver ?? silverPerG) || 0
     return wh > 0 ? wh : silverPerG > 0 ? silverPerG : 0
   }

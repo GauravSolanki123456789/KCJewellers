@@ -1828,11 +1828,15 @@ export function ErpBillingWorkspace() {
     if (hasSilver && silverStored != null) setWholesaleSilver(silverStored)
     const nextSlab = pendingSlab ?? rateSlab
     if (pendingSlab) setRateSlab(pendingSlab)
+    const whGold = gVal
+    const whSilver = sVal
     setLines((prev) =>
       prev.map((line) => {
         const withGift = applyGiftMrpForSlabChange(line, nextSlab, slabSettings)
         const slabAligned = applyBillingSlabToLine(withGift, nextSlab)
-        const base: ErpBillLine = line.rateLocked
+        const keepLockedMetal =
+          line.rateLocked && Number(line.ratePerGram) > 0
+        const base: ErpBillLine = keepLockedMetal
           ? slabAligned
           : {
               ...slabAligned,
@@ -1845,8 +1849,8 @@ export function ErpBillingWorkspace() {
             }
         return recalcLine(base, {
           slab: nextSlab,
-          wholesaleGold: gVal,
-          wholesaleSilver: sVal,
+          wholesaleGold: whGold,
+          wholesaleSilver: whSilver,
         })
       }),
     )
