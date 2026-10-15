@@ -213,6 +213,24 @@ function buildStyles(p: KcPdfPalette) {
       marginBottom: 0,
     },
     tableTitleText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
+    /** Estimate only — outline title bar (saves ink vs solid accent fill). */
+    estimatePage: {
+      paddingTop: 24,
+    },
+    estimateTableTitle: {
+      backgroundColor: p.pageBg,
+      paddingVertical: 5,
+      paddingHorizontal: 6,
+      marginBottom: 0,
+      borderWidth: 1,
+      borderColor: p.textPrimary,
+      borderBottomWidth: 0,
+    },
+    estimateTableTitleText: {
+      color: p.textPrimary,
+      fontSize: 9,
+      fontWeight: 'bold',
+    },
     estimateTableOuter: {
       borderWidth: 1,
       borderColor: p.textPrimary,
@@ -510,7 +528,7 @@ export function ErpQuotePdfDocument({
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={!isInvoice ? [styles.page, styles.estimatePage] : styles.page}>
         <View style={styles.header}>
           <View style={styles.headerMain}>
             <Text style={styles.brand}>{sanitizePdfText(brandName)}</Text>
@@ -547,8 +565,10 @@ export function ErpQuotePdfDocument({
           </View>
         </View>
 
-        <View style={styles.tableTitle}>
-          <Text style={styles.tableTitleText}>{tableTitle}</Text>
+        <View style={!isInvoice ? styles.estimateTableTitle : styles.tableTitle}>
+          <Text style={!isInvoice ? styles.estimateTableTitleText : styles.tableTitleText}>
+            {tableTitle}
+          </Text>
         </View>
         <View style={!isInvoice ? styles.estimateTableOuter : undefined}>
           <View style={!isInvoice ? styles.headRowGrid : styles.headRow}>
