@@ -58,6 +58,9 @@ const {
     shouldRouteSaleToShadowLedger,
     shouldRouteReturnToShadowLedger,
     findShadowBillByOfflineOpId,
+    isEstimateHiddenFromOfficialBooks,
+    sqlExcludeEstimatesHiddenFromOfficialBooks,
+    purgeAllLedgerLinkedEstimates,
 } = require('./resellerErpShadow');
 const { normalizeOrderLines, parseOrderMedia } = require('./resellerErpOrderMedia');
 const labelPrinter = require('../scripts/label-printer');
@@ -1473,6 +1476,19 @@ function registerResellerErpRoutes(app, deps) {
                 searchSql += ')';
                 sql += searchSql;
             }
+            const shadowUnlocked = req.session?.shadowUnlocked === true;
+            const wantsEstimates =
+                billType === 'estimate' || billTypes.includes('estimate');
+            if (!shadowUnlocked) {
+                sql += sqlExcludeEstimatesHiddenFromOfficialBooks();
+                if (wantsEstimates) {
+                    try {
+                        await purgeAllLedgerLinkedEstimates(query, req.user.id);
+                    } catch (purgeErr) {
+                        console.warn('erp purge lane-linked estimates:', purgeErr.message);
+                    }
+                }
+            }
             if (
                 billType === 'estimate' ||
                 billType === 'sale' ||
@@ -1540,6 +1556,12 @@ function registerResellerErpRoutes(app, deps) {
                 [id, req.user.id],
             );
             if (!rows.length) return res.status(404).json({ error: 'Bill not found' });
+            if (
+                req.session?.shadowUnlocked !== true &&
+                isEstimateHiddenFromOfficialBooks(rows[0])
+            ) {
+                return res.status(404).json({ error: 'Bill not found' });
+            }
             if (String(rows[0].bill_type || '').toLowerCase() === 'approval') {
                 if (denyUnlessApprovalModule(req, res)) return;
             }

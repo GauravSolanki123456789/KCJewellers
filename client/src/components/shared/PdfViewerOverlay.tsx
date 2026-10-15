@@ -22,10 +22,10 @@ import {
   customerWhatsAppHref,
   formatCustomerMobileDisplay,
 } from '@/lib/catalog-inquiry-shared'
+import { PdfBlobCanvasViewer } from '@/components/shared/PdfBlobCanvasViewer'
 
 export default function PdfViewerOverlay() {
   const payload = useSyncExternalStore(subscribePdfOverlay, getPdfOverlayPayload, () => null)
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
   const [waSending, setWaSending] = useState(false)
   const [waMsg, setWaMsg] = useState<string | null>(null)
@@ -38,20 +38,6 @@ export default function PdfViewerOverlay() {
 
   const opts = payload?.opts
   const blob = payload?.blob
-
-  useEffect(() => {
-    if (!payload?.blob) {
-      setPdfUrl(null)
-      return
-    }
-    const url = URL.createObjectURL(
-      new File([payload.blob], payload.opts.filename || 'invoice.pdf', {
-        type: 'application/pdf',
-      }),
-    )
-    setPdfUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [payload?.blob])
 
   useEffect(() => {
     if (!opts) return
@@ -318,13 +304,9 @@ export default function PdfViewerOverlay() {
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden p-2 sm:p-4">
-        {pdfUrl ? (
+        {blob ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e8e4df] bg-white shadow-sm">
-            <iframe
-              src={`${pdfUrl}#toolbar=0&navpanes=0`}
-              title={opts.filename}
-              className="min-h-0 flex-1 w-full"
-            />
+            <PdfBlobCanvasViewer blob={blob} title={opts.filename} className="min-h-[240px] sm:min-h-[320px]" />
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center">

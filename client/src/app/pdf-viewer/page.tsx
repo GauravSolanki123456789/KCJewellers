@@ -19,12 +19,12 @@ import {
   whatsAppSetupHint,
   type WhatsAppCloudStatus,
 } from '@/lib/erp-whatsapp-cloud'
+import { PdfBlobCanvasViewer } from '@/components/shared/PdfBlobCanvasViewer'
 
 function PdfViewerInner() {
   const searchParams = useSearchParams()
   const id = searchParams.get('id') || ''
   const [payload, setPayload] = useState<StoredPdfViewerPayload | null>(null)
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
   const [waMode, setWaMode] = useState<'pick' | 'customer'>('customer')
   const [waConfigured, setWaConfigured] = useState(false)
@@ -37,11 +37,7 @@ function PdfViewerInner() {
     const stored = loadPdfFromViewerStore(id)
     if (!stored) return
     setPayload(stored)
-    const blob = base64ToBlob(stored.blobBase64)
-    const url = URL.createObjectURL(blob)
-    setPdfUrl(url)
     return () => {
-      URL.revokeObjectURL(url)
       clearPdfViewerStore(id)
     }
   }, [id])
@@ -136,7 +132,7 @@ function PdfViewerInner() {
     )
   }
 
-  if (!payload || !pdfUrl) {
+  if (!payload) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#faf8f4] p-6">
         <Loader2 className="size-8 animate-spin text-emerald-700" />
@@ -225,13 +221,19 @@ function PdfViewerInner() {
         ) : null}
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 p-2 sm:p-4">
-        <div className="overflow-hidden rounded-xl border border-[#e8e4df] bg-white shadow-sm">
-          <iframe
-            src={pdfUrl}
-            title={payload.filename}
-            className="h-[calc(100vh-220px)] min-h-[360px] w-full"
-          />
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden p-2 sm:p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e8e4df] bg-white shadow-sm">
+          {blob ? (
+            <PdfBlobCanvasViewer
+              blob={blob}
+              title={payload.filename}
+              className="min-h-[max(360px,calc(100vh-220px))]"
+            />
+          ) : (
+            <div className="flex min-h-[360px] items-center justify-center">
+              <Loader2 className="size-8 animate-spin text-emerald-700" />
+            </div>
+          )}
         </div>
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[#1a1814]/45">
           <FileText className="size-3.5" />

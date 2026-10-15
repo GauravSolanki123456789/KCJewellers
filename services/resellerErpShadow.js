@@ -262,35 +262,80 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     return { bill, lane };
 }
 
+/** Estimates billed only via lane / Jainav — hidden from normal books (not GST sale bills). */
+function isEstimateHiddenFromOfficialBooks(row) {
+    if (!row || String(row.bill_type || '').toLowerCase() !== 'estimate') return false;
+    const session = parseSessionJson(row.session_json);
+    if (String(session.billedViaLedger || '').toLowerCase() === 'true') return true;
+    const status = String(row.status || 'draft').toLowerCase();
+    if (status !== 'billed') return false;
+    const saleId = session.billedSaleBillId;
+    const saleNo = session.billedSaleBillNumber;
+    const hasGstSaleLink =
+        (saleId != null && String(saleId).trim() !== '') ||
+        (saleNo != null && String(saleNo).trim() !== '');
+    return !hasGstSaleLink;
+}
+
+function sqlExcludeEstimatesHiddenFromOfficialBooks() {
+    return ` AND NOT (
+        bill_type = 'estimate' AND (
+            COALESCE(session_json->>'billedViaLedger', '') = 'true'
+            OR (
+                LOWER(COALESCE(status, 'draft')) = 'billed'
+                AND COALESCE(TRIM(session_json->>'billedSaleBillId'), '') = ''
+                AND COALESCE(TRIM(session_json->>'billedSaleBillNumber'), '') = ''
+            )
+        )
+    )`;
+}
+
+async function purgeAllLedgerLinkedEstimates(query, resellerUserId) {
+    return query(
+        `DELETE FROM reseller_erp_bills
+         WHERE reseller_user_id = $1
+           AND bill_type = 'estimate'
+           AND (
+             COALESCE(session_json->>'billedViaLedger', '') = 'true'
+             OR (
+               LOWER(COALESCE(status, 'draft')) = 'billed'
+               AND COALESCE(TRIM(session_json->>'billedSaleBillId'), '') = ''
+               AND COALESCE(TRIM(session_json->>'billedSaleBillNumber'), '') = ''
+             )
+           )
+         RETURNING id`,
+        [resellerUserId],
+    );
+}
+
 async function markEstimateBilledToShadow(query, resellerUserId, sourceEstimateId, shadowBill) {
     const sourceId = parseInt(String(sourceEstimateId), 10);
     if (!Number.isFinite(sourceId) || sourceId <= 0) return;
     const estRows = await query(
-        `SELECT id, bill_type, status, session_json FROM reseller_erp_bills
+        `SELECT id, bill_number, bill_type, status, session_json FROM reseller_erp_bills
          WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
         [sourceId, resellerUserId],
     );
     if (!estRows.length || String(estRows[0].bill_type || '').toLowerCase() !== 'estimate') return;
-    let prevSession = estRows[0].session_json;
-    if (typeof prevSession === 'string') {
-        try {
-            prevSession = JSON.parse(prevSession);
-        } catch {
-            prevSession = {};
-        }
+    const est = estRows[0];
+    const shadowId = shadowBill && shadowBill.id != null ? parseInt(String(shadowBill.id), 10) : null;
+    if (Number.isFinite(shadowId) && shadowId > 0) {
+        const archive = {
+            sourceEstimateId: sourceId,
+            sourceEstimateNumber: trimStr(est.bill_number, 64) || null,
+            estimateArchivedToLaneAt: new Date().toISOString(),
+        };
+        await query(
+            `UPDATE reseller_erp_shadow_bills
+             SET session_json = COALESCE(session_json, '{}'::jsonb) || $3::jsonb
+             WHERE id = $1 AND reseller_user_id = $2`,
+            [shadowId, resellerUserId, JSON.stringify(archive)],
+        );
     }
-    const nextSession = {
-        ...(prevSession && typeof prevSession === 'object' ? prevSession : {}),
-        billedShadowBillId: shadowBill.id,
-        billedShadowBillNumber: shadowBill.bill_number,
-        billedAt: new Date().toISOString(),
-        billedViaLedger: true,
-    };
     await query(
-        `UPDATE reseller_erp_bills
-         SET status = 'billed', session_json = $3::jsonb, updated_at = NOW()
+        `DELETE FROM reseller_erp_bills
          WHERE id = $1 AND reseller_user_id = $2 AND bill_type = 'estimate'`,
-        [sourceId, resellerUserId, JSON.stringify(nextSession)],
+        [sourceId, resellerUserId],
     );
 }
 
@@ -1495,4 +1540,7 @@ module.exports = {
     shouldRouteReturnToShadowLedger,
     saleIsCashCollected,
     findShadowBillByOfflineOpId,
+    isEstimateHiddenFromOfficialBooks,
+    sqlExcludeEstimatesHiddenFromOfficialBooks,
+    purgeAllLedgerLinkedEstimates,
 };
