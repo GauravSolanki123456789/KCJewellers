@@ -32,6 +32,7 @@ import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-impor
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import { exportDaybookToTallyLocal } from '@/lib/erp-tally-export'
 import { downloadDaybookPdf, type DaybookExportData } from '@/lib/erp-ledger-statement-pdf'
@@ -420,7 +421,7 @@ function emptyPvForm() {
     vendor_name: '',
     vendor_bill_ref: '',
     amount_inr: '',
-    weight_kg: '',
+    weight_gm: '',
     metal_type: 'SILVER',
     payment_mode: 'neft',
     narration: '',
@@ -1208,13 +1209,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const savePurchase = async () => {
     const amount = Number(String(pvForm.amount_inr).replace(/[,₹\s]/g, ''))
-    const weightKg = Number(String(pvForm.weight_kg).replace(/[,₹\s]/g, ''))
+    const weightGm = Number(String(pvForm.weight_gm).replace(/[,₹\s]/g, ''))
     if (!Number.isFinite(amount) || amount <= 0) {
       alert('Enter purchase amount')
       return
     }
-    if (!Number.isFinite(weightKg) || weightKg <= 0) {
-      alert('Enter weight in kg')
+    if (!Number.isFinite(weightGm) || weightGm <= 0) {
+      alert('Enter weight in grams')
       return
     }
     setBusy(true)
@@ -1224,7 +1225,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         {
           ...pvForm,
           amount_inr: amount,
-          weight_kg: weightKg,
+          weight_gm: weightGm,
           customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
         },
       )
@@ -1237,7 +1238,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         vendor_name: '',
         vendor_bill_ref: '',
         amount_inr: '',
-        weight_kg: '',
+        weight_gm: '',
         metal_type: 'SILVER',
         payment_mode: 'neft',
         narration: '',
@@ -2223,8 +2224,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               <input className={`${erpInputCls} mt-1 tabular-nums`} inputMode="decimal" value={pvForm.amount_inr} onChange={(e) => setPvForm({ ...pvForm, amount_inr: e.target.value.replace(/[^\d.]/g, '') })} />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Weight (kg)
-              <input className={`${erpInputCls} mt-1 tabular-nums`} inputMode="decimal" value={pvForm.weight_kg} onChange={(e) => setPvForm({ ...pvForm, weight_kg: e.target.value.replace(/[^\d.]/g, '') })} />
+              Weight (grams)
+              <input className={`${erpInputCls} mt-1 tabular-nums`} inputMode="decimal" value={pvForm.weight_gm} onChange={(e) => setPvForm({ ...pvForm, weight_gm: e.target.value.replace(/[^\d.]/g, '') })} />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Metal
@@ -2265,7 +2266,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     <div className="min-w-0">
                       <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{pv.pv_number}</p>
                       <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-                        {pv.vendor_name || 'Vendor'} · {pv.weight_kg} kg · pending {pv.pending_weight_kg} kg ·{' '}
+                        {pv.vendor_name || 'Vendor'} ·{' '}
+                        {formatPvWeightGrams(pv.weight_kg)} · pending {formatPvWeightGrams(pv.pending_weight_kg)} ·{' '}
                         {pv.status} · {formatErpDateDdMmYyyy(pv.entry_date)}
                       </p>
                       {pv.customer_name ? (

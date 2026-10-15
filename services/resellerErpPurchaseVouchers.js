@@ -22,6 +22,23 @@ function parseWeightKg(v) {
     return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : null;
 }
 
+/** Staff enter grams; legacy clients may still send kg in weight_kg. */
+function resolvePurchaseWeightKg(body) {
+    if (body.weight_gm != null && body.weight_gm !== '') {
+        const gm = Number(String(body.weight_gm).replace(/[,₹\s]/g, ''));
+        if (Number.isFinite(gm) && gm > 0) {
+            return Math.round((gm / 1000) * 1000000) / 1000000;
+        }
+    }
+    if (body.weight_unit === 'gm' || body.weight_unit === 'g') {
+        const gm = Number(String(body.weight_kg || '').replace(/[,₹\s]/g, ''));
+        if (Number.isFinite(gm) && gm > 0) {
+            return Math.round((gm / 1000) * 1000000) / 1000000;
+        }
+    }
+    return parseWeightKg(body.weight_kg);
+}
+
 function parseDateOrNull(v) {
     if (!v) return null;
     const s = String(v).trim();
@@ -79,6 +96,9 @@ function mapPv(row) {
     if (!row) return row;
     const weightKg = Number(row.weight_kg) || 0;
     const receivedKg = Number(row.received_weight_kg) || 0;
+    const weightGm = Math.round(weightKg * 1000 * 1000) / 1000;
+    const receivedGm = Math.round(receivedKg * 1000 * 1000) / 1000;
+    const pendingKg = Math.max(0, Math.round((weightKg - receivedKg) * 1000) / 1000);
     return {
         id: row.id,
         pv_number: row.pv_number,
@@ -88,7 +108,10 @@ function mapPv(row) {
         amount_inr: Number(row.amount_inr) || 0,
         weight_kg: weightKg,
         received_weight_kg: receivedKg,
-        pending_weight_kg: Math.max(0, Math.round((weightKg - receivedKg) * 1000) / 1000),
+        pending_weight_kg: pendingKg,
+        weight_gm: weightGm,
+        received_weight_gm: receivedGm,
+        pending_weight_gm: Math.round(pendingKg * 1000 * 1000) / 1000,
         metal_type: row.metal_type,
         narration: row.narration,
         ledger_entry_id: row.ledger_entry_id,
@@ -303,9 +326,9 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
     app.post('/api/reseller/erp/purchase-vouchers', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const amount = parseAmount(req.body.amount_inr);
-            const weightKg = parseWeightKg(req.body.weight_kg);
+            const weightKg = resolvePurchaseWeightKg(req.body);
             if (amount == null || amount <= 0) return res.status(400).json({ error: 'Valid amount required' });
-            if (weightKg == null || weightKg <= 0) return res.status(400).json({ error: 'Valid weight (kg) required' });
+            if (weightKg == null || weightKg <= 0) return res.status(400).json({ error: 'Valid weight (grams) required' });
 
             const pvNumber =
                 trimStr(req.body.pv_number, 32).toUpperCase() ||
@@ -351,7 +374,7 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                     paymentMode,
                     pvNumber,
                     vendorName,
-                    narration || `Stock purchase ${pvNumber} · ${weightKg} kg`,
+                    narration || `Stock purchase ${pvNumber} · ${Math.round(weightKg * 1000 * 1000) / 1000} g`,
                     pv.id,
                     weightKg,
                     customerId,

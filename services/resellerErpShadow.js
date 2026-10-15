@@ -53,6 +53,27 @@ async function ensureShadowSchema(pool) {
             ON reseller_erp_shadow_bills (reseller_user_id, lane, bill_date DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_reseller_erp_shadow_bills_number
             ON reseller_erp_shadow_bills (reseller_user_id, bill_number);
+        CREATE TABLE IF NOT EXISTS reseller_erp_lane_estimate_archive (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            source_estimate_id INTEGER NOT NULL,
+            bill_number VARCHAR(64) NOT NULL,
+            customer_id INTEGER REFERENCES reseller_erp_customers(id) ON DELETE SET NULL,
+            customer_name VARCHAR(255),
+            total_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+            status VARCHAR(32) NOT NULL DEFAULT 'billed',
+            lines_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+            session_json JSONB DEFAULT NULL,
+            notes TEXT,
+            bill_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            shadow_bill_id INTEGER REFERENCES reseller_erp_shadow_bills(id) ON DELETE SET NULL,
+            shadow_bill_number VARCHAR(64),
+            archived_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (reseller_user_id, source_estimate_id),
+            UNIQUE (reseller_user_id, bill_number)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lane_estimate_archive_reseller_date
+            ON reseller_erp_lane_estimate_archive (reseller_user_id, bill_date DESC);
     `);
     await pool.query(`
         ALTER TABLE reseller_erp_ledger_entries
@@ -308,30 +329,163 @@ async function purgeAllLedgerLinkedEstimates(query, resellerUserId) {
     );
 }
 
-async function markEstimateBilledToShadow(query, resellerUserId, sourceEstimateId, shadowBill) {
-    const sourceId = parseInt(String(sourceEstimateId), 10);
+function mapLaneEstimateArchiveRow(row) {
+    if (!row) return null;
+    let lines = row.lines_json;
+    if (typeof lines === 'string') {
+        try {
+            lines = JSON.parse(lines);
+        } catch {
+            lines = [];
+        }
+    }
+    let session = row.session_json;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch {
+            session = null;
+        }
+    }
+    return {
+        id: row.id,
+        archive_id: row.id,
+        source_estimate_id: row.source_estimate_id,
+        bill_number: row.bill_number,
+        bill_type: 'estimate',
+        customer_id: row.customer_id,
+        customer_name: row.customer_name,
+        total_inr: Number(row.total_inr) || 0,
+        status: row.status || 'billed',
+        lines: Array.isArray(lines) ? lines : [],
+        session: session && typeof session === 'object' ? session : null,
+        notes: row.notes,
+        bill_date: row.bill_date,
+        shadow_bill_id: row.shadow_bill_id,
+        shadow_bill_number: row.shadow_bill_number,
+        archived_at: row.archived_at,
+        lane_archived: true,
+    };
+}
+
+async function archiveLaneEstimateRow(query, resellerUserId, estRow, shadowBill) {
+    const sourceId = parseInt(String(estRow.id), 10);
     if (!Number.isFinite(sourceId) || sourceId <= 0) return;
-    const estRows = await query(
-        `SELECT id, bill_number, bill_type, status, session_json FROM reseller_erp_bills
-         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
-        [sourceId, resellerUserId],
-    );
-    if (!estRows.length || String(estRows[0].bill_type || '').toLowerCase() !== 'estimate') return;
-    const est = estRows[0];
     const shadowId = shadowBill && shadowBill.id != null ? parseInt(String(shadowBill.id), 10) : null;
+    const shadowNumber = shadowBill && shadowBill.bill_number ? trimStr(shadowBill.bill_number, 64) : null;
+    let session = estRow.session_json;
+    if (typeof session === 'string') {
+        try {
+            session = JSON.parse(session);
+        } catch {
+            session = {};
+        }
+    }
+    const sessionObj = session && typeof session === 'object' ? { ...session } : {};
+    delete sessionObj.billedShadowBillId;
+    delete sessionObj.billedShadowBillNumber;
+    delete sessionObj.billedViaLedger;
+    await query(
+        `INSERT INTO reseller_erp_lane_estimate_archive (
+            reseller_user_id, source_estimate_id, bill_number, customer_id, customer_name,
+            total_inr, status, lines_json, session_json, notes, bill_date,
+            shadow_bill_id, shadow_bill_number
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13)
+         ON CONFLICT (reseller_user_id, source_estimate_id) DO UPDATE SET
+            shadow_bill_id = COALESCE(EXCLUDED.shadow_bill_id, reseller_erp_lane_estimate_archive.shadow_bill_id),
+            shadow_bill_number = COALESCE(EXCLUDED.shadow_bill_number, reseller_erp_lane_estimate_archive.shadow_bill_number),
+            archived_at = NOW()`,
+        [
+            resellerUserId,
+            sourceId,
+            trimStr(estRow.bill_number, 64),
+            estRow.customer_id,
+            trimStr(estRow.customer_name, 255),
+            Number(estRow.total_inr) || 0,
+            trimStr(estRow.status, 32) || 'billed',
+            typeof estRow.lines_json === 'string'
+                ? estRow.lines_json
+                : JSON.stringify(estRow.lines_json || []),
+            JSON.stringify(sessionObj),
+            trimStr(estRow.notes, 2000),
+            estRow.bill_date,
+            Number.isFinite(shadowId) && shadowId > 0 ? shadowId : null,
+            shadowNumber,
+        ],
+    );
     if (Number.isFinite(shadowId) && shadowId > 0) {
-        const archive = {
+        const patch = {
             sourceEstimateId: sourceId,
-            sourceEstimateNumber: trimStr(est.bill_number, 64) || null,
+            sourceEstimateNumber: trimStr(estRow.bill_number, 64) || null,
             estimateArchivedToLaneAt: new Date().toISOString(),
+            estimateBillDate: estRow.bill_date,
         };
         await query(
             `UPDATE reseller_erp_shadow_bills
              SET session_json = COALESCE(session_json, '{}'::jsonb) || $3::jsonb
              WHERE id = $1 AND reseller_user_id = $2`,
-            [shadowId, resellerUserId, JSON.stringify(archive)],
+            [shadowId, resellerUserId, JSON.stringify(patch)],
         );
     }
+}
+
+async function backfillLaneEstimateArchivesFromShadow(query, resellerUserId) {
+    const rows = await query(
+        `SELECT sb.* FROM reseller_erp_shadow_bills sb
+         WHERE sb.reseller_user_id = $1
+           AND COALESCE(sb.session_json->>'sourceEstimateNumber', '') <> ''
+           AND NOT EXISTS (
+             SELECT 1 FROM reseller_erp_lane_estimate_archive a
+             WHERE a.reseller_user_id = sb.reseller_user_id
+               AND UPPER(a.bill_number) = UPPER(COALESCE(sb.session_json->>'sourceEstimateNumber', ''))
+           )`,
+        [resellerUserId],
+    );
+    for (const sb of rows) {
+        const session = parseSessionJson(sb.session_json);
+        const billNumber = trimStr(session.sourceEstimateNumber, 64);
+        const sourceId = parseInt(String(session.sourceEstimateId || ''), 10);
+        if (!billNumber) continue;
+        const estDate =
+            parseDateOrNull(session.estimateBillDate) ||
+            parseDateOrNull(sb.bill_date) ||
+            new Date().toISOString().slice(0, 10);
+        await query(
+            `INSERT INTO reseller_erp_lane_estimate_archive (
+                reseller_user_id, source_estimate_id, bill_number, customer_id, customer_name,
+                total_inr, status, lines_json, session_json, notes, bill_date,
+                shadow_bill_id, shadow_bill_number
+             ) VALUES ($1,$2,$3,$4,$5,$6,'billed',$7::jsonb,$8::jsonb,$9,$10,$11,$12)
+             ON CONFLICT (reseller_user_id, bill_number) DO NOTHING`,
+            [
+                resellerUserId,
+                Number.isFinite(sourceId) && sourceId > 0 ? sourceId : -sb.id,
+                billNumber,
+                sb.customer_id,
+                trimStr(sb.customer_name, 255),
+                Number(sb.total_inr) || 0,
+                JSON.stringify(sb.lines_json || []),
+                JSON.stringify({ backfilledFromShadowBill: true }),
+                trimStr(sb.notes, 2000),
+                estDate,
+                sb.id,
+                trimStr(sb.bill_number, 64),
+            ],
+        ).catch(() => {});
+    }
+}
+
+async function markEstimateBilledToShadow(query, resellerUserId, sourceEstimateId, shadowBill) {
+    const sourceId = parseInt(String(sourceEstimateId), 10);
+    if (!Number.isFinite(sourceId) || sourceId <= 0) return;
+    const estRows = await query(
+        `SELECT * FROM reseller_erp_bills
+         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+        [sourceId, resellerUserId],
+    );
+    if (!estRows.length || String(estRows[0].bill_type || '').toLowerCase() !== 'estimate') return;
+    const est = estRows[0];
+    await archiveLaneEstimateRow(query, resellerUserId, est, shadowBill);
     await query(
         `DELETE FROM reseller_erp_bills
          WHERE id = $1 AND reseller_user_id = $2 AND bill_type = 'estimate'`,
@@ -1196,6 +1350,59 @@ function registerShadowRoutes(app, deps) {
         } catch (e) {
             console.error('shadow returned keys:', e);
             res.status(500).json({ error: e.message || 'Failed to load returned items' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/estimates', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            await backfillLaneEstimateArchivesFromShadow(query, req.user.id);
+            const q = trimStr(req.query.q, 200);
+            const from = parseDateOrNull(req.query.from);
+            const to = parseDateOrNull(req.query.to);
+            const onDate = parseDateOrNull(req.query.on);
+            const params = [req.user.id];
+            let sql = `SELECT * FROM reseller_erp_lane_estimate_archive WHERE reseller_user_id = $1`;
+            if (onDate) {
+                params.push(onDate);
+                sql += ` AND bill_date = $${params.length}::date`;
+            } else {
+                if (from) {
+                    params.push(from);
+                    sql += ` AND bill_date >= $${params.length}::date`;
+                }
+                if (to) {
+                    params.push(to);
+                    sql += ` AND bill_date <= $${params.length}::date`;
+                }
+            }
+            if (q) {
+                params.push(`%${q}%`);
+                const idx = params.length;
+                sql += ` AND (bill_number ILIKE $${idx} OR customer_name ILIKE $${idx})`;
+            }
+            sql += ` ORDER BY CAST(NULLIF(regexp_replace(bill_number, '\\D', '', 'g'), '') AS INTEGER) DESC NULLS LAST, id DESC LIMIT 500`;
+            const rows = await query(sql, params);
+            res.json({ estimates: rows.map(mapLaneEstimateArchiveRow) });
+        } catch (e) {
+            console.error('shadow estimates list:', e);
+            res.status(500).json({ error: e.message || 'Failed to list estimates' });
+        }
+    });
+
+    app.get('/api/reseller/erp/shadow/estimates/:id', checkAuth, erpGate, shadowGate, async (req, res) => {
+        try {
+            const id = parseInt(String(req.params.id), 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const rows = await query(
+                `SELECT * FROM reseller_erp_lane_estimate_archive
+                 WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                [id, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Estimate not found' });
+            res.json({ bill: mapLaneEstimateArchiveRow(rows[0]) });
+        } catch (e) {
+            console.error('shadow estimate get:', e);
+            res.status(500).json({ error: e.message || 'Failed to load estimate' });
         }
     });
 

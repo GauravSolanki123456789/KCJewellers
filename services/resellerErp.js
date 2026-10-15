@@ -471,16 +471,26 @@ async function nextBillNumber(query, userId, billType) {
     );
     const used = new Set();
     const re = new RegExp(`^${prefix}-(\\d+)$`, 'i');
-    for (const row of rows) {
-        const m = re.exec(String(row.bill_number || '').trim().toUpperCase());
-        if (!m) continue;
+    const ingestEstimateNumber = (billNumber) => {
+        const m = re.exec(String(billNumber || '').trim().toUpperCase());
+        if (!m) return;
         const digits = m[1];
         const n = parseInt(digits, 10);
-        if (!Number.isFinite(n) || n <= 0) continue;
-        // Old error fallback wrote ESTIMATE-0001 (4 digits). Do not treat that as slot 1
-        // so gap reuse still yields ESTIMATE-001, ESTIMATE-002, …
-        if (billType === 'estimate' && digits.length > 3 && n < 1000) continue;
+        if (!Number.isFinite(n) || n <= 0) return;
+        if (billType === 'estimate' && digits.length > 3 && n < 1000) return;
         used.add(n);
+    };
+    for (const row of rows) ingestEstimateNumber(row.bill_number);
+    if (billType === 'estimate') {
+        try {
+            const archived = await query(
+                `SELECT bill_number FROM reseller_erp_lane_estimate_archive WHERE reseller_user_id = $1`,
+                [userId],
+            );
+            for (const row of archived) ingestEstimateNumber(row.bill_number);
+        } catch {
+            /* archive table may not exist until shadow schema migrates */
+        }
     }
     const pad = billType === 'estimate' ? 3 : 4;
     const { n, width } = nextGapNumber(used, pad);

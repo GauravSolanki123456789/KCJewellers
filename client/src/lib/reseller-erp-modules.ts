@@ -70,6 +70,7 @@ export type ResellerErpModuleId =
   | 'backup'
   | 'jainav'
   | 'jainav-bills'
+  | 'jainav-estimates'
   | 'jainav-ssr'
   | 'stock-reports'
   | 'stock-check'
@@ -410,6 +411,16 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Jainav bills',
     description: 'SCB bills · preview · PDF · Excel · filters',
     icon: FileText,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'jainav-estimates',
+    title: 'Lane quotations',
+    short: 'Lane quotes',
+    description: 'Estimates billed in lane mode · search · PDF',
+    icon: ClipboardList,
     group: 'jainav',
     kind: 'workspace',
     jainavOnly: true,

@@ -20,6 +20,7 @@ import { formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { appConfirm } from '@/lib/app-notice'
+import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
 
 type Batch = {
   id: string
@@ -227,7 +228,7 @@ export function ErpProductsWorkspace() {
       if (res.data.weight_tallied) {
         detail += ' · Weight tallied — stock taken in successfully!'
       } else if (res.data.purchase_voucher) {
-        detail += ` · PV ${res.data.purchase_voucher.pv_number}: pending ${res.data.purchase_voucher.pending_weight_kg} kg`
+        detail += ` · PV ${res.data.purchase_voucher.pv_number}: pending ${formatPvWeightGrams(res.data.purchase_voucher.pending_weight_kg)}`
         setActivePv({
           pv_number: res.data.purchase_voucher.pv_number,
           weight_kg: 0,
@@ -479,7 +480,7 @@ export function ErpProductsWorkspace() {
       await loadBatch(res.data.batch.id)
       setMsgTone('ok')
       setMsg(
-        `Opened ${pv} — pending weight ${res.data.purchase_voucher.pending_weight_kg} kg. Upload Excel to tally.`,
+        `Opened ${pv} — pending weight ${formatPvWeightGrams(res.data.purchase_voucher.pending_weight_kg)}. Upload Excel to tally.`,
       )
     } catch (e) {
       setMsgTone('err')
@@ -771,7 +772,7 @@ export function ErpProductsWorkspace() {
         {activePv ? (
           <p className="mt-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs text-blue-950">
             <span className="font-bold">{activePv.pv_number}</span> · Status: {activePv.status} · Pending:{' '}
-            <span className="font-semibold tabular-nums">{activePv.pending_weight_kg} kg</span>
+            <span className="font-semibold tabular-nums">{formatPvWeightGrams(activePv.pending_weight_kg)}</span>
           </p>
         ) : null}
       </div>

@@ -33,6 +33,7 @@ import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockRepor
 import { ErpStockCheckWorkspace } from '@/components/reseller/erp/ErpStockCheckWorkspace'
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { ErpJainavBillsWorkspace } from '@/components/reseller/erp/ErpJainavBillsWorkspace'
+import { ErpJainavEstimatesWorkspace } from '@/components/reseller/erp/ErpJainavEstimatesWorkspace'
 import { ErpOfflineWorkspace } from '@/components/reseller/erp/ErpOfflineWorkspace'
 import { ErpCustomerRoutingWorkspace } from '@/components/reseller/erp/ErpCustomerRoutingWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
@@ -259,6 +260,12 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return (
         <ErpJainavGate>
           <ErpJainavBillsWorkspace />
+        </ErpJainavGate>
+      )
+    case 'jainav-estimates':
+      return (
+        <ErpJainavGate>
+          <ErpJainavEstimatesWorkspace />
         </ErpJainavGate>
       )
     case 'jainav-ssr':
