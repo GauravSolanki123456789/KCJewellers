@@ -11,6 +11,7 @@ import {
   type StorefrontItem,
   type StorefrontSection,
   type StorefrontSite,
+  normalizeStorefrontHref,
   youtubeEmbedId,
 } from "@/lib/storefront-cms";
 
@@ -49,7 +50,7 @@ function TileImage({
 function ItemCard({ item, tall }: { item: StorefrontItem; tall?: boolean }) {
   return (
     <Link
-      href={item.href || CATALOG_PATH}
+      href={normalizeStorefrontHref(item.href)}
       className="group block overflow-hidden rounded-sm bg-white text-[var(--color-jewelry-black,#1a1814)] shadow-sm ring-1 ring-stone-200/80"
     >
       <TileImage
@@ -160,7 +161,7 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
         ) : null}
         {slide.ctaText ? (
           <Link
-            href={slide.ctaHref || CATALOG_PATH}
+            href={normalizeStorefrontHref(slide.ctaHref)}
             className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-white px-6 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] shadow-md transition hover:bg-amber-50"
           >
             {slide.ctaText}
@@ -249,7 +250,7 @@ function SectionBlock({ section }: { section: StorefrontSection }) {
           <div className="mt-6 flex flex-wrap gap-3">
             {section.ctaText ? (
               <Link
-                href={section.ctaHref || CATALOG_PATH}
+                href={normalizeStorefrontHref(section.ctaHref)}
                 className="inline-flex min-h-11 items-center rounded-md bg-[var(--kc-accent,#9a1c2e)] px-5 text-sm font-semibold text-white"
               >
                 {section.ctaText}
@@ -257,7 +258,7 @@ function SectionBlock({ section }: { section: StorefrontSection }) {
             ) : null}
             {section.secondaryText ? (
               <Link
-                href={section.secondaryHref || CATALOG_PATH}
+                href={normalizeStorefrontHref(section.secondaryHref)}
                 className="inline-flex min-h-11 items-center rounded-md border border-[var(--kc-accent,#9a1c2e)] px-5 text-sm font-semibold text-[var(--kc-accent,#9a1c2e)]"
               >
                 {section.secondaryText}
@@ -337,14 +338,14 @@ export default function StorefrontHomeView({
 
       {site.navLinks?.length ? (
         <nav
-          className="hidden overflow-x-auto border-b border-stone-200 bg-white md:block"
+          className="overflow-x-auto border-b border-stone-200 bg-white"
           aria-label="Store collections"
         >
           <div className="mx-auto flex max-w-6xl items-center gap-1 px-4 py-2">
             {site.navLinks.map((link) => (
               <Link
                 key={link.id}
-                href={link.href || CATALOG_PATH}
+                href={normalizeStorefrontHref(link.href)}
                 className="whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--color-jewelry-black,#1a1814)]/70 hover:bg-stone-100 hover:text-[var(--color-jewelry-black,#1a1814)]"
               >
                 {link.label}

@@ -17,6 +17,16 @@ import {
 } from "lucide-react";
 import { PROFILE_PATH } from "@/lib/routes";
 import { useResellerBranding } from "@/context/ResellerBrandingContext";
+import { useAuth } from "@/hooks/useAuth";
+import { useCustomerTier } from "@/context/CustomerTierContext";
+import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
+import { catalogApiQueryForStorefront } from "@/lib/storefront-domain";
+import { filterCatalogForResellerScope } from "@/lib/reseller-catalog-scope";
+import type { CatalogTreeCategory } from "@/app/catalog/catalog-data-context";
+import {
+  listStorefrontCatalogLinkOptions,
+  type StorefrontCatalogLinkOption,
+} from "@/lib/storefront-catalog-links";
 import StorefrontHomeView from "@/components/storefront/StorefrontHomeView";
 import {
   SECTION_TYPE_LABELS,
@@ -266,7 +276,10 @@ function SectionEditor({
 
 export default function StorefrontEditor() {
   const branding = useResellerBranding();
+  const auth = useAuth();
+  const { customerTier } = useCustomerTier();
   const [tab, setTab] = useState<Tab>("hero");
+  const [catalogLinkOptions, setCatalogLinkOptions] = useState<StorefrontCatalogLinkOption[]>([]);
   const [site, setSite] = useState<StorefrontSite>(() => defaultStorefrontSite(branding.businessName));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -294,6 +307,63 @@ export default function StorefrontEditor() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const q = catalogApiQueryForStorefront();
+        const res = await axios.get(`/api/catalog${q}`, { withCredentials: true });
+        const raw = (res.data?.categories ?? res.data ?? []) as CatalogTreeCategory[];
+        const wholesale = auth.user as WholesaleUserFields | null;
+        const scoped =
+          auth.isAuthenticated && wholesale && customerTier === CUSTOMER_TIER.RESELLER
+            ? filterCatalogForResellerScope(
+                raw,
+                wholesale.allowed_category_ids ?? branding.allowedCategoryIds,
+                wholesale.allowed_category_metals ?? branding.allowedCategoryMetals,
+              )
+            : filterCatalogForResellerScope(
+                raw,
+                branding.allowedCategoryIds,
+                branding.allowedCategoryMetals,
+              );
+        if (!cancelled) {
+          setCatalogLinkOptions(
+            listStorefrontCatalogLinkOptions(scoped as CatalogTreeCategory[]),
+          );
+        }
+      } catch {
+        if (!cancelled) setCatalogLinkOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    auth.isAuthenticated,
+    auth.user,
+    customerTier,
+    branding.allowedCategoryIds,
+    branding.allowedCategoryMetals,
+  ]);
+
+  const moveNavLink = (index: number, dir: -1 | 1) => {
+    const navLinks = site.navLinks.slice();
+    const next = index + dir;
+    if (next < 0 || next >= navLinks.length) return;
+    const tmp = navLinks[index];
+    navLinks[index] = navLinks[next];
+    navLinks[next] = tmp;
+    setSite({ ...site, navLinks });
+  };
+
+  const insertCatalogNavLink = (opt: StorefrontCatalogLinkOption) => {
+    setSite({
+      ...site,
+      navLinks: [...site.navLinks, emptyItem({ label: opt.label, href: opt.href })],
+    });
+  };
 
   const save = async (publish = false) => {
     setError("");
@@ -490,19 +560,51 @@ export default function StorefrontEditor() {
                   <Plus className="size-3.5" /> Add link
                 </button>
               </div>
+              {catalogLinkOptions.length > 0 ? (
+                <details className="rounded-xl border border-dashed border-[var(--color-slate-700,#e8e4df)] bg-white/60 p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                    Insert link from your catalogue
+                  </summary>
+                  <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+                    Only metals and collections you have in stock appear here. Use ↑↓ to reorder menu items after adding.
+                  </p>
+                  <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs">
+                    {catalogLinkOptions.map((opt) => (
+                      <li key={`${opt.group}-${opt.href}-${opt.label}`}>
+                        <button
+                          type="button"
+                          className="flex w-full min-h-9 items-center justify-between gap-2 rounded-lg px-2 text-left hover:bg-stone-100"
+                          onClick={() => insertCatalogNavLink(opt)}
+                        >
+                          <span className="truncate font-medium text-[var(--color-jewelry-black,#1a1814)]">{opt.label}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">{opt.href}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
               {site.navLinks.map((link, i) => (
-                <div key={link.id} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                  <input className={inputCls} value={link.label} onChange={(e) => {
+                <div key={link.id} className="flex flex-col gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:flex-row sm:items-center">
+                  <div className="flex shrink-0 gap-1">
+                    <button type="button" className="kc-icon-btn size-10" disabled={i === 0} onClick={() => moveNavLink(i, -1)} aria-label="Move link up">
+                      <ArrowUp className="size-4" />
+                    </button>
+                    <button type="button" className="kc-icon-btn size-10" disabled={i === site.navLinks.length - 1} onClick={() => moveNavLink(i, 1)} aria-label="Move link down">
+                      <ArrowDown className="size-4" />
+                    </button>
+                  </div>
+                  <input className={`${inputCls} flex-1`} value={link.label} onChange={(e) => {
                     const navLinks = site.navLinks.slice();
                     navLinks[i] = { ...link, label: e.target.value };
                     setSite({ ...site, navLinks });
                   }} placeholder="Label" />
-                  <input className={inputCls} value={link.href} onChange={(e) => {
+                  <input className={`${inputCls} flex-1`} value={link.href} onChange={(e) => {
                     const navLinks = site.navLinks.slice();
                     navLinks[i] = { ...link, href: e.target.value };
                     setSite({ ...site, navLinks });
-                  }} placeholder="/catalog" />
-                  <button type="button" className="min-h-11 text-xs text-rose-600" onClick={() => setSite({ ...site, navLinks: site.navLinks.filter((x) => x.id !== link.id) })}>
+                  }} placeholder="/catalog/silver" />
+                  <button type="button" className="min-h-11 shrink-0 px-2 text-xs text-rose-600" onClick={() => setSite({ ...site, navLinks: site.navLinks.filter((x) => x.id !== link.id) })}>
                     Remove
                   </button>
                 </div>

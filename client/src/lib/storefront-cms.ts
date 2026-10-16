@@ -189,6 +189,18 @@ export function defaultStorefrontSite(brandName: string): StorefrontSite {
   };
 }
 
+/** Ensure menu / CTA hrefs work from homepage (relative paths, trim). */
+export function normalizeStorefrontHref(href: string | undefined | null): string {
+  const raw = String(href || "").trim();
+  if (!raw) return CATALOG_PATH;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith("mailto:") || raw.startsWith("tel:")) {
+    return raw;
+  }
+  if (raw.startsWith("/")) return raw;
+  if (raw.startsWith("?")) return `${CATALOG_PATH}${raw}`;
+  return `/${raw.replace(/^\//, "")}`;
+}
+
 export function youtubeEmbedId(url: string): string | null {
   const t = String(url || "").trim();
   if (!t) return null;

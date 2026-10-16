@@ -296,6 +296,22 @@ function subSlugMatchesPathSegment(
 }
 
 /** True when URL path already matches current style/sku/metal (skip re-apply → fewer renders / no loops). */
+function firstStyleSkuForMetal(cats: Category[], metal: MetalKey): { styleId: number; skuId: number | null } | null {
+  const tree = cats
+    .map((cat) => ({
+      ...cat,
+      subcategories: cat.subcategories
+        .map((sub) => ({
+          ...sub,
+          products: sub.products.filter((p) => productMatchesMetal(p, metal)),
+        }))
+        .filter((sub) => sub.products.length > 0),
+    }))
+    .filter((cat) => cat.subcategories.length > 0)
+  if (!tree.length) return null
+  return { styleId: tree[0].id, skuId: tree[0].subcategories[0]?.id ?? null }
+}
+
 function selectionMatchesPath(
   cats: Category[],
   parsed: ParsedCatalogPath,
@@ -304,9 +320,13 @@ function selectionMatchesPath(
   activeSkuId: number | null,
 ): boolean {
   if (parsed.metal !== selectedMetal) return false
-  const cat = cats.find((c) => (c.slug || '').toLowerCase() === parsed.styleSlug.toLowerCase())
+  const styleSlug = parsed.styleSlug?.toLowerCase().trim()
+  const skuSlug = parsed.skuSlug?.toLowerCase().trim()
+  if (!styleSlug) return true
+  const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
   if (!cat || cat.id !== activeStyleId) return false
-  const sub = findSubcategoryByPathSegment(cat.subcategories, parsed.skuSlug, cat.slug)
+  if (!skuSlug) return true
+  const sub = findSubcategoryByPathSegment(cat.subcategories, skuSlug, cat.slug)
   return !!sub && sub.id === activeSkuId
 }
 
@@ -413,18 +433,38 @@ export default function CatalogPageClient() {
 
   const applyPathSegments = useCallback((parsed: ParsedCatalogPath, cats: Category[]) => {
     const metalParam = parsed.metal
-    if (isCatalogMetalKey(metalParam)) {
-      setSelectedMetal(metalParam)
+    const metalKey = isCatalogMetalKey(metalParam) ? metalParam : null
+    if (metalKey) {
+      setSelectedMetal(metalKey)
     }
-    const styleSlug = parsed.styleSlug.toLowerCase()
-    const skuSlug = parsed.skuSlug.toLowerCase()
+    const styleSlug = parsed.styleSlug?.toLowerCase().trim()
+    const skuSlug = parsed.skuSlug?.toLowerCase().trim()
+
+    if (!styleSlug) {
+      if (metalKey) {
+        const first = firstStyleSkuForMetal(cats, metalKey)
+        if (first) {
+          setActiveStyleId(first.styleId)
+          setActiveSkuId(first.skuId)
+        }
+      }
+      return
+    }
+
     const cat = cats.find((c) => (c.slug || '').toLowerCase() === styleSlug)
     if (cat) {
       setActiveStyleId(cat.id)
-      const sub = findSubcategoryByPathSegment(cat.subcategories, skuSlug, cat.slug)
-      if (sub) setActiveSkuId(sub.id)
-      else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
-    } else {
+      if (skuSlug) {
+        const sub = findSubcategoryByPathSegment(cat.subcategories, skuSlug, cat.slug)
+        if (sub) setActiveSkuId(sub.id)
+        else if (cat.subcategories[0]) setActiveSkuId(cat.subcategories[0].id)
+      } else if (cat.subcategories[0]) {
+        setActiveSkuId(cat.subcategories[0].id)
+      }
+      return
+    }
+
+    if (skuSlug) {
       for (const c of cats) {
         const sub = findSubcategoryByPathSegment(c.subcategories, skuSlug, c.slug)
         if (sub) {
@@ -710,17 +750,19 @@ export default function CatalogPageClient() {
     const retailActive =
       retailOn && (shopFor !== 'all' || productType !== 'all')
 
-    if (retailActive) {
+    if (retailActive && pathFromUrl.styleSlug) {
       const cat = tree.find(
-        (c) => (c.slug || '').toLowerCase() === pathFromUrl.styleSlug.toLowerCase(),
+        (c) => (c.slug || '').toLowerCase() === pathFromUrl.styleSlug!.toLowerCase(),
       )
       if (!cat) return
-      const sub = findSubcategoryByPathSegment(
-        cat.subcategories,
-        pathFromUrl.skuSlug,
-        cat.slug,
-      )
-      if (!sub) return
+      if (pathFromUrl.skuSlug) {
+        const sub = findSubcategoryByPathSegment(
+          cat.subcategories,
+          pathFromUrl.skuSlug,
+          cat.slug,
+        )
+        if (!sub) return
+      }
     }
 
     if (
@@ -1191,7 +1233,12 @@ export default function CatalogPageClient() {
         activeStyleId,
         activeSkuId,
         productType,
-        parsed ? { styleSlug: parsed.styleSlug, skuSlug: parsed.skuSlug } : null,
+        parsed
+          ? {
+              styleSlug: parsed.styleSlug || '',
+              skuSlug: parsed.skuSlug || '',
+            }
+          : null,
       )
       if (!picked) return
       styleId = picked.styleId

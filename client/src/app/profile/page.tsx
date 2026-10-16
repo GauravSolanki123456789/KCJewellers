@@ -338,7 +338,6 @@ function ProfilePageContent() {
                     href={PROFILE_DIGI_PATH}
                     icon={Wallet}
                     title="DigiGold & DigiSilver"
-                    subtitle="Chit schemes, customer savings, balances & payment history — with or without Razorpay"
                     primary={!resellerErpEnabled}
                   />
                 ) : null}
@@ -369,13 +368,6 @@ function ProfilePageContent() {
                     href={RESELLER_PRODUCTS_PATH}
                     icon={Upload}
                     title={resellerUploadsEnabled ? 'Upload products' : 'Manage products'}
-                    subtitle={
-                      resellerUploadsEnabled && resellerEditsEnabled
-                        ? 'Add items, edit live products, photos & Excel'
-                        : resellerEditsEnabled
-                          ? 'Edit weight, MC, photos on your live catalogue'
-                          : 'Add items, photos & Excel — send batches for KC review'
-                    }
                     primary
                   />
                 ) : null}
@@ -384,7 +376,6 @@ function ProfilePageContent() {
                     href={RESELLER_ENHANCED_PICTURES_PATH}
                     icon={Sparkles}
                     title="Enhanced pictures"
-                    subtitle="AI studio idol photos — single or bulk upload by filename code"
                     primary
                   />
                 ) : null}
@@ -402,7 +393,6 @@ function ProfilePageContent() {
                     href={RESELLER_PRICELIST_PATH}
                     icon={ListOrdered}
                     title="Pricelist"
-                    subtitle="B2B Excel categories, price slabs & WhatsApp share links — separate from live catalogue"
                     primary
                   />
                 ) : null}
@@ -411,7 +401,6 @@ function ProfilePageContent() {
                     href={RESELLER_MC_SLABS_PATH}
                     icon={Layers}
                     title="Upload slabs"
-                    subtitle="Excel MC rates by style, SKU & weight — shown on WhatsApp catalogues"
                   />
                 ) : null}
                 {isReseller ? (
@@ -421,7 +410,6 @@ function ProfilePageContent() {
                         href={PROFILE_STOREFRONT_PATH}
                         icon={Palette}
                         title="Your website"
-                        subtitle="Banners, videos, homepage sections, text, HTML & preview — shown on your domain"
                         primary
                       />
                     ) : null}
@@ -432,7 +420,7 @@ function ProfilePageContent() {
                       subtitle={
                         resellerInbox && resellerInbox.counts.catalogInquiriesPending > 0
                           ? `${resellerInbox.counts.catalogInquiriesPending} pending WhatsApp / PDF shortlist${resellerInbox.counts.catalogInquiriesPending === 1 ? '' : 's'}`
-                          : 'WhatsApp & PDF shortlists — mark completed sales or no sale'
+                          : undefined
                       }
                       badge={resellerInquiriesBadge || undefined}
                     />
@@ -440,19 +428,16 @@ function ProfilePageContent() {
                       href={RESELLER_SMS_SETTINGS_PATH}
                       icon={Smartphone}
                       title="SMS & OTP"
-                      subtitle="Shared catalogue sign-in — mobile only or SMS verification"
                     />
                     <ProfileActionCard
                       href={RESELLER_CATALOG_SLAB_SETTINGS_PATH}
                       icon={Percent}
                       title="Catalogue slab settings"
-                      subtitle="Slab R / W / F discounts, silver offset & margin for WhatsApp links and your storefront"
                     />
                     <ProfileActionCard
                       href={RESELLER_PAYMENT_SETTINGS_PATH}
                       icon={CreditCard}
                       title="Payment settings"
-                      subtitle="Razorpay keys for DigiGold & DigiSilver customer payments"
                     />
                     <ResellerInvitePanel embedded />
                   </>

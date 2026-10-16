@@ -114,7 +114,10 @@ export async function generateMetadata({
       (sub?.products?.[0] as { image_url?: string } | undefined)?.image_url,
     );
 
-  const pathSeg = `${metal}/${encodeURIComponent(styleSlug)}/${encodeURIComponent(skuSlug)}`;
+  const pathSeg = [metal, styleSlug, skuSlug]
+    .filter((s) => String(s || "").trim())
+    .map((s) => encodeURIComponent(String(s)))
+    .join("/");
   const canonical = `${origin}/catalog/${pathSeg}`;
 
   const ogImages = isResellerHost
@@ -201,7 +204,10 @@ export default async function CatalogPage({
     metalLabel,
     brandLabel,
   );
-  const pathSeg = `${metal}/${encodeURIComponent(styleSlug)}/${encodeURIComponent(skuSlug)}`;
+  const pathSeg = [metal, styleSlug, skuSlug]
+    .filter((s) => String(s || "").trim())
+    .map((s) => encodeURIComponent(String(s)))
+    .join("/");
   const canonical = `${origin}/catalog/${pathSeg}`;
   const listItems = buildCatalogItemListElements(products, origin);
   const breadcrumbItems = [

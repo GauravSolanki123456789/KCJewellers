@@ -520,13 +520,6 @@ function B2BAdminContent() {
               Admin
             </Link>
             <h1 className="text-2xl font-bold text-amber-400">B2B wholesale clients</h1>
-            <p className="text-slate-500 text-sm mt-1 max-w-xl leading-relaxed">
-              Set <code className="text-slate-400">customer_tier</code> for access: B2B wholesale,{' '}
-              <strong className="text-slate-300 font-medium">RESELLER</strong> (white-label catalogue sharing), or ADMIN.
-              Assign each reseller a unique <code className="text-slate-400">reseller_invite_code</code> for referrals.
-              <strong className="text-slate-300 font-medium"> Disc %</strong> applies only on styles without an existing retail promo discount.
-              Review applications in the <strong className="text-slate-300 font-medium">Applications</strong> tab.
-            </p>
           </div>
         </div>
 
@@ -810,11 +803,6 @@ function B2BAdminContent() {
                     }
                     placeholder="e.g. GAURAV-KC"
                   />
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                    Unique code prospects enter at{' '}
-                    <code className="text-slate-400">/join-reseller</code>. Stored as{' '}
-                    <code className="text-slate-400">reseller_invite_code</code>.
-                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Business name</label>
@@ -841,9 +829,6 @@ function B2BAdminContent() {
                     }
                     placeholder="Customer orders via WhatsApp checkout"
                   />
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                    Saved as your account mobile — used for &quot;Send Order via WhatsApp&quot; on your custom domain storefront.
-                  </p>
                 </div>
                 <ResellerLoginEmailsPanel
                   userId={resellerModalUser.id}
@@ -887,12 +872,6 @@ function B2BAdminContent() {
                     onChange={(e) => setResellerForm((f) => ({ ...f, custom_domain: e.target.value }))}
                     placeholder="e.g. boutique.example.com"
                   />
-                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                    Point the domain&apos;s <strong className="text-slate-400">A record</strong> to the same Next.js
-                    server IP as KC Jewellers web (no extra server needed). Staff login is{' '}
-                    <strong className="text-slate-400">https://your-domain/login</strong>
-                    — dashboard, ERP and catalogues stay on their domain. Share / WhatsApp previews use their logo.
-                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">
@@ -912,17 +891,10 @@ function B2BAdminContent() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                    Keyword stored as <code className="text-slate-400">kc_theme_id</code> — applies on this
-                    reseller&apos;s custom domain and their temporary shared catalogue pages.
-                  </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block">
                     <span className="text-xs font-medium text-slate-300">Max products per catalogue</span>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                      Selection cap when generating WhatsApp / shared links. Use <strong>0</strong> for unlimited (up to 500).
-                    </p>
                     <input
                       type="number"
                       min={0}
@@ -939,9 +911,6 @@ function B2BAdminContent() {
                   </label>
                   <label className="block">
                     <span className="text-xs font-medium text-slate-300">Max catalogues per day</span>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-                      IST calendar day. Use <strong>0</strong> for unlimited generations.
-                    </p>
                     <input
                       type="number"
                       min={0}
@@ -1018,10 +987,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Your website</p>
-                      <p className="mt-1 text-xs leading-snug text-slate-500">
-                        Custom homepage on their domain, banners, videos, and Profile → Your website editor.
-                        Off by default — shop/catalogue stays the home page.
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1368,9 +1333,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">DigiGold &amp; DigiSilver (Profile tab)</p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        Chit schemes, balances, gold &amp; silver savings — not in ERP menu
-                      </p>
                     </div>
                     <button
                       type="button"
@@ -1454,10 +1416,6 @@ function B2BAdminContent() {
                       ))
                     )}
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    Leave none checked to allow all categories. Gold and Silver under the same style (e.g. Chain Pendant)
-                    are listed separately so you can allow one without the other.
-                  </p>
                 </div>
               </div>
               <div className="border-t border-slate-800 p-4 sm:px-5 flex gap-3 safe-area-pb">
