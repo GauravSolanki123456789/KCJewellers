@@ -2380,13 +2380,14 @@ function registerResellerErpRoutes(app, deps) {
             const code = String(req.query.code || req.query.barcode || '').trim();
             if (!code) return res.status(400).json({ error: 'code required' });
 
+            const forOrder = String(req.query.for_order || '') === '1';
             const stockHit = await lookupStockPiece(query, req.user.id, code);
             if (stockHit?.piece) {
                 const p = await enrichStockPieceFromCatalog(query, stockHit.piece);
                 if (p.status === 'lane') {
                     p.status = 'in_stock';
                 }
-                if (p.status === 'shadow_sold' || p.status === 'sold') {
+                if (!forOrder && (p.status === 'shadow_sold' || p.status === 'sold')) {
                     const conflicts = await findSoldBarcodeConflicts(query, req.user.id, [code]);
                     const soldBill = conflicts[0]?.sold_bill || null;
                     const laneNo = soldBill && /^SCB\d{4}-\d+/i.test(String(soldBill.bill_number || ''));
@@ -2399,7 +2400,7 @@ function registerResellerErpRoutes(app, deps) {
                         conflicts: laneNo ? [{ barcode: code, source: 'stock_piece', sold_bill: null }] : conflicts,
                     });
                 }
-                if (p.status !== 'in_stock') {
+                if (!forOrder && p.status !== 'in_stock') {
                     return res.status(409).json({ error: `Piece status: ${p.status}` });
                 }
                 let imageUrl = p.image_url;
@@ -2410,6 +2411,7 @@ function registerResellerErpRoutes(app, deps) {
                         style_code: p.style_code,
                         item_code: p.item_code,
                         metal_type: p.metal_type,
+                        product_name: p.product_name,
                     });
                 }
                 const designDefaults = await lookupDesignDefaults(

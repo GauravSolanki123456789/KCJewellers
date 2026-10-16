@@ -12,6 +12,7 @@ export type ErpModuleSessionId =
   | 'hardware'
   | 'print-formats'
   | 'orders'
+  | 'order-taking'
   | 'rol'
   | 'tag-split'
   | 'stock-report'

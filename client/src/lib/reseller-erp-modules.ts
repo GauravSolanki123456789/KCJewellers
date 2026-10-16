@@ -20,6 +20,7 @@ import {
   ClipboardList,
   Settings2,
   ShoppingBag,
+  ShoppingCart,
   Split,
   Tags,
   Truck,
@@ -42,6 +43,7 @@ export type ResellerErpModuleId =
   | 'debit-notes'
   | 'sales-return'
   | 'orders'
+  | 'order-taking'
   | 'estimations'
   | 'approval-issue'
   | 'customers'
@@ -147,6 +149,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Orders',
     description: '',
     icon: ShoppingBag,
+    group: 'sales',
+    kind: 'workspace',
+  },
+  {
+    id: 'order-taking',
+    title: 'Order taking',
+    short: 'Order taking',
+    description: 'Scan tags, set qty, export photo Excel for the client',
+    icon: ShoppingCart,
     group: 'sales',
     kind: 'workspace',
   },

@@ -44,6 +44,7 @@ import { ErpGstInvoiceItemsPanel } from '@/components/reseller/erp/ErpGstInvoice
 import { ErpTaxInvoiceTemplatePanel } from '@/components/reseller/erp/ErpTaxInvoiceTemplatePanel'
 import { ErpRolWorkspace } from '@/components/reseller/erp/ErpRolWorkspace'
 import { ErpOrderManagementWorkspace } from '@/components/reseller/erp/ErpOrderManagementWorkspace'
+import { ErpOrderTakingWorkspace } from '@/components/reseller/erp/ErpOrderTakingWorkspace'
 import {
   CustomersWorkspace,
   ErpFallbackPanel,
@@ -93,6 +94,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpSalesReturnWorkspace />
     case 'orders':
       return <ErpOrderManagementWorkspace />
+    case 'order-taking':
+      return <ErpOrderTakingWorkspace />
     case 'estimations':
       return <ErpEstimationsWorkspace />
     case 'approval-issue':
