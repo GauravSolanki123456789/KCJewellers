@@ -19,6 +19,10 @@ function hostname(hostHeader: string | null): string {
   return hostHeader.split(":")[0].trim().toLowerCase();
 }
 
+function apexHostname(host: string): string {
+  return host.replace(/^www\./, "");
+}
+
 const HOST_ALLOW_TTL_MS = 5 * 60 * 1000;
 const hostAllowCache = new Map<string, { ok: boolean; at: number }>();
 
@@ -71,7 +75,7 @@ export async function middleware(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   if (host && !isCanonicalPlatformHost(host)) {
-    requestHeaders.set("x-custom-domain", host);
+    requestHeaders.set("x-custom-domain", apexHostname(host) || host);
   }
 
   const { pathname, searchParams } = request.nextUrl;
@@ -114,7 +118,7 @@ export async function middleware(request: NextRequest) {
       url.search = "";
       const res = NextResponse.redirect(url, 308);
       if (host && !isCanonicalPlatformHost(host)) {
-        res.headers.set("x-custom-domain", host);
+        res.headers.set("x-custom-domain", apexHostname(host) || host);
       }
       return res;
     }

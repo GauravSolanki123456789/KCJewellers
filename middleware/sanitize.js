@@ -19,6 +19,11 @@
   'estimate_template_gold',
   'estimate_template_silver',
   'template',
+  'html',
+  'css',
+  'customCss',
+  'customJs',
+  'customHeadHtml',
  ]);
 
  function maxLenForKey(key) {

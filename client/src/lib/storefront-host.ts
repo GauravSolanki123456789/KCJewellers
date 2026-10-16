@@ -7,13 +7,21 @@ export function isCanonicalPlatformHost(host: string): boolean {
   return false;
 }
 
+function apexHost(raw: string | null | undefined): string {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .split(":")[0]
+    .replace(/^www\./, "");
+}
+
 export function resellerHostFromHeaders(
   hostHeader: string | null | undefined,
   customDomainHeader: string | null | undefined,
 ): string | null {
-  const fromMiddleware = customDomainHeader?.trim().toLowerCase();
-  if (fromMiddleware) return fromMiddleware;
-  const host = hostHeader?.trim().toLowerCase().split(":")[0];
+  const fromMiddleware = apexHost(customDomainHeader);
+  if (fromMiddleware && !isCanonicalPlatformHost(fromMiddleware)) return fromMiddleware;
+  const host = apexHost(hostHeader);
   if (!host || isCanonicalPlatformHost(host)) return null;
   return host;
 }

@@ -61,7 +61,7 @@ export default function LoginPageClient() {
             {brand}
           </h1>
           <p className="mt-1.5 text-xs font-medium uppercase tracking-[0.18em] text-amber-500/90">
-            {customDomainHost ? "Staff & partner login" : "Account login"}
+            {customDomainHost ? "Customer & reseller login" : "Account login"}
           </p>
         </div>
         <SignInPanel returnTo={PROFILE_PATH} variant="page" />

@@ -35,6 +35,9 @@ export default function Footer() {
   if (pathname?.startsWith("/shared/") || pathname?.startsWith("/pricelist/")) {
     return null;
   }
+  if (customDomainHost && pathname === "/") {
+    return null;
+  }
   return (
     <footer className="mt-auto border-t border-slate-300/20 bg-slate-950/80">
       <div className="mx-auto max-w-6xl px-4 pt-4 pb-4 md:py-6 kc-pb-mobile-nav">
@@ -62,7 +65,7 @@ export default function Footer() {
             ) : null}
             {resellerActive && logoUrl ? (
               <span className="relative block size-6 shrink-0 overflow-hidden rounded bg-slate-800/40">
-                <Image src="/icon" alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
+                <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="24px" unoptimized />
               </span>
             ) : null}
             <span>© {YEAR} {displayName}</span>
@@ -80,7 +83,7 @@ export default function Footer() {
           <p className="flex items-center justify-center gap-2">
             {resellerActive && logoUrl ? (
               <span className="relative block size-5 shrink-0 overflow-hidden rounded bg-slate-800/40">
-                <Image src="/icon" alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
+                <Image src={logoUrl} alt={displayName} fill className="object-contain p-0.5" sizes="20px" unoptimized />
               </span>
             ) : null}
             <span>

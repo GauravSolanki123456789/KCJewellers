@@ -13,6 +13,7 @@ import {
   PROFILE_LEDGER_PATH,
   PROFILE_DIGI_PATH,
   PROFILE_SIPS_PATH,
+  PROFILE_STOREFRONT_PATH,
   RESELLER_PRODUCTS_PATH,
   RESELLER_RATES_PATH,
   RESELLER_INQUIRIES_PATH,
@@ -56,6 +57,7 @@ import {
   Search,
   LayoutGrid,
   ListOrdered,
+  Palette,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -255,9 +257,9 @@ function ProfilePageContent() {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
-      window.location.href = HOME_PATH
+      window.location.href = customDomainHost ? '/' : HOME_PATH
     } catch {
-      window.location.href = HOME_PATH
+      window.location.href = customDomainHost ? '/' : HOME_PATH
     }
   }
 
@@ -408,6 +410,13 @@ function ProfilePageContent() {
                 ) : null}
                 {isReseller ? (
                   <>
+                    <ProfileActionCard
+                      href={PROFILE_STOREFRONT_PATH}
+                      icon={Palette}
+                      title="Your website"
+                      subtitle="Banners, videos, homepage sections, text, HTML & preview — shown on your domain"
+                      primary
+                    />
                     <ProfileActionCard
                       href={RESELLER_INQUIRIES_PATH}
                       icon={ShoppingBag}

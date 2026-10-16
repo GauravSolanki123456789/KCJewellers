@@ -39,7 +39,13 @@ function apiBase(): string {
 export async function fetchPublicResellerBranding(
   domain: string,
 ): Promise<PublicResellerBranding | null> {
-  const d = domain.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+  const d = domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    .split(":")[0]
+    .replace(/^www\./, "");
   if (!d) return null;
   const url = `${apiBase()}/api/public/reseller-branding?domain=${encodeURIComponent(d)}`;
   try {

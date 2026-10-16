@@ -1185,6 +1185,16 @@ body {
     background-color: #ffffff !important;
   }
 
+  /* Reseller vanity homepage — cream page, dark text on light cards */
+  .kc-storefront-home {
+    color: var(--color-jewelry-black, #1a1814);
+    background: #faf7f2;
+  }
+
+  .kc-storefront-home a {
+    color: inherit;
+  }
+
   /* Profile page — readable on reseller light themes */
   .kc-profile-page {
     color: var(--color-jewelry-black, #1a1814);

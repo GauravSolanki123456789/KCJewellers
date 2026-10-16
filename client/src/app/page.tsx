@@ -1,7 +1,15 @@
 import { permanentRedirect } from "next/navigation";
 import { CATALOG_PATH } from "@/lib/routes";
+import { getStorefrontTenantFromHeaders } from "@/lib/reseller-branding-server";
+import { getStorefrontSiteFromHeaders } from "@/lib/storefront-cms-server";
+import StorefrontHomeView from "@/components/storefront/StorefrontHomeView";
 
-/** Storefront entry: visitors land on the product catalogue first. */
-export default function RootPage() {
-  permanentRedirect(CATALOG_PATH);
+/** Reseller vanity domains get a branded homepage. KC platform still opens the catalogue. */
+export default async function RootPage() {
+  const { branding, customDomainHost } = await getStorefrontTenantFromHeaders();
+  if (!customDomainHost) {
+    permanentRedirect(CATALOG_PATH);
+  }
+  const { site } = await getStorefrontSiteFromHeaders(branding?.businessName);
+  return <StorefrontHomeView site={site} branding={branding} />;
 }

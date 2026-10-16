@@ -1162,16 +1162,13 @@ async function findUserByStoredMobile(mobile_number) {
 
 async function loginCustomerByMobile(req, res, mobile_number) {
     const stored = normalizeStoredMobile(mobile_number);
-    let user = await findUserByStoredMobile(stored);
-    if (!user) {
-        const insert = await query(
-            `INSERT INTO users (mobile_number, name, role, account_status, email)
-             VALUES ($1, $2, 'customer', 'active', $3) RETURNING *`,
-            [stored, `Customer ${stored.slice(-4)}`, null],
-        );
-        user = insert[0];
-        console.log(`📱 New mobile-only customer: ${stored}`);
-    }
+    const { findOrCreateMobileUser } = require('./services/storefrontTenantAuth');
+    const { user: mobileUser } = await findOrCreateMobileUser(
+        req,
+        stored,
+        `Customer ${stored.slice(-4)}`,
+    );
+    let user = mobileUser;
     user = resolveUserRole(user);
     return new Promise((resolve, reject) => {
         req.login(user, async (error) => {
@@ -1382,7 +1379,9 @@ app.put('/api/admin/settings/kc-theme', requireJson, isAdminStrict, async (req, 
 app.get('/api/public/storefront-host-allowed', async (req, res) => {
     try {
         const raw = String(req.query.domain || req.query.host || '').trim().toLowerCase();
-        const domain = raw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0];
+        const domain = normalizeStorefrontHostname(
+            raw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0],
+        );
         if (!domain) return res.json({ allowed: false });
         const allowed = await storefrontProtect.isStorefrontHostAllowedPublic(domain);
         res.setHeader('Cache-Control', 'public, max-age=120');
@@ -1397,10 +1396,9 @@ app.get('/api/public/storefront-host-allowed', async (req, res) => {
 app.get('/api/public/reseller-branding', async (req, res) => {
     try {
         const raw = String(req.query.domain || req.query.host || '').trim().toLowerCase();
-        const domain = raw
-            .replace(/^https?:\/\//, '')
-            .split(':')[0]
-            .split('/')[0];
+        const domain = normalizeStorefrontHostname(
+            raw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0],
+        );
         if (!domain) {
             return res.status(400).json({ error: 'domain query parameter required' });
         }
@@ -1882,6 +1880,14 @@ registerResellerProductRoutes(app, {
 });
 
 registerResellerRatesRoutes(app, { checkAuth, liveRateService, io });
+const {
+    registerResellerStorefrontRoutes,
+    ensureCmsSchema,
+} = require('./services/resellerStorefrontCms');
+const { ensureStorefrontTenantSchema } = require('./services/storefrontTenantAuth');
+registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, getPublicApiBaseUrl });
+ensureCmsSchema().catch((e) => console.warn('storefront cms schema:', e.message));
+ensureStorefrontTenantSchema().catch((e) => console.warn('storefront tenant schema:', e.message));
 registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });
 registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJson });
 ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
@@ -2084,22 +2090,13 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
             return res.status(400).json({ error: 'OTP expired' });
         }
         await query('DELETE FROM otps WHERE mobile_number = $1', [mobile_number]);
-        let userRows = await query(
-            'SELECT * FROM users WHERE mobile_number = $1',
-            [mobile_number]
+        const { findOrCreateMobileUser } = require('./services/storefrontTenantAuth');
+        const { user: otpUser } = await findOrCreateMobileUser(
+            req,
+            mobile_number,
+            `Customer ${mobile_number.slice(-4)}`,
         );
-        let user;
-        if (userRows.length === 0) {
-            const insert = await query(
-                `INSERT INTO users (mobile_number, name, role, account_status, email) 
-                 VALUES ($1, $2, 'customer', 'active', $3) RETURNING *`,
-                [mobile_number, `Customer ${mobile_number.slice(-4)}`, null]
-            );
-            user = insert[0];
-            console.log(`📱 New OTP user: ${mobile_number}`);
-        } else {
-            user = userRows[0];
-        }
+        let user = otpUser;
         user = resolveUserRole(user);
         req.login(user, async (error) => {
             if (error) {

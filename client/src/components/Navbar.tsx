@@ -37,7 +37,6 @@ import { userCanCallStrictAdminApi } from '@/lib/admin-access'
 import { formatAdminInboxBadge } from '@/lib/admin-inbox-summary'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import { getOgImagePath } from '@/lib/og-image'
-import { isResellerStorefrontGuest } from '@/lib/reseller-storefront'
 import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 
 const KC_LOGO_PATH = getOgImagePath()
@@ -46,6 +45,7 @@ type UserType = { email?: string; name?: string; role?: string; mobile_number?: 
 
 function navIsActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false
+  if (href === '/') return pathname === '/'
   if (href === CATALOG_PATH) {
     return (
       pathname === CATALOG_PATH ||
@@ -92,16 +92,17 @@ export default function Navbar() {
     customDomainHost,
     investEnabled,
   } = useResellerBranding()
-  const isStorefrontGuest = isResellerStorefrontGuest(customDomainHost, auth.isAuthenticated)
   const storefrontInvestAvailable = isStorefrontInvestAvailable(customDomainHost, investEnabled)
+  const homeHref = customDomainHost ? '/' : CATALOG_PATH
   const navItems = useMemo(
     () =>
-      BOTTOM_NAV.filter((item) => {
-        if (isStorefrontGuest && item.href === PROFILE_PATH) return false
+      BOTTOM_NAV.map((item) =>
+        item.href === CATALOG_PATH ? { ...item, href: homeHref } : item,
+      ).filter((item) => {
         if (item.href === SIP_PATH && !storefrontInvestAvailable) return false
         return true
       }),
-    [isStorefrontGuest, storefrontInvestAvailable],
+    [homeHref, storefrontInvestAvailable],
   )
   const { open: openLoginModal } = useLoginModal()
   const user = auth.user as UserType | undefined
@@ -135,10 +136,10 @@ export default function Navbar() {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
-      window.location.href = HOME_PATH
+      window.location.href = customDomainHost ? '/' : HOME_PATH
     } catch (error) {
       console.error('Logout error:', error)
-      window.location.href = HOME_PATH
+      window.location.href = customDomainHost ? '/' : HOME_PATH
     }
   }
 
@@ -169,11 +170,11 @@ export default function Navbar() {
         <div className="mx-auto max-w-6xl px-3 sm:px-4 md:px-5">
           <div className="grid h-12 grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-1.5 sm:gap-3 md:h-14 md:gap-4">
             <div className="min-w-0 max-w-[42vw] sm:max-w-none">
-              <Link href={CATALOG_PATH} className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+              <Link href={homeHref} className="flex min-w-0 items-center gap-2 sm:gap-2.5">
                 {resellerBrandingActive && logoUrl ? (
                   <span className="relative block size-8 shrink-0 overflow-hidden rounded-md bg-white ring-1 ring-slate-700/30 md:size-9">
                     <Image
-                      src="/icon"
+                      src={logoUrl}
                       alt={businessName}
                       fill
                       className="object-contain p-0.5"
@@ -232,7 +233,7 @@ export default function Navbar() {
                 </div>
               )}
 
-              {!auth.isAuthenticated && !isStorefrontGuest && (
+              {!auth.isAuthenticated && (
                 <button
                   type="button"
                   onClick={() => openLoginModal(returnTo)}
@@ -323,6 +324,18 @@ export default function Navbar() {
                   </Link>
                 )
               })}
+              {customDomainHost ? (
+                <Link
+                  href={CATALOG_PATH}
+                  className={`inline-flex h-8 shrink-0 items-center rounded-full px-3.5 text-[12px] font-medium tracking-[0.06em] uppercase transition-colors ${
+                    navIsActive(pathname, CATALOG_PATH)
+                      ? 'text-amber-600 ring-1 ring-amber-500/25 bg-amber-500/8'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Shop
+                </Link>
+              ) : null}
 
               {auth.isAuthenticated && hasB2bPortalAccess && (
                 <>

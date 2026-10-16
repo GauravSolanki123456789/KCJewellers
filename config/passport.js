@@ -4,7 +4,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { pool } = require('./database');
 const { resolveUserRole, SUPER_ADMIN_EMAIL } = require('../services/authService');
-const { findResellerOwnerByLoginEmail } = require('../services/resellerLoginEmails');
+const { findOrCreateGoogleUser } = require('../services/storefrontTenantAuth');
 
 passport.serializeUser((user, done) => {
     done(null, user.id);
@@ -45,19 +45,23 @@ passport.use(new GoogleStrategy({
         const emailLower = String(email || '').toLowerCase().trim();
         const isSuperAdmin = emailLower === SUPER_ADMIN_EMAIL.toLowerCase().trim();
         
-        let result = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1', [emailLower]);
-
-        if (result.rows.length === 0) {
-            const aliasOwner = await findResellerOwnerByLoginEmail(emailLower);
-            if (aliasOwner) {
-                result = { rows: [aliasOwner] };
-                console.log(`🔗 Reseller alias login: ${emailLower} → brand user #${aliasOwner.id}`);
-            }
+        const { user: lookedUp, storefrontResellerId, created } = await findOrCreateGoogleUser({
+            req,
+            email: emailLower,
+            googleId,
+            displayName,
+        });
+        let result = { rows: lookedUp ? [lookedUp] : [] };
+        if (created && lookedUp) {
+            result = { rows: [lookedUp] };
         }
 
         if (result.rows.length > 0) {
-            // Existing user (primary email or reseller alias)
+            // Existing user (primary email, reseller alias, or storefront-bound customer)
             const user = result.rows[0];
+            if (storefrontResellerId) {
+                console.log(`🏬 Storefront Google login ${emailLower} on reseller #${storefrontResellerId} → user #${user.id}`);
+            }
             
             // Check account status
             if (user.account_status === 'rejected' || user.account_status === 'suspended') {
@@ -95,11 +99,15 @@ passport.use(new GoogleStrategy({
             
             // Update google_id if missing (on brand owner row)
             if (!user.google_id) {
-                await pool.query(
-                    'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                    [googleId, user.id]
-                );
-                user.google_id = googleId;
+                try {
+                    await pool.query(
+                        'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                        [googleId, user.id]
+                    );
+                    user.google_id = googleId;
+                } catch (gidErr) {
+                    console.warn('google_id update skipped:', gidErr.message);
+                }
             }
             
             // Update name if changed (owner profile)
@@ -130,9 +138,9 @@ passport.use(new GoogleStrategy({
             
             const safeName = String(displayName || (isSuperAdmin ? 'Super Admin' : 'Customer')).slice(0, 255);
             const newUserResult = await pool.query(
-                `INSERT INTO users (google_id, email, name, role, account_status, allowed_tabs) 
-                 VALUES ($1, $2, $3, $4, 'active', $5) RETURNING *`,
-                [googleId, emailLower, safeName, role, allowedTabs]
+                `INSERT INTO users (google_id, email, name, role, account_status, allowed_tabs, storefront_reseller_id, customer_tier)
+                 VALUES ($1, $2, $3, $4, 'active', $5, $6, $7) RETURNING *`,
+                [googleId, emailLower, safeName, role, allowedTabs, storefrontResellerId || null, 'B2C_CUSTOMER']
             );
             
             // CRITICAL: Always resolve role to ensure correct role is returned
