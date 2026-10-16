@@ -86,6 +86,7 @@ function mergeSharedBranding(
     showMrpBehindBox: domainBranding?.showMrpBehindBox ?? false,
     hidePrices: domainBranding?.hidePrices ?? false,
     showLiveStock: domainBranding?.showLiveStock ?? false,
+    storefrontWebsiteEnabled: domainBranding?.storefrontWebsiteEnabled ?? false,
   };
 }
 

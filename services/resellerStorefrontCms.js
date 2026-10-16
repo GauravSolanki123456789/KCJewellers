@@ -349,25 +349,75 @@ async function publishSite(user) {
     return getEditorPayload(user);
 }
 
+async function isStorefrontWebsiteEnabledForUserId(userId) {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid) || uid <= 0) return false;
+    try {
+        const rows = await query(
+            `SELECT COALESCE(reseller_storefront_website_enabled, false) AS enabled
+             FROM users WHERE id = $1 LIMIT 1`,
+            [uid],
+        );
+        return !!rows[0]?.enabled;
+    } catch (e) {
+        const msg = String(e.message || '');
+        if (msg.includes('reseller_storefront_website_enabled')) {
+            await pool.query(
+                'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_storefront_website_enabled BOOLEAN NOT NULL DEFAULT false',
+            );
+            return isStorefrontWebsiteEnabledForUserId(uid);
+        }
+        return false;
+    }
+}
+
 async function getPublishedForDomain(domain) {
     const d = normalizeDomain(domain);
-    if (!d) return { site: defaultSite({}), branding: null, resellerId: null };
+    if (!d) return { site: defaultSite({}), branding: null, resellerId: null, websiteEnabled: false };
     const reseller = await findResellerByDomain(d);
-    if (!reseller?.id) return { site: defaultSite({}), branding: null, resellerId: null };
+    if (!reseller?.id) return { site: defaultSite({}), branding: null, resellerId: null, websiteEnabled: false };
     const owner = (
         await query(
-            `SELECT id, business_name, logo_url, mobile_number, email, custom_domain
+            `SELECT id, business_name, logo_url, mobile_number, email, custom_domain,
+                    COALESCE(reseller_storefront_website_enabled, false) AS reseller_storefront_website_enabled
              FROM users WHERE id = $1 LIMIT 1`,
             [reseller.id],
         )
     )[0];
+    const websiteEnabled = !!owner?.reseller_storefront_website_enabled;
     const branding = await brandingForReseller(owner || reseller);
+    if (!websiteEnabled) {
+        return { site: defaultSite({}), branding, resellerId: reseller.id, websiteEnabled: false };
+    }
     const fallback = sanitizeSite(defaultSite(branding), branding);
     const row = await getSiteRow(reseller.id);
     if (!row || isSiteEmpty(row.published)) {
-        return { site: fallback, branding, resellerId: reseller.id };
+        return { site: fallback, branding, resellerId: reseller.id, websiteEnabled: true };
     }
-    return { site: sanitizeSite(row.published, branding), branding, resellerId: reseller.id };
+    return {
+        site: sanitizeSite(row.published, branding),
+        branding,
+        resellerId: reseller.id,
+        websiteEnabled: true,
+    };
+}
+
+function requireStorefrontWebsiteModule() {
+    return async (req, res, next) => {
+        try {
+            const ok = await isStorefrontWebsiteEnabledForUserId(req.user?.id);
+            if (!ok) {
+                return res.status(403).json({
+                    error:
+                        'Your website module is not enabled. Ask KC admin to turn on “Your website” in your reseller profile.',
+                    code: 'STOREFRONT_WEBSITE_DISABLED',
+                });
+            }
+            next();
+        } catch (error) {
+            next(error);
+        }
+    };
 }
 
 function createMediaUploader() {
@@ -396,6 +446,7 @@ function createMediaUploader() {
 
 function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, getPublicApiBaseUrl }) {
     const upload = createMediaUploader();
+    const requireWebsite = requireStorefrontWebsiteModule();
 
     app.get('/api/public/storefront-page', async (req, res) => {
         try {
@@ -406,7 +457,8 @@ function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, ge
             const payload = await getPublishedForDomain(domain);
             res.setHeader('Cache-Control', 'public, max-age=30');
             res.json({
-                site: payload.site,
+                storefront_website_enabled: !!payload.websiteEnabled,
+                site: payload.websiteEnabled ? payload.site : defaultSite({}),
                 business_name: payload.branding?.businessName || null,
                 logo_url: payload.branding?.logoUrl || null,
                 contact_phone: payload.branding?.contactPhone || null,
@@ -417,7 +469,7 @@ function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, ge
         }
     });
 
-    app.get('/api/reseller/storefront-site', requireSharedCatalogCreator, async (req, res) => {
+    app.get('/api/reseller/storefront-site', requireSharedCatalogCreator, requireWebsite, async (req, res) => {
         try {
             const payload = await getEditorPayload(req.user);
             res.json(payload);
@@ -427,7 +479,7 @@ function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, ge
         }
     });
 
-    app.put('/api/reseller/storefront-site', requireSharedCatalogCreator, async (req, res) => {
+    app.put('/api/reseller/storefront-site', requireSharedCatalogCreator, requireWebsite, async (req, res) => {
         try {
             const payload = await saveDraft(req.user, req.body || {});
             res.json({ success: true, ...payload });
@@ -437,7 +489,7 @@ function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, ge
         }
     });
 
-    app.post('/api/reseller/storefront-site/publish', requireSharedCatalogCreator, async (req, res) => {
+    app.post('/api/reseller/storefront-site/publish', requireSharedCatalogCreator, requireWebsite, async (req, res) => {
         try {
             if (req.body?.draft) {
                 await saveDraft(req.user, req.body);
@@ -453,6 +505,7 @@ function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, ge
     app.post(
         '/api/reseller/storefront-media',
         requireSharedCatalogCreator,
+        requireWebsite,
         (req, res, next) => {
             upload.single('file')(req, res, (err) => {
                 if (err) return res.status(400).json({ error: err.message || 'Upload failed' });

@@ -7,7 +7,7 @@ import StorefrontHomeView from "@/components/storefront/StorefrontHomeView";
 /** Reseller vanity domains get a branded homepage. KC platform still opens the catalogue. */
 export default async function RootPage() {
   const { branding, customDomainHost } = await getStorefrontTenantFromHeaders();
-  if (!customDomainHost) {
+  if (!customDomainHost || !branding?.storefrontWebsiteEnabled) {
     permanentRedirect(CATALOG_PATH);
   }
   const { site } = await getStorefrontSiteFromHeaders(branding?.businessName);

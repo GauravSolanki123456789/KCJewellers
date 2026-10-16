@@ -58,6 +58,8 @@ export type WholesaleUserFields = {
   reseller_digisilver_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio at `/reseller/enhanced-pictures`. */
   reseller_enhanced_pictures_enabled?: boolean
+  /** Admin enables custom homepage + Profile → Your website. */
+  reseller_storefront_website_enabled?: boolean
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

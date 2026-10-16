@@ -841,6 +841,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerEnhancedPicturesEnabled = !!resolvedUser.reseller_enhanced_pictures_enabled;
         let resellerPricelistEnabled = !!resolvedUser.reseller_pricelist_enabled;
         let resellerImageSearchEnabled = !!resolvedUser.reseller_image_search_enabled;
+        let resellerStorefrontWebsiteEnabled = !!resolvedUser.reseller_storefront_website_enabled;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
@@ -856,6 +857,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_enhanced_pictures_enabled, false) AS enhanced_pictures,
                         COALESCE(reseller_pricelist_enabled, false) AS pricelist_enabled,
                         COALESCE(reseller_image_search_enabled, false) AS image_search_enabled,
+                        COALESCE(reseller_storefront_website_enabled, false) AS storefront_website,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
@@ -874,10 +876,16 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerEnhancedPicturesEnabled = !!fresh[0].enhanced_pictures;
                 resellerPricelistEnabled = !!fresh[0].pricelist_enabled;
                 resellerImageSearchEnabled = !!fresh[0].image_search_enabled;
+                resellerStorefrontWebsiteEnabled = !!fresh[0].storefront_website;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
             const msg = String(e.message || '');
+            if (msg.includes('reseller_storefront_website_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_storefront_website_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
             if (msg.includes('reseller_product_uploads_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
@@ -996,6 +1004,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_enhanced_pictures_enabled: resellerEnhancedPicturesEnabled,
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_image_search_enabled: resellerImageSearchEnabled,
+                reseller_storefront_website_enabled: resellerStorefrontWebsiteEnabled,
                 reseller_slab_settings: resellerSlabSettings,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
@@ -1409,6 +1418,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
                     COALESCE(reseller_show_mrp_behind_box, false) AS reseller_show_mrp_behind_box,
                     COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
                     COALESCE(reseller_show_live_stock, false) AS reseller_show_live_stock,
+                    COALESCE(reseller_storefront_website_enabled, false) AS reseller_storefront_website_enabled,
                     COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
              FROM users
              WHERE customer_tier = 'RESELLER'
@@ -1457,6 +1467,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
             show_mrp_behind_box: !!rows[0].reseller_show_mrp_behind_box,
             reseller_hide_prices: !!rows[0].reseller_hide_prices,
             reseller_show_live_stock: !!rows[0].reseller_show_live_stock,
+            storefront_website_enabled: !!rows[0].reseller_storefront_website_enabled,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -4318,6 +4329,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_enhanced_pictures_enabled, false) AS reseller_enhanced_pictures_enabled,
                        COALESCE(reseller_pricelist_enabled, false) AS reseller_pricelist_enabled,
                        COALESCE(reseller_image_search_enabled, false) AS reseller_image_search_enabled,
+                       COALESCE(reseller_storefront_website_enabled, false) AS reseller_storefront_website_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
@@ -4826,6 +4838,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             params.push(!!req.body.reseller_image_search_enabled);
         }
 
+        if (req.body.reseller_storefront_website_enabled !== undefined) {
+            updates.push(`reseller_storefront_website_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_storefront_website_enabled);
+        }
+
         if (req.body.reseller_invest_manage_enabled !== undefined) {
             updates.push(`reseller_invest_manage_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_invest_manage_enabled);
@@ -4984,7 +5001,12 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             result = await query(queryText, params);
         } catch (updateErr) {
             const umsg = updateErr.message || '';
-            if (umsg.includes('reseller_product_uploads_enabled')) {
+            if (umsg.includes('reseller_storefront_website_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_storefront_website_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+                result = await query(queryText, params);
+            } else if (umsg.includes('reseller_product_uploads_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
                 );

@@ -26,8 +26,13 @@ const policyLinks = [
 export default function Footer() {
   const pathname = usePathname();
   const auth = useAuth();
-  const { businessName, logoUrl, active: resellerActive, customDomainHost } =
-    useResellerBranding();
+  const {
+    businessName,
+    logoUrl,
+    active: resellerActive,
+    customDomainHost,
+    storefrontWebsiteEnabled,
+  } = useResellerBranding();
   const displayName = resellerActive ? businessName : "KC Jewellers";
   const showStaffLogin =
     customDomainHost && !auth.isAuthenticated && pathname !== LOGIN_PATH;
@@ -35,7 +40,7 @@ export default function Footer() {
   if (pathname?.startsWith("/shared/") || pathname?.startsWith("/pricelist/")) {
     return null;
   }
-  if (customDomainHost && pathname === "/") {
+  if (customDomainHost && storefrontWebsiteEnabled && pathname === "/") {
     return null;
   }
   return (

@@ -33,6 +33,8 @@ export type EffectiveResellerBranding = {
   hidePrices: boolean
   /** Show live PCS on product cards (admin `reseller_show_live_stock`). */
   showLiveStock: boolean
+  /** Custom homepage + Profile → Your website (admin toggle). */
+  storefrontWebsiteEnabled: boolean
 }
 
 const defaultBranding: EffectiveResellerBranding = {
@@ -48,6 +50,7 @@ const defaultBranding: EffectiveResellerBranding = {
   showMrpBehindBox: false,
   hidePrices: false,
   showLiveStock: false,
+  storefrontWebsiteEnabled: false,
 }
 
 const Ctx = createContext<EffectiveResellerBranding>(defaultBranding)
@@ -81,6 +84,7 @@ export function ResellerBrandingProvider({
         showMrpBehindBox: initialFromHost.showMrpBehindBox ?? false,
         hidePrices: initialFromHost.hidePrices ?? false,
         showLiveStock: initialFromHost.showLiveStock ?? false,
+        storefrontWebsiteEnabled: initialFromHost.storefrontWebsiteEnabled ?? false,
       }
     }
     if (customerTier === CUSTOMER_TIER.RESELLER && auth.isAuthenticated && user) {
@@ -102,6 +106,7 @@ export function ResellerBrandingProvider({
           showMrpBehindBox: false,
           hidePrices: false,
           showLiveStock: false,
+          storefrontWebsiteEnabled: false,
         }
       }
     }
@@ -118,6 +123,7 @@ export function ResellerBrandingProvider({
       showMrpBehindBox: false,
       hidePrices: false,
       showLiveStock: false,
+      storefrontWebsiteEnabled: false,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])
 

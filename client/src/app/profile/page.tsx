@@ -252,14 +252,20 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_image_search_enabled?: boolean }).reseller_image_search_enabled,
   )
+  const resellerStorefrontWebsiteEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_storefront_website_enabled?: boolean }).reseller_storefront_website_enabled,
+  )
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
-      window.location.href = customDomainHost ? '/' : HOME_PATH
+      window.location.href = HOME_PATH
     } catch {
-      window.location.href = customDomainHost ? '/' : HOME_PATH
+      window.location.href = HOME_PATH
     }
   }
 
@@ -410,13 +416,15 @@ function ProfilePageContent() {
                 ) : null}
                 {isReseller ? (
                   <>
-                    <ProfileActionCard
-                      href={PROFILE_STOREFRONT_PATH}
-                      icon={Palette}
-                      title="Your website"
-                      subtitle="Banners, videos, homepage sections, text, HTML & preview — shown on your domain"
-                      primary
-                    />
+                    {resellerStorefrontWebsiteEnabled ? (
+                      <ProfileActionCard
+                        href={PROFILE_STOREFRONT_PATH}
+                        icon={Palette}
+                        title="Your website"
+                        subtitle="Banners, videos, homepage sections, text, HTML & preview — shown on your domain"
+                        primary
+                      />
+                    ) : null}
                     <ProfileActionCard
                       href={RESELLER_INQUIRIES_PATH}
                       icon={ShoppingBag}

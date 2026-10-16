@@ -609,6 +609,7 @@ export default function StorefrontEditor() {
                   showMrpBehindBox: branding.showMrpBehindBox,
                   hidePrices: branding.hidePrices,
                   showLiveStock: branding.showLiveStock,
+                  storefrontWebsiteEnabled: true,
                 }}
                 preview
               />

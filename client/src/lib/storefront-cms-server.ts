@@ -25,7 +25,11 @@ export async function fetchPublicStorefrontSite(
       { next: { revalidate: 30 } },
     );
     if (!res.ok) return fallback;
-    const data = (await res.json()) as { site?: StorefrontSite };
+    const data = (await res.json()) as {
+      site?: StorefrontSite;
+      storefront_website_enabled?: boolean;
+    };
+    if (!data?.storefront_website_enabled) return fallback;
     if (data?.site && typeof data.site === "object") return data.site;
     return fallback;
   } catch {

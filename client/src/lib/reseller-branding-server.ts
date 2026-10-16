@@ -27,6 +27,8 @@ export type PublicResellerBranding = {
   hidePrices: boolean;
   /** Show live PCS stock on product cards and cap shared-catalogue qty. */
   showLiveStock: boolean;
+  /** Admin opt-in: custom homepage + website editor (`users.reseller_storefront_website_enabled`). */
+  storefrontWebsiteEnabled: boolean;
 };
 
 function apiBase(): string {
@@ -63,6 +65,7 @@ export async function fetchPublicResellerBranding(
       show_mrp_behind_box?: boolean;
       reseller_hide_prices?: boolean;
       reseller_show_live_stock?: boolean;
+      storefront_website_enabled?: boolean;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -87,6 +90,7 @@ export async function fetchPublicResellerBranding(
       showMrpBehindBox: !!data?.show_mrp_behind_box,
       hidePrices: !!data?.reseller_hide_prices,
       showLiveStock: !!data?.reseller_show_live_stock,
+      storefrontWebsiteEnabled: !!data?.storefront_website_enabled,
     };
   } catch {
     return null;

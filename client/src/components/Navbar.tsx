@@ -91,9 +91,11 @@ export default function Navbar() {
     active: resellerBrandingActive,
     customDomainHost,
     investEnabled,
+    storefrontWebsiteEnabled,
   } = useResellerBranding()
   const storefrontInvestAvailable = isStorefrontInvestAvailable(customDomainHost, investEnabled)
-  const homeHref = customDomainHost ? '/' : CATALOG_PATH
+  const vanityWebsiteHome = customDomainHost && storefrontWebsiteEnabled
+  const homeHref = vanityWebsiteHome ? '/' : CATALOG_PATH
   const navItems = useMemo(
     () =>
       BOTTOM_NAV.map((item) =>
@@ -136,10 +138,10 @@ export default function Navbar() {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
-      window.location.href = customDomainHost ? '/' : HOME_PATH
+      window.location.href = vanityWebsiteHome ? '/' : HOME_PATH
     } catch (error) {
       console.error('Logout error:', error)
-      window.location.href = customDomainHost ? '/' : HOME_PATH
+      window.location.href = vanityWebsiteHome ? '/' : HOME_PATH
     }
   }
 
@@ -324,7 +326,7 @@ export default function Navbar() {
                   </Link>
                 )
               })}
-              {customDomainHost ? (
+              {vanityWebsiteHome ? (
                 <Link
                   href={CATALOG_PATH}
                   className={`inline-flex h-8 shrink-0 items-center rounded-full px-3.5 text-[12px] font-medium tracking-[0.06em] uppercase transition-colors ${
