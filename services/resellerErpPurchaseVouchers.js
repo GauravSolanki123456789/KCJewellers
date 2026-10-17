@@ -209,6 +209,64 @@ async function applyReceivedWeight(query, resellerUserId, pvId, addedWeightKg) {
     return rows[0] ? mapPv(rows[0]) : null;
 }
 
+async function sumBatchPieceWeightKg(query, resellerUserId, batchId) {
+    if (!batchId) return 0;
+    const rows = await query(
+        `SELECT COALESCE(SUM(COALESCE(avg_weight, 0)), 0)::numeric AS total_gm
+         FROM reseller_erp_stock_pieces
+         WHERE batch_id = $1::uuid AND reseller_user_id = $2
+           AND status NOT IN ('split', 'merged')`,
+        [batchId, resellerUserId],
+    );
+    const gm = Number(rows[0]?.total_gm) || 0;
+    return Math.round((gm / 1000) * 1000000) / 1000000;
+}
+
+function pvStatusFromReceived(weightKg, receivedKg) {
+    const hold = Number(weightKg) || 0;
+    const received = Number(receivedKg) || 0;
+    if (received <= 0.000001) return 'open';
+    if (received >= hold - 0.001) return 'tallied';
+    return 'partial';
+}
+
+/** Reconcile PV uploaded weight from live pieces in its stock batch (e.g. after deletes). */
+async function syncPvReceivedWeightFromStock(query, resellerUserId, pvId) {
+    if (!pvId) return null;
+    const pvRows = await query(
+        `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+        [pvId, resellerUserId],
+    );
+    if (!pvRows.length) return null;
+    const pv = pvRows[0];
+    const batchId = pv.stock_batch_id;
+    const receivedKg = batchId ? await sumBatchPieceWeightKg(query, resellerUserId, batchId) : 0;
+    const weightKg = Number(pv.weight_kg) || 0;
+    const status = pvStatusFromReceived(weightKg, receivedKg);
+    const updated = await query(
+        `UPDATE reseller_erp_purchase_vouchers SET
+            received_weight_kg = $1,
+            status = $2,
+            updated_at = NOW()
+         WHERE id = $3 AND reseller_user_id = $4
+         RETURNING *`,
+        [receivedKg, status, pvId, resellerUserId],
+    );
+    return updated[0] ? mapPv(updated[0]) : null;
+}
+
+async function syncPvReceivedWeightForBatch(query, resellerUserId, batchId) {
+    if (!batchId) return null;
+    const rows = await query(
+        `SELECT purchase_voucher_id FROM reseller_erp_stock_batches
+         WHERE id = $1::uuid AND reseller_user_id = $2`,
+        [batchId, resellerUserId],
+    );
+    const pvId = rows[0]?.purchase_voucher_id;
+    if (!pvId) return null;
+    return syncPvReceivedWeightFromStock(query, resellerUserId, pvId);
+}
+
 async function deletePurchaseVoucherById(query, resellerUserId, pvId) {
     const pvRows = await query(
         `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
@@ -499,4 +557,6 @@ module.exports = {
     assertPvAcceptsAddedWeight,
     mapPv,
     deletePurchaseVoucherById,
+    syncPvReceivedWeightFromStock,
+    syncPvReceivedWeightForBatch,
 };

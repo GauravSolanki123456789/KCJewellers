@@ -185,7 +185,8 @@ export function ErpProductsWorkspace() {
     setPieces(res.data.pieces || [])
     setActiveBatchId(batchId)
     setRenameLabel(res.data.batch?.batch_label || '')
-    if (res.data.purchase_voucher) setActivePv(res.data.purchase_voucher)
+    setActivePv(res.data.purchase_voucher ?? null)
+    setMsg(null)
   }, [])
 
   useEffect(() => {
@@ -267,7 +268,6 @@ export function ErpProductsWorkspace() {
       } else if (res.data.purchase_voucher) {
         detail += ` · PV ${res.data.purchase_voucher.pv_number}: pending ${formatPvWeightGrams(res.data.purchase_voucher.pending_weight_kg)}`
       }
-      if (res.data.purchase_voucher) setActivePv(res.data.purchase_voucher)
       setMsg(detail)
       await loadBatches()
       await loadBatch(res.data.batch_id)
@@ -275,6 +275,14 @@ export function ErpProductsWorkspace() {
     } catch (e) {
       setMsgTone('err')
       setMsg(erpErr(e))
+      const targetBatchId = appendToBatchId || activeBatchId
+      if (targetBatchId) {
+        try {
+          await loadBatch(targetBatchId)
+        } catch {
+          /* keep error message */
+        }
+      }
     } finally {
       if (isAppend) {
         setAppendBusy(false)
@@ -481,6 +489,7 @@ export function ErpProductsWorkspace() {
       await axios.delete(`/api/reseller/erp/stock-pieces/batches/${activeBatchId}`)
       setActiveBatchId(null)
       setPieces([])
+      setActivePv(null)
       await loadBatches()
       setMsg('Batch deleted.')
     } catch (e) {
@@ -539,6 +548,8 @@ export function ErpProductsWorkspace() {
                 setActiveBatchId(null)
                 setPieces([])
                 setImports([])
+                setActivePv(null)
+                setMsg(null)
               }}
             >
               <ArrowLeft className="size-4" />
@@ -802,14 +813,6 @@ export function ErpProductsWorkspace() {
             Open PV batch
           </button>
         </div>
-        {activePv ? (
-          <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs text-blue-950">
-            <p>
-              <span className="font-bold">{activePv.pv_number}</span> · {activePv.status}
-            </p>
-            <PvWeightTally pv={activePv} />
-          </div>
-        ) : null}
       </div>
       <ErpManualAddProduct
         batches={batches.map((b) => ({ id: b.id, batch_label: b.batch_label }))}

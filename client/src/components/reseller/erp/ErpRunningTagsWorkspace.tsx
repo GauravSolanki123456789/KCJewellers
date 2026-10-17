@@ -103,10 +103,6 @@ export function ErpRunningTagsWorkspace() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-[var(--color-jewelry-black,#1a1814)]">Running tags</h2>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
-              Generate once. Scan &amp; bill uses these barcodes on S / A enter. Completed GST sales subtract grams.
-              Stock upload with the same barcode adds grams. Jainav bills do not change this balance.
-            </p>
           </div>
           <button type="button" className={erpBtnGhost} disabled={busy} onClick={() => void load()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}

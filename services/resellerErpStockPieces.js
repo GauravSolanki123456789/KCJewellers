@@ -10,7 +10,12 @@ const {
     lookupDesignDefaults,
     applyDesignDefaultsToPiece,
 } = require('./resellerErpDesignMaster');
-const { applyReceivedWeight, assertPvAcceptsAddedWeight, mapPv } = require('./resellerErpPurchaseVouchers');
+const {
+    assertPvAcceptsAddedWeight,
+    mapPv,
+    syncPvReceivedWeightForBatch,
+    syncPvReceivedWeightFromStock,
+} = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 const {
     loadRunningTagBarcodeSet,
@@ -1391,11 +1396,7 @@ function registerStockPieceRoutes(app, deps) {
             let purchaseVoucher = null;
             const pvLinkId = batchRows[0].purchase_voucher_id;
             if (pvLinkId) {
-                const pvRows = await query(
-                    `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
-                    [pvLinkId, req.user.id],
-                );
-                if (pvRows[0]) purchaseVoucher = mapPv(pvRows[0]);
+                purchaseVoucher = await syncPvReceivedWeightFromStock(query, req.user.id, pvLinkId);
             }
             res.json({
                 batch: batchRows[0],
@@ -1509,6 +1510,7 @@ function registerStockPieceRoutes(app, deps) {
             }
             if (pvId) {
                 try {
+                    await syncPvReceivedWeightFromStock(query, req.user.id, pvId);
                     await assertPvAcceptsAddedWeight(query, req.user.id, pvId, prospectiveAddGm);
                 } catch (e) {
                     if (e.status === 400 || e.code === 'PV_WEIGHT_EXCEEDED') {
@@ -1783,9 +1785,8 @@ function registerStockPieceRoutes(app, deps) {
                 );
                 pvId = batchPv[0]?.purchase_voucher_id || null;
             }
-            if (pvId && addedWeightGm > 0) {
-                const addedKg = Math.round((addedWeightGm / 1000) * 1000000) / 1000000;
-                purchaseVoucher = await applyReceivedWeight(query, req.user.id, pvId, addedKg);
+            if (pvId) {
+                purchaseVoucher = await syncPvReceivedWeightFromStock(query, req.user.id, pvId);
             }
             try {
                 await recomputeRunningTagBalances(query, req.user.id);
@@ -1959,7 +1960,8 @@ function registerStockPieceRoutes(app, deps) {
                      WHERE id = $1::uuid`,
                     [batchId],
                 );
-                res.json({ success: true, deletedPieces: linked.length });
+                const purchaseVoucher = await syncPvReceivedWeightForBatch(query, req.user.id, batchId);
+                res.json({ success: true, deletedPieces: linked.length, purchase_voucher: purchaseVoucher });
             } catch (e) {
                 res.status(500).json({ error: e.message || 'Failed to delete import' });
             }
@@ -2206,6 +2208,7 @@ function registerStockPieceRoutes(app, deps) {
                  WHERE id = $1::uuid AND reseller_user_id = $2`,
                 [batchId, req.user.id],
             );
+            await syncPvReceivedWeightForBatch(query, req.user.id, batchId);
             const pieces = await query(
                 `SELECT * FROM reseller_erp_stock_pieces
                  WHERE batch_id = $1::uuid AND reseller_user_id = $2 ORDER BY id`,
@@ -2222,10 +2225,11 @@ function registerStockPieceRoutes(app, deps) {
         try {
             const batchId = String(req.params.batchId || '').trim();
             const batchRows = await query(
-                `SELECT id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                `SELECT id, purchase_voucher_id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
                 [batchId, req.user.id],
             );
             if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
+            const batchPvId = batchRows[0].purchase_voucher_id || null;
 
             const sold = await query(
                 `SELECT COUNT(*)::int AS n FROM reseller_erp_stock_pieces
@@ -2257,6 +2261,10 @@ function registerStockPieceRoutes(app, deps) {
                 `DELETE FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
                 [batchId, req.user.id],
             );
+
+            if (batchPvId) {
+                await syncPvReceivedWeightFromStock(query, req.user.id, batchPvId);
+            }
 
             for (const row of itemCodes) {
                 await syncStockAlertCounts(query, req.user.id, row.item_code);
@@ -2335,6 +2343,7 @@ function registerStockPieceRoutes(app, deps) {
                      WHERE id = $2::uuid AND reseller_user_id = $3`,
                     [count[0]?.n ?? 0, batchId, req.user.id],
                 );
+                await syncPvReceivedWeightForBatch(query, req.user.id, batchId);
             }
 
             res.json({ success: true, deleted: deletedRows.length });
@@ -2426,6 +2435,7 @@ function registerStockPieceRoutes(app, deps) {
                      WHERE id = $2::uuid AND reseller_user_id = $3`,
                     [count[0]?.n ?? 0, piece.batch_id, req.user.id],
                 );
+                await syncPvReceivedWeightForBatch(query, req.user.id, piece.batch_id);
             }
 
             res.json({
