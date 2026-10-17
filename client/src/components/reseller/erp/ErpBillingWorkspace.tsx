@@ -410,6 +410,10 @@ export function ErpBillingWorkspace() {
   const [defaultPlaceOfSupply, setDefaultPlaceOfSupply] = useState('')
   const [rateSlab, setRateSlab] = useState<ErpRateSlab>('R')
   const [lines, setLines] = useState<ErpBillLine[]>([])
+  const [runningTags, setRunningTags] = useState<{
+    jewellery: { barcode: string } | null
+    articles: { barcode: string } | null
+  }>({ jewellery: null, articles: null })
   const [displayRates, setDisplayRates] = useState<unknown>([])
   const [goldPerG, setGoldPerG] = useState(0)
   const [silverPerG, setSilverPerG] = useState(0)
@@ -530,6 +534,23 @@ export function ErpBillingWorkspace() {
 
   useEffect(() => {
     void fetchGstInvoiceItems().then(setGstInvoiceItems)
+  }, [])
+
+  useEffect(() => {
+    void axios
+      .get<{ tags?: { jewellery?: { barcode?: string } | null; articles?: { barcode?: string } | null } }>(
+        '/api/reseller/erp/running-tags',
+      )
+      .then((res) => {
+        const t = res.data.tags || {}
+        setRunningTags({
+          jewellery: t.jewellery?.barcode ? { barcode: String(t.jewellery.barcode) } : null,
+          articles: t.articles?.barcode ? { barcode: String(t.articles.barcode) } : null,
+        })
+      })
+      .catch(() => {
+        setRunningTags({ jewellery: null, articles: null })
+      })
   }, [])
 
   useEffect(() => {
@@ -1396,10 +1417,16 @@ export function ErpBillingWorkspace() {
             : await loadDisplayRates()
         const pg = displayRatesToPerGram(rates)
         const usedCodes = lines.flatMap((l) => [l.code, l.barcode].filter(Boolean) as string[])
+        const runningTagBc =
+          shortcut === 'jewellery'
+            ? runningTags.jewellery?.barcode
+            : shortcut === 'articles'
+              ? runningTags.articles?.barcode
+              : undefined
         const baseLine =
           shortcut === 'shipping'
             ? createShippingBillLine(invoiceItem, usedCodes)
-            : createManualBillLine(shortcut, invoiceItem, rateSlab, usedCodes)
+            : createManualBillLine(shortcut, invoiceItem, rateSlab, usedCodes, runningTagBc)
         const line = recalcLine(baseLine, {
           rates,
           goldPerG: pg.gold,

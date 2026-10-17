@@ -122,12 +122,14 @@ export function createManualBillLine(
   invoiceItem: GstInvoiceItem,
   slab: ErpRateSlab = 'R',
   usedCodes: Iterable<string> = [],
+  runningTagBarcode?: string | null,
 ): ErpBillLine {
-  const lineId = generateManualBarcode(usedCodes)
+  const tag = String(runningTagBarcode || '').trim()
+  const lineId = tag || generateManualBarcode(usedCodes)
   const base: ErpBillLine = {
     name: '',
     code: lineId,
-    barcode: '',
+    barcode: tag,
     sku: undefined,
     style_code: undefined,
     size: null,

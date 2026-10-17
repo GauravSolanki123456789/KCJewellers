@@ -2026,12 +2026,13 @@ var KcExhibitionBillingModule = (() => {
     }
     return null;
   }
-  function createManualBillLine(category, invoiceItem, slab = "R", usedCodes = []) {
-    const lineId = generateManualBarcode(usedCodes);
+  function createManualBillLine(category, invoiceItem, slab = "R", usedCodes = [], runningTagBarcode) {
+    const tag = String(runningTagBarcode || "").trim();
+    const lineId = tag || generateManualBarcode(usedCodes);
     const base = {
       name: "",
       code: lineId,
-      barcode: "",
+      barcode: tag,
       sku: void 0,
       style_code: void 0,
       size: null,

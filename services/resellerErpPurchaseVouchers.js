@@ -89,6 +89,11 @@ async function ensurePurchaseSchema(pool) {
             ADD COLUMN IF NOT EXISTS purchase_voucher_id INTEGER;
         ALTER TABLE reseller_erp_purchase_vouchers
             ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES reseller_erp_customers(id) ON DELETE SET NULL;
+        ALTER TABLE reseller_erp_purchase_vouchers
+            ALTER COLUMN weight_kg TYPE NUMERIC(14, 6),
+            ALTER COLUMN received_weight_kg TYPE NUMERIC(14, 6);
+        ALTER TABLE reseller_erp_ledger_entries
+            ALTER COLUMN weight_kg TYPE NUMERIC(14, 6);
     `);
 }
 
@@ -142,6 +147,48 @@ async function nextPvNumber(query, resellerUserId) {
     let n = 1;
     while (used.has(n)) n += 1;
     return `PV${String(n).padStart(4, '0')}`;
+}
+
+function roundPvGm(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return 0;
+    return Math.round(v * 1000) / 1000;
+}
+
+function formatPvGm(n) {
+    return `${roundPvGm(n).toLocaleString('en-IN', {
+        maximumFractionDigits: 3,
+        minimumFractionDigits: 0,
+    })} g`;
+}
+
+async function assertPvAcceptsAddedWeight(query, resellerUserId, pvId, addedWeightGm) {
+    const addGm = roundPvGm(addedWeightGm);
+    if (!pvId || addGm <= 0) return null;
+    const rows = await query(
+        `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+        [pvId, resellerUserId],
+    );
+    if (!rows.length) return null;
+    const pv = mapPv(rows[0]);
+    const pvGm = roundPvGm(pv.weight_gm);
+    const receivedGm = roundPvGm(pv.received_weight_gm);
+    const pendingGm = roundPvGm(pv.pending_weight_gm);
+    if (addGm > pendingGm + 0.05) {
+        const excessGm = roundPvGm(addGm - pendingGm);
+        const err = new Error(
+            `This Excel is ${formatPvGm(addGm)}. ${pv.pv_number} holds ${formatPvGm(pvGm)}. ` +
+                `Already uploaded ${formatPvGm(receivedGm)}. Pending ${formatPvGm(pendingGm)}. ` +
+                `Excel exceeds the voucher by ${formatPvGm(excessGm)}. Reduce the Excel weight and try again.`,
+        );
+        err.status = 400;
+        err.code = 'PV_WEIGHT_EXCEEDED';
+        err.purchase_voucher = pv;
+        err.excel_weight_gm = addGm;
+        err.excess_weight_gm = excessGm;
+        throw err;
+    }
+    return pv;
 }
 
 async function applyReceivedWeight(query, resellerUserId, pvId, addedWeightKg) {
@@ -449,6 +496,7 @@ module.exports = {
     ensurePurchaseSchema,
     registerResellerErpPurchaseVoucherRoutes,
     applyReceivedWeight,
+    assertPvAcceptsAddedWeight,
     mapPv,
     deletePurchaseVoucherById,
 };

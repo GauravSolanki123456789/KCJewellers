@@ -37,6 +37,10 @@ const {
     sqlExcludeInternalErpCustomers,
 } = require('./resellerErpCustomerAccount');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
+const {
+    registerResellerErpRunningTagRoutes,
+    recomputeRunningTagBalances,
+} = require('./resellerErpRunningTags');
 const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
 const { registerResellerErpOfflineRoutes } = require('./resellerErpOffline');
 const { registerResellerErpCustomerRoutingRoutes } = require('./resellerErpCustomerRouting');
@@ -1018,6 +1022,7 @@ function registerResellerErpRoutes(app, deps) {
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpPurchaseVoucherRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerResellerErpRunningTagRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpBackupRoutes(app, { query, checkAuth, erpGate });
     registerResellerErpOfflineRoutes(app, { query, checkAuth, requireJson, erpGate });
     registerResellerErpCustomerRoutingRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
@@ -1798,6 +1803,11 @@ function registerResellerErpRoutes(app, deps) {
             }
             if (['completed', 'paid', 'final', 'issued'].includes(status) && billType === 'sale') {
                 await markPiecesSold(query, req.user.id, lines, bill.id);
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after sale:', rt.message);
+                }
             }
             if (['completed', 'paid', 'final', 'issued'].includes(status) && billType === 'sales_return') {
                 const skipStock =
@@ -2028,12 +2038,22 @@ function registerResellerErpRoutes(app, deps) {
             const bt = String(bill.bill_type || '').toLowerCase();
             if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sale') {
                 await markPiecesSold(query, req.user.id, bill.lines, bill.id);
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after sale put:', rt.message);
+                }
             }
             if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sales_return') {
                 try {
                     await restorePiecesInStock(query, req.user.id, bill.lines);
                 } catch (re) {
                     console.warn('erp sales return restore stock:', re.message);
+                }
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after return put:', rt.message);
                 }
             }
             res.json({ success: true, bill });
@@ -2086,12 +2106,22 @@ function registerResellerErpRoutes(app, deps) {
             const bt = String(bill.bill_type || '').toLowerCase();
             if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sale') {
                 await markPiecesSold(query, req.user.id, bill.lines, bill.id);
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after sale patch:', rt.message);
+                }
             }
             if (['completed', 'paid', 'final', 'issued'].includes(st) && bt === 'sales_return') {
                 try {
                     await restorePiecesInStock(query, req.user.id, bill.lines);
                 } catch (re) {
                     console.warn('erp sales return restore stock:', re.message);
+                }
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after return patch:', rt.message);
                 }
             }
             res.json({ success: true, bill });

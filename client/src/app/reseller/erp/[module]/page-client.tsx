@@ -21,6 +21,7 @@ import { ErpPrintFormatsWorkspace } from '@/components/reseller/erp/ErpPrintForm
 import { ErpEstimateNarrationsWorkspace } from '@/components/reseller/erp/ErpEstimateNarrationsWorkspace'
 import { ErpDesignMasterWorkspace } from '@/components/reseller/erp/ErpDesignMasterWorkspace'
 import { ErpProductsWorkspace } from '@/components/reseller/erp/ErpProductsWorkspace'
+import { ErpRunningTagsWorkspace } from '@/components/reseller/erp/ErpRunningTagsWorkspace'
 import { ErpFloorsWorkspace } from '@/components/reseller/erp/ErpFloorsWorkspace'
 import { ErpTagSplitWorkspace } from '@/components/reseller/erp/ErpTagSplitWorkspace'
 import { ErpTagEditingWorkspace } from '@/components/reseller/erp/ErpTagEditingWorkspace'
@@ -68,6 +69,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <ErpLedgerWorkspace />
     case 'products':
       return <ErpProductsWorkspace />
+    case 'running-tags':
+      return <ErpRunningTagsWorkspace />
     case 'design-master':
       return <ErpDesignMasterWorkspace />
     case 'floors':

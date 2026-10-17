@@ -78,6 +78,7 @@ export type ResellerErpModuleId =
   | 'stock-check'
   | 'jainav-ledger'
   | 'offline'
+  | 'running-tags'
   /** @deprecated use jainav */
   | 'shadow'
 
@@ -212,6 +213,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Stock upload',
     description: '',
     icon: Package,
+    group: 'inventory',
+    kind: 'workspace',
+  },
+  {
+    id: 'running-tags',
+    title: 'Running tags',
+    short: 'Running tags',
+    description: 'Silver jewellery & silver article 9-digit tags',
+    icon: Tags,
     group: 'inventory',
     kind: 'workspace',
   },

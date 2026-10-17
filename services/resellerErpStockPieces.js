@@ -10,8 +10,13 @@ const {
     lookupDesignDefaults,
     applyDesignDefaultsToPiece,
 } = require('./resellerErpDesignMaster');
-const { applyReceivedWeight } = require('./resellerErpPurchaseVouchers');
+const { applyReceivedWeight, assertPvAcceptsAddedWeight, mapPv } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
+const {
+    loadRunningTagBarcodeSet,
+    findAnySaleForBarcode,
+    recomputeRunningTagBalances,
+} = require('./resellerErpRunningTags');
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -1226,7 +1231,16 @@ async function mapSoldBillRow(row) {
 
 /** Find barcodes already sold in completed sales bills or marked sold in stock. */
 async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, excludeBillId = null) {
-    const normalized = normalizeBarcodeList(barcodes);
+    let normalized = normalizeBarcodeList(barcodes);
+    if (!normalized.length) return [];
+    try {
+        const tagSet = await loadRunningTagBarcodeSet(query, resellerUserId);
+        if (tagSet && tagSet.size) {
+            normalized = normalized.filter((bc) => !tagSet.has(String(bc || '').trim().toLowerCase()));
+        }
+    } catch {
+        /* running tags optional */
+    }
     if (!normalized.length) return [];
 
     const conflicts = [];
@@ -1374,7 +1388,20 @@ function registerStockPieceRoutes(app, deps) {
                  ORDER BY id ASC`,
                 [batchId, req.user.id],
             );
-            res.json({ batch: batchRows[0], pieces: pieces.map((r) => mapPieceForClient(r)) });
+            let purchaseVoucher = null;
+            const pvLinkId = batchRows[0].purchase_voucher_id;
+            if (pvLinkId) {
+                const pvRows = await query(
+                    `SELECT * FROM reseller_erp_purchase_vouchers WHERE id = $1 AND reseller_user_id = $2`,
+                    [pvLinkId, req.user.id],
+                );
+                if (pvRows[0]) purchaseVoucher = mapPv(pvRows[0]);
+            }
+            res.json({
+                batch: batchRows[0],
+                pieces: pieces.map((r) => mapPieceForClient(r)),
+                purchase_voucher: purchaseVoucher,
+            });
         } catch (e) {
             console.error('erp stock batch detail:', e);
             res.status(500).json({ error: e.message || 'Failed to load batch' });
@@ -1438,15 +1465,17 @@ function registerStockPieceRoutes(app, deps) {
 
             let batchId;
             let batchLabel;
+            let pvId = null;
             if (appendBatchId) {
                 const batchRows = await query(
-                    `SELECT id, batch_label FROM reseller_erp_stock_batches
+                    `SELECT id, batch_label, purchase_voucher_id FROM reseller_erp_stock_batches
                      WHERE id = $1::uuid AND reseller_user_id = $2`,
                     [appendBatchId, req.user.id],
                 );
                 if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
                 batchId = appendBatchId;
                 batchLabel = batchRows[0].batch_label;
+                pvId = batchRows[0].purchase_voucher_id || null;
             } else {
                 batchLabel =
                     String(req.body.batch_label || '').trim() ||
@@ -1457,6 +1486,42 @@ function registerStockPieceRoutes(app, deps) {
                      VALUES ($1::uuid, $2, $3, $4)`,
                     [batchId, req.user.id, batchLabel.slice(0, 255), pieces.length],
                 );
+            }
+
+            let runningTagSet = new Set();
+            try {
+                runningTagSet = await loadRunningTagBarcodeSet(query, req.user.id);
+            } catch {
+                runningTagSet = new Set();
+            }
+
+            let prospectiveAddGm = 0;
+            for (const p of pieces) {
+                const bc = String(p.barcode || '').trim();
+                const isRt = !!(bc && runningTagSet.has(bc.toLowerCase()));
+                const existing = await query(
+                    `SELECT status FROM reseller_erp_stock_pieces
+                     WHERE reseller_user_id = $1 AND barcode = $2 LIMIT 1`,
+                    [req.user.id, bc],
+                );
+                if (existing.length && !isRt) continue;
+                prospectiveAddGm += Number(p.avg_weight) || 0;
+            }
+            if (pvId) {
+                try {
+                    await assertPvAcceptsAddedWeight(query, req.user.id, pvId, prospectiveAddGm);
+                } catch (e) {
+                    if (e.status === 400 || e.code === 'PV_WEIGHT_EXCEEDED') {
+                        return res.status(400).json({
+                            error: e.message,
+                            code: e.code || 'PV_WEIGHT_EXCEEDED',
+                            purchase_voucher: e.purchase_voucher || null,
+                            excel_weight_gm: e.excel_weight_gm,
+                            excess_weight_gm: e.excess_weight_gm,
+                        });
+                    }
+                    throw e;
+                }
             }
 
             const importBatchId = randomUUID();
@@ -1471,10 +1536,52 @@ function registerStockPieceRoutes(app, deps) {
             let updated = 0;
             let duplicateSkipped = 0;
             let addedWeightGm = 0;
+            let markedSold = 0;
             const itemCodes = new Set();
             const insertedPieces = [];
 
+            const markUploadedPieceSold = async (pieceId, originalBarcode, isRunningTag) => {
+                if (!pieceId) return;
+                let sale = null;
+                try {
+                    sale = await findAnySaleForBarcode(query, req.user.id, originalBarcode);
+                } catch {
+                    sale = null;
+                }
+                if (!isRunningTag && !sale) return;
+                const officialBillId = sale && sale.source !== 'jainav' ? sale.id : null;
+                await query(
+                    `UPDATE reseller_erp_stock_pieces
+                     SET status = 'sold', sold_bill_id = COALESCE($1, sold_bill_id), updated_at = NOW()
+                     WHERE id = $2`,
+                    [officialBillId, pieceId],
+                );
+                markedSold += 1;
+            };
+
             for (const p of pieces) {
+                const originalBarcode = String(p.barcode || '').trim();
+                const isRunningTag = !!(originalBarcode && runningTagSet.has(originalBarcode.toLowerCase()));
+                if (isRunningTag) {
+                    p.payload_json = {
+                        ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
+                        running_tag_barcode: originalBarcode,
+                    };
+                    const takenRt = await query(
+                        `SELECT id FROM reseller_erp_stock_pieces
+                         WHERE reseller_user_id = $1 AND barcode = $2 LIMIT 1`,
+                        [req.user.id, originalBarcode],
+                    );
+                    if (takenRt.length) {
+                        p.barcode = await generateUniqueStockBarcode(
+                            query,
+                            req.user.id,
+                            p.product_name || p.item_code,
+                            p.product_name,
+                            usedBarcodes,
+                        );
+                    }
+                }
                 const rfidTag = p.rfid_tag ? poshRfid.normalizeRfidTag(p.rfid_tag) : null;
                 if (rfidTag) {
                     const taken = await query(
@@ -1591,6 +1698,7 @@ function registerStockPieceRoutes(app, deps) {
                         await unlinkRfidRows(query, req.user.id, [{ rfid_tag: oldTag, barcode: p.barcode }]);
                     }
                     updated++;
+                    await markUploadedPieceSold(existing[0].id, originalBarcode, isRunningTag);
                 } else {
                     const ins = await query(
                         `INSERT INTO reseller_erp_stock_pieces (
@@ -1661,20 +1769,28 @@ function registerStockPieceRoutes(app, deps) {
                             id: ins[0].id,
                             barcode: ins[0].barcode,
                         });
+                        await markUploadedPieceSold(ins[0].id, originalBarcode, isRunningTag);
                     }
                 }
                 if (p.item_code) itemCodes.add(p.item_code);
             }
 
             let purchaseVoucher = null;
-            const batchPv = await query(
-                `SELECT purchase_voucher_id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
-                [batchId, req.user.id],
-            );
-            const pvId = batchPv[0]?.purchase_voucher_id;
+            if (!pvId) {
+                const batchPv = await query(
+                    `SELECT purchase_voucher_id FROM reseller_erp_stock_batches WHERE id = $1::uuid AND reseller_user_id = $2`,
+                    [batchId, req.user.id],
+                );
+                pvId = batchPv[0]?.purchase_voucher_id || null;
+            }
             if (pvId && addedWeightGm > 0) {
-                const addedKg = Math.round((addedWeightGm / 1000) * 1000) / 1000;
+                const addedKg = Math.round((addedWeightGm / 1000) * 1000000) / 1000000;
                 purchaseVoucher = await applyReceivedWeight(query, req.user.id, pvId, addedKg);
+            }
+            try {
+                await recomputeRunningTagBalances(query, req.user.id);
+            } catch (e) {
+                console.warn('erp running tags recompute after stock upload:', e.message);
             }
 
             await query(
@@ -1701,10 +1817,21 @@ function registerStockPieceRoutes(app, deps) {
                 duplicate_in_file: duplicateInFile.slice(0, 50),
                 inserted_pieces: insertedPieces,
                 total: pieces.length,
+                marked_sold: markedSold,
+                excel_weight_gm: Math.round(prospectiveAddGm * 1000) / 1000,
                 purchase_voucher: purchaseVoucher,
                 weight_tallied: purchaseVoucher?.status === 'tallied',
             });
         } catch (e) {
+            if (e.status === 400 || e.code === 'PV_WEIGHT_EXCEEDED') {
+                return res.status(400).json({
+                    error: e.message,
+                    code: e.code || 'PV_WEIGHT_EXCEEDED',
+                    purchase_voucher: e.purchase_voucher || null,
+                    excel_weight_gm: e.excel_weight_gm,
+                    excess_weight_gm: e.excess_weight_gm,
+                });
+            }
             console.error('erp stock bulk:', e);
             res.status(500).json({ error: e.message || 'Bulk upload failed' });
         }

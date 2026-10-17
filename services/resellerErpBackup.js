@@ -13,6 +13,7 @@ const BACKUP_TABLES = [
     'reseller_erp_ledger_import_batches',
     'reseller_erp_shadow_bills',
     'reseller_erp_purchase_vouchers',
+    'reseller_erp_running_tags',
     'reseller_erp_employees',
     'reseller_erp_stock_batches',
     'reseller_erp_stock_pieces',

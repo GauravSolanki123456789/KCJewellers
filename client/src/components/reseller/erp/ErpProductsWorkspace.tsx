@@ -20,7 +20,46 @@ import { formatErpDateDdMmYyyy, formatErpDateTime } from '@/lib/erp-date-format'
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBarcode, Trash2, Upload } from 'lucide-react'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { appConfirm } from '@/lib/app-notice'
-import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
+import { formatPvGrams, formatPvWeightGrams } from '@/lib/erp-pv-weight'
+
+type ActivePv = {
+  pv_number: string
+  weight_kg: number
+  received_weight_kg: number
+  pending_weight_kg: number
+  weight_gm?: number
+  received_weight_gm?: number
+  pending_weight_gm?: number
+  status: string
+}
+
+function PvWeightTally({ pv }: { pv: ActivePv }) {
+  const holdGm = pv.weight_gm ?? Number(pv.weight_kg || 0) * 1000
+  const uploadedGm = pv.received_weight_gm ?? Number(pv.received_weight_kg || 0) * 1000
+  const pendingGm = pv.pending_weight_gm ?? Number(pv.pending_weight_kg || 0) * 1000
+  return (
+    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div className="rounded-xl border border-blue-200 bg-white px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-900/55">PV holds</p>
+        <p className="mt-0.5 text-sm font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+          {formatPvGrams(holdGm)}
+        </p>
+      </div>
+      <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-900/55">Uploaded</p>
+        <p className="mt-0.5 text-sm font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+          {formatPvGrams(uploadedGm)}
+        </p>
+      </div>
+      <div className="rounded-xl border border-amber-200 bg-white px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/55">Pending</p>
+        <p className="mt-0.5 text-sm font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+          {formatPvGrams(pendingGm)}
+        </p>
+      </div>
+    </div>
+  )
+}
 
 type Batch = {
   id: string
@@ -82,13 +121,7 @@ export function ErpProductsWorkspace() {
   const [designProducts, setDesignProducts] = useState<string[]>([])
   const [pvNumber, setPvNumber] = useState('')
   const [pvBusy, setPvBusy] = useState(false)
-  const [activePv, setActivePv] = useState<{
-    pv_number: string
-    weight_kg: number
-    received_weight_kg: number
-    pending_weight_kg: number
-    status: string
-  } | null>(null)
+  const [activePv, setActivePv] = useState<ActivePv | null>(null)
 
   const sessionRestore = useErpModuleSession(
     'products',
@@ -146,12 +179,13 @@ export function ErpProductsWorkspace() {
   }, [])
 
   const loadBatch = useCallback(async (batchId: string) => {
-    const res = await axios.get<{ batch: Batch; pieces: ErpStockPiece[] }>(
+    const res = await axios.get<{ batch: Batch; pieces: ErpStockPiece[]; purchase_voucher?: ActivePv | null }>(
       `/api/reseller/erp/stock-pieces/batches/${batchId}`,
     )
     setPieces(res.data.pieces || [])
     setActiveBatchId(batchId)
     setRenameLabel(res.data.batch?.batch_label || '')
+    if (res.data.purchase_voucher) setActivePv(res.data.purchase_voucher)
   }, [])
 
   useEffect(() => {
@@ -207,7 +241,9 @@ export function ErpProductsWorkspace() {
         duplicate_in_file?: string[]
         total: number
         weight_tallied?: boolean
-        purchase_voucher?: { pv_number: string; pending_weight_kg: number; status: string }
+        purchase_voucher?: ActivePv
+        excel_weight_gm?: number
+        marked_sold?: number
       }>(
         '/api/reseller/erp/stock-pieces/bulk',
         isAppend
@@ -225,18 +261,13 @@ export function ErpProductsWorkspace() {
       if (res.data.duplicate_skipped) detail += ` · ${res.data.duplicate_skipped} duplicate barcode(s) skipped`
       if (res.data.duplicate_in_file?.length)
         detail += ` · ${res.data.duplicate_in_file.length} duplicate(s) in file`
+      if (res.data.marked_sold) detail += ` · ${res.data.marked_sold} tagged as sold`
       if (res.data.weight_tallied) {
         detail += ' · Weight tallied — stock taken in successfully!'
       } else if (res.data.purchase_voucher) {
         detail += ` · PV ${res.data.purchase_voucher.pv_number}: pending ${formatPvWeightGrams(res.data.purchase_voucher.pending_weight_kg)}`
-        setActivePv({
-          pv_number: res.data.purchase_voucher.pv_number,
-          weight_kg: 0,
-          received_weight_kg: 0,
-          pending_weight_kg: res.data.purchase_voucher.pending_weight_kg,
-          status: res.data.purchase_voucher.status,
-        })
       }
+      if (res.data.purchase_voucher) setActivePv(res.data.purchase_voucher)
       setMsg(detail)
       await loadBatches()
       await loadBatch(res.data.batch_id)
@@ -467,20 +498,14 @@ export function ErpProductsWorkspace() {
     try {
       const res = await axios.post<{
         batch: { id: string; batch_label: string }
-        purchase_voucher: {
-          pv_number: string
-          weight_kg: number
-          received_weight_kg: number
-          pending_weight_kg: number
-          status: string
-        }
+        purchase_voucher: ActivePv
       }>('/api/reseller/erp/purchase-vouchers/open-batch', { pv_number: pv })
       setActivePv(res.data.purchase_voucher)
       await loadBatches()
       await loadBatch(res.data.batch.id)
       setMsgTone('ok')
       setMsg(
-        `Opened ${pv} — pending weight ${formatPvWeightGrams(res.data.purchase_voucher.pending_weight_kg)}. Upload Excel to tally.`,
+        `Opened ${pv} — holds ${formatPvWeightGrams(res.data.purchase_voucher.weight_kg)}, uploaded ${formatPvWeightGrams(res.data.purchase_voucher.received_weight_kg)}, pending ${formatPvWeightGrams(res.data.purchase_voucher.pending_weight_kg)}.`,
       )
     } catch (e) {
       setMsgTone('err')
@@ -540,6 +565,14 @@ export function ErpProductsWorkspace() {
               <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                 {pieces.length} piece(s) in this batch
               </p>
+              {activePv ? (
+                <div className="mt-2">
+                  <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                    {activePv.pv_number} · {activePv.status}
+                  </p>
+                  <PvWeightTally pv={activePv} />
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -770,10 +803,12 @@ export function ErpProductsWorkspace() {
           </button>
         </div>
         {activePv ? (
-          <p className="mt-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs text-blue-950">
-            <span className="font-bold">{activePv.pv_number}</span> · Status: {activePv.status} · Pending:{' '}
-            <span className="font-semibold tabular-nums">{formatPvWeightGrams(activePv.pending_weight_kg)}</span>
-          </p>
+          <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-xs text-blue-950">
+            <p>
+              <span className="font-bold">{activePv.pv_number}</span> · {activePv.status}
+            </p>
+            <PvWeightTally pv={activePv} />
+          </div>
         ) : null}
       </div>
       <ErpManualAddProduct

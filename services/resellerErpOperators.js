@@ -12,6 +12,7 @@ const ALL_MODULE_IDS = [
     'rate-uncut', 'slabs', 'sales-reports', 'sales-percentages',
     'gst', 'e-invoice', 'e-way', 'tally', 'integrations',
     'barcoding', 'tag-splitting', 'tag-editing', 'scanner', 'hardware', 'print-formats', 'estimate-narrations', 'approval-issue', 'erp-users',
+    'running-tags',
     'customer-routing',
     'backup',
     'jainav', 'stock-reports', 'stock-check', 'jainav-ledger',
