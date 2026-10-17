@@ -1108,12 +1108,15 @@ function registerResellerErpRoutes(app, deps) {
             const limitRaw = parseInt(String(req.query.limit || '500'), 10);
             const limit = Number.isFinite(limitRaw) ? Math.min(500, Math.max(1, limitRaw)) : 500;
             const laneBooks = String(req.query.lane_books || '') === '1' && req.session?.shadowUnlocked === true;
+            const cashBookSearch = String(req.query.cash_book || '') === '1';
             const idRaw = parseInt(String(req.query.id || ''), 10);
             const customerId = Number.isFinite(idRaw) && idRaw > 0 ? idRaw : null;
             const params = [req.user.id];
             let sql = `SELECT * FROM reseller_erp_customers WHERE reseller_user_id = $1`;
             if (!laneBooks) {
-                sql += sqlExcludeInternalErpCustomers('name', 'notes');
+                sql += sqlExcludeInternalErpCustomers('name', 'notes', {
+                    allowCashBook: cashBookSearch,
+                });
             }
             if (customerId) {
                 params.push(customerId);

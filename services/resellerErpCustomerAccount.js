@@ -63,10 +63,20 @@ function isInternalErpCustomerRow(row) {
 }
 
 /** SQL fragment — hide lane/cash system customers unless lane_books=1 (Jainav). */
-function sqlExcludeInternalErpCustomers(nameCol = 'name', notesCol = 'notes') {
-    return ` AND regexp_replace(lower(trim(${nameCol})), '[\\s._-]+', '', 'g') NOT IN ('cash', 'cashbook', 'jainav2')
-        AND COALESCE(lower(${notesCol}), '') NOT LIKE '%lane cash%'
-        AND COALESCE(lower(${notesCol}), '') NOT LIKE '%official cash%'`;
+function sqlExcludeInternalErpCustomers(nameCol = 'name', notesCol = 'notes', opts = {}) {
+    const allowCashBook = opts.allowCashBook === true;
+    const hideCash = !allowCashBook;
+    const parts = [];
+    if (hideCash) {
+        parts.push(`regexp_replace(lower(trim(${nameCol})), '[\\s._-]+', '', 'g') NOT IN ('cash', 'cashbook', 'jainav2')`);
+    } else {
+        parts.push(`regexp_replace(lower(trim(${nameCol})), '[\\s._-]+', '', 'g') NOT IN ('jainav2')`);
+    }
+    parts.push(`COALESCE(lower(${notesCol}), '') NOT LIKE '%lane cash%'`);
+    if (hideCash) {
+        parts.push(`COALESCE(lower(${notesCol}), '') NOT LIKE '%official cash%'`);
+    }
+    return ` AND ${parts.join(' AND ')}`;
 }
 
 function compactCustomerName(name) {

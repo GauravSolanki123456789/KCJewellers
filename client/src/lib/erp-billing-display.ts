@@ -167,6 +167,10 @@ export function resolveErpBillTotalInr(params: {
     params.collectedAmountInr != null &&
     params.collectedAmountInr > 0
   ) {
+    const netRounded = erpSettledTotalInr(params.linesNetTotal, null)
+    if (params.collectedAmountInr < netRounded - 0.5) {
+      return netRounded
+    }
     return Math.round(params.collectedAmountInr)
   }
   return erpLinesNetBeforeSettlementDiscount(params.linesNetTotal)

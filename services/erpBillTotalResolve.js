@@ -60,6 +60,11 @@ function resolveErpBillTotalFromPayload(body, linesRaw, billType, opts = {}) {
         Number.isFinite(collectedN) &&
         collectedN > 0
     ) {
+        const netRounded = erpSettledTotalInr(net, null);
+        // Partial collection → full bill amount; collected posts separately to ledger.
+        if (collectedN < netRounded - 0.5) {
+            return netRounded;
+        }
         return Math.round(collectedN);
     }
     return net;

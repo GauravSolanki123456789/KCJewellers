@@ -2068,7 +2068,7 @@ export function ErpBillingWorkspace() {
       billType,
       explicitCashDiscountInr: parsedExplicitCashDiscount,
       collectedAmountInr: parsedCollected,
-      shadowSaleUsesCollected: billType === 'sale' && !isOfficialGstBill,
+      shadowSaleUsesCollected: false,
     })
   const displayNetTotalInr =
     parsedExplicitCashDiscount != null

@@ -174,7 +174,7 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
     body.session = sessionObj;
     const billTypeEarly = trimStr(body.bill_type, 32) || 'sale';
     let total = resolveErpBillTotalFromPayload(body, linesRaw, billTypeEarly, {
-        shadowSaleUsesCollected: true,
+        shadowSaleUsesCollected: false,
     });
     const offlineOpId = trimStr(sessionObj.offlineOpId || body.offline_op_id, 80);
     if (offlineOpId) {
@@ -1430,7 +1430,7 @@ function registerShadowRoutes(app, deps) {
             req.body.session = ensureSessionNetTotalInr(req.body, linesRaw);
             const billTypeEarly = trimStr(req.body.bill_type, 32) || 'sale';
             const total = resolveErpBillTotalFromPayload(req.body, linesRaw, billTypeEarly, {
-                shadowSaleUsesCollected: true,
+                shadowSaleUsesCollected: false,
             });
             const sessionObj = req.body.session;
             const customerGstin = trimStr(req.body.customer_gstin || req.body.customerGstin || sessionObj.customerGst, 20);

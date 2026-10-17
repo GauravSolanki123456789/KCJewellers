@@ -111,7 +111,7 @@ export function ErpCustomerAccountPanel({
       }
       void axios
         .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
-          params: { q: term, ...(laneMode ? { lane_books: '1' } : {}) },
+          params: { q: term, ...(laneMode ? { lane_books: '1' } : { cash_book: '1' }) },
         })
         .then((r) => setResults(rankCustomersForQuery(r.data.customers || [], term)))
         .catch(() => setResults([]))
