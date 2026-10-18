@@ -55,11 +55,82 @@ const styles = StyleSheet.create({
   fb6: { width: '12%', textAlign: 'right' },
   fb7: { width: '12%', textAlign: 'right' },
   fb8: { width: '12%', textAlign: 'right' },
+  s1: { width: '14%' },
+  s2: { width: '12%' },
+  s3: { width: '12%' },
+  s4: { width: '18%' },
+  s5: { width: '18%' },
+  s6: { width: '12%' },
+  s7: { width: '14%' },
 })
 
+const SCOPE_DETAIL_ROWS_PER_PAGE = 36
+
+export type StockCheckScopeDetailRow = {
+  barcode: string
+  scanned: boolean
+  wtGm: number
+  sku: string
+  product_name: string
+  floor_name: string
+  box_code: string
+}
+
+export function buildScopeDetailRows(
+  scopeBarcodes: StockCheckScopeBarcode[],
+  scanned: StockCheckScanRow[],
+): StockCheckScopeDetailRow[] {
+  const foundSet = new Set(scanned.filter((s) => s.found).map((s) => s.barcode.toUpperCase()))
+  return [...scopeBarcodes]
+    .sort((a, b) => a.barcode.localeCompare(b.barcode))
+    .map((m) => ({
+      barcode: m.barcode,
+      scanned: foundSet.has(m.barcode.toUpperCase()),
+      wtGm: stockCheckPieceWeightGm(m),
+      sku: m.sku || '',
+      product_name: m.product_name || '',
+      floor_name: m.floor_name || '',
+      box_code: m.box_code || '',
+    }))
+}
+
+function ScopeDetailHead() {
+  return (
+    <View style={[styles.row, styles.head]}>
+      <Text style={styles.s1}>Barcode</Text>
+      <Text style={styles.s2}>Scan</Text>
+      <Text style={styles.s3}>Wt (g)</Text>
+      <Text style={styles.s4}>SKU</Text>
+      <Text style={styles.s5}>Product</Text>
+      <Text style={styles.s6}>Floor</Text>
+      <Text style={styles.s7}>Box</Text>
+    </View>
+  )
+}
+
+function ScopeDetailRow({ row }: { row: StockCheckScopeDetailRow }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.s1}>{row.barcode}</Text>
+      <Text style={styles.s2}>{row.scanned ? 'Scanned' : 'Pending'}</Text>
+      <Text style={styles.s3}>{formatStockCheckWeightGm(row.wtGm)}</Text>
+      <Text style={styles.s4}>{row.sku}</Text>
+      <Text style={styles.s5}>{row.product_name}</Text>
+      <Text style={styles.s6}>{row.floor_name || '—'}</Text>
+      <Text style={styles.s7}>{row.box_code || '—'}</Text>
+    </View>
+  )
+}
+
 function StockCheckDocument({ report }: { report: StockCheckReportData }) {
-  const scannedSet = new Set(report.scanned.map((s) => s.barcode))
-  const missing = report.scopeBarcodes.filter((m) => !scannedSet.has(m.barcode.toUpperCase()))
+  const scopeDetail = buildScopeDetailRows(report.scopeBarcodes, report.scanned)
+  const detailChunks: StockCheckScopeDetailRow[][] = []
+  for (let i = 0; i < scopeDetail.length; i += SCOPE_DETAIL_ROWS_PER_PAGE) {
+    detailChunks.push(scopeDetail.slice(i, i + SCOPE_DETAIL_ROWS_PER_PAGE))
+  }
+  if (detailChunks.length === 0) detailChunks.push([])
+
+  const notInScope = report.scanned.filter((s) => !s.found)
 
   return (
     <Document>
@@ -106,57 +177,49 @@ function StockCheckDocument({ report }: { report: StockCheckReportData }) {
           </View>
         ))}
 
-        <Text style={styles.section}>Scanned ({report.scanned.length})</Text>
-        <View style={[styles.row, styles.head]}>
-          <Text style={styles.c1}>Barcode</Text>
-          <Text style={styles.c2}>Wt (g)</Text>
-          <Text style={styles.c3}>SKU</Text>
-          <Text style={styles.c4}>Product</Text>
-          <Text style={styles.c5}>Floor</Text>
-          <Text style={styles.c6}>Box</Text>
-        </View>
-        {report.scanned.map((s) => {
-          const meta = report.scopeBarcodes.find(
-            (m) => m.barcode.toUpperCase() === s.barcode.toUpperCase(),
-          )
-          const wt =
-            s.weight_gm != null && s.weight_gm > 0
-              ? s.weight_gm
-              : meta
-                ? stockCheckPieceWeightGm(meta)
-                : 0
-          return (
+        {scopeDetail.length > 0 ? (
+          <Text style={styles.sub}>
+            Detailed piece list ({scopeDetail.length}) starts on the next page — every barcode in scope.
+          </Text>
+        ) : null}
+      </Page>
+
+      {detailChunks.map((chunk, pageIdx) => (
+        <Page key={`scope-${pageIdx}`} size="A4" style={styles.page}>
+          <Text style={styles.title}>Every piece in scope</Text>
+          <Text style={styles.sub}>
+            Page {pageIdx + 1} of {detailChunks.length} · {scopeDetail.length} pieces total
+          </Text>
+          <ScopeDetailHead />
+          {chunk.map((row) => (
+            <ScopeDetailRow key={row.barcode} row={row} />
+          ))}
+        </Page>
+      ))}
+
+      {notInScope.length > 0 ? (
+        <Page size="A4" style={styles.page}>
+          <Text style={styles.section}>Scans not in scope ({notInScope.length})</Text>
+          <View style={[styles.row, styles.head]}>
+            <Text style={styles.c1}>Barcode</Text>
+            <Text style={styles.c2}>Wt (g)</Text>
+            <Text style={styles.c3}>SKU</Text>
+            <Text style={styles.c4}>Product</Text>
+            <Text style={styles.c5}>Scanned at</Text>
+            <Text style={styles.c6}>—</Text>
+          </View>
+          {notInScope.map((s) => (
             <View key={s.id} style={styles.row}>
               <Text style={styles.c1}>{s.barcode}</Text>
-              <Text style={styles.c2}>{formatStockCheckWeightGm(wt)}</Text>
-              <Text style={styles.c3}>{s.sku || meta?.sku || ''}</Text>
-              <Text style={styles.c4}>{s.product_name || meta?.product_name || ''}</Text>
-              <Text style={styles.c5}>{meta?.floor_name || ''}</Text>
-              <Text style={styles.c6}>{meta?.box_code || ''}</Text>
+              <Text style={styles.c2}>{formatStockCheckWeightGm(s.weight_gm ?? 0)}</Text>
+              <Text style={styles.c3}>{s.sku || ''}</Text>
+              <Text style={styles.c4}>{s.product_name || ''}</Text>
+              <Text style={styles.c5}>{new Date(s.scannedAt).toLocaleString('en-IN')}</Text>
+              <Text style={styles.c6} />
             </View>
-          )
-        })}
-
-        <Text style={styles.section}>Missing from scope ({missing.length})</Text>
-        <View style={[styles.row, styles.head]}>
-          <Text style={styles.c1}>Barcode</Text>
-          <Text style={styles.c2}>Wt (g)</Text>
-          <Text style={styles.c3}>SKU</Text>
-          <Text style={styles.c4}>Product</Text>
-          <Text style={styles.c5}>Floor</Text>
-          <Text style={styles.c6}>Box</Text>
-        </View>
-        {missing.slice(0, 120).map((m) => (
-          <View key={m.barcode} style={styles.row}>
-            <Text style={styles.c1}>{m.barcode}</Text>
-            <Text style={styles.c2}>{formatStockCheckWeightGm(stockCheckPieceWeightGm(m))}</Text>
-            <Text style={styles.c3}>{m.sku || ''}</Text>
-            <Text style={styles.c4}>{m.product_name || ''}</Text>
-            <Text style={styles.c5}>{m.floor_name || ''}</Text>
-            <Text style={styles.c6}>{m.box_code || ''}</Text>
-          </View>
-        ))}
-      </Page>
+          ))}
+        </Page>
+      ) : null}
     </Document>
   )
 }

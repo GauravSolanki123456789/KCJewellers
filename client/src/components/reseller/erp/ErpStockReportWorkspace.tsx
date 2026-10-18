@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { downloadStockSummaryPdf } from '@/lib/erp-stock-summary-pdf'
+import { downloadStockInHandPdf } from '@/lib/erp-stock-summary-pdf'
 
 type DesignTree = {
   id: number
@@ -35,10 +35,28 @@ type StockPiece = {
   product_name: string
   size: string
   avg_weight: number
+  gross_weight?: number | null
   purity: number | null
+  wastage_pct?: number | null
   mc_rate: number | null
+  mc_type?: string | null
   metal_type?: string
+  item_code?: string | null
+  rfid_tag?: string | null
   status: string
+}
+
+function statusFilterLabel(st: string) {
+  if (st === 'in_stock') return 'Stock in hand'
+  if (st === 'sold') return 'Billed / out of stock'
+  if (st === 'all') return 'All pieces'
+  return st
+}
+
+function pieceStatusLabel(st: string) {
+  if (st === 'in_stock') return 'In stock'
+  if (st === 'sold') return 'Sold'
+  return st.replace(/_/g, ' ')
 }
 
 const METAL_OPTIONS = ['SILVER', 'GOLD']
@@ -69,6 +87,10 @@ export function ErpStockReportWorkspace() {
       .then((r) => setTree(r.data.tree || []))
       .catch(() => setTree([]))
   }, [])
+
+  useEffect(() => {
+    setPieces([])
+  }, [reportType])
 
   const styleByCode = useMemo(() => {
     const map = new Map<string, DesignTree[number]>()
@@ -161,13 +183,36 @@ export function ErpStockReportWorkspace() {
     }
   }, [fetchSummary])
 
+  const buildFiltersLine = useCallback(() => {
+    const parts: string[] = []
+    if (selectedMetals.length) parts.push(`Metal: ${selectedMetals.join(', ')}`)
+    if (selectedStyles.length) parts.push(`Style: ${selectedStyles.join(', ')}`)
+    if (selectedSkus.length) {
+      const skuLabels = selectedSkus.map((k) => k.replace('::', ' / '))
+      if (skuLabels.length <= 6) parts.push(`SKU: ${skuLabels.join('; ')}`)
+      else parts.push(`${skuLabels.length} SKU(s) selected`)
+    }
+    return parts.join(' · ') || 'All stock matching filters'
+  }, [selectedMetals, selectedStyles, selectedSkus])
+
   const downloadPdf = async () => {
     setBusy(true)
     setMsg(null)
     try {
-      const data = summary ? { summary } : await fetchSummary().then((d) => ({ summary: d.summary }))
-      await downloadStockSummaryPdf(data.summary)
-      setMsg('PDF downloaded.')
+      const data = await fetchSummary()
+      setSummary(data.summary)
+      if (reportType === 'detail') setPieces(data.pieces || [])
+      await downloadStockInHandPdf({
+        reportType,
+        summary: data.summary,
+        pieces: data.pieces || [],
+        meta: {
+          statusLabel: statusFilterLabel(status),
+          filtersLine: buildFiltersLine(),
+          generatedAt: new Date().toISOString(),
+        },
+      })
+      setMsg(reportType === 'detail' ? `Detail PDF downloaded (${data.pieceCount} pieces).` : 'Summary PDF downloaded.')
     } catch (e) {
       setMsg(erpErr(e))
     } finally {
@@ -433,40 +478,50 @@ export function ErpStockReportWorkspace() {
               </div>
             </>
           ) : pieces.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
-                    <th className="py-2 pr-2">Barcode</th>
-                    <th className="py-2 pr-2">Metal</th>
-                    <th className="py-2 pr-2">Style</th>
-                    <th className="py-2 pr-2">SKU</th>
-                    <th className="py-2 pr-2">Wt (g)</th>
-                    <th className="py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pieces.slice(0, 200).map((p) => (
-                    <tr key={p.barcode} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
-                      <td className="py-1.5 pr-2 font-mono text-[var(--color-jewelry-black,#1a1814)]">{p.barcode}</td>
-                      <td className="py-1.5 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{p.metal_type || '—'}</td>
-                      <td className="py-1.5 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{p.style_code}</td>
-                      <td className="py-1.5 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{p.sku}</td>
-                      <td className="py-1.5 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{p.avg_weight}</td>
-                      <td className="py-1.5 capitalize text-[var(--color-jewelry-black,#1a1814)]">
-                        {p.status === 'in_stock' ? 'in stock' : 'sold'}
-                      </td>
+            <div>
+              <p className="mb-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+                Every piece ({pieces.length}) — scroll for full list or use PDF/CSV download.
+              </p>
+              <div className="max-h-[min(520px,calc(100vh-12rem))] overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
+                <table className="w-full min-w-[720px] text-left text-xs">
+                  <thead className="sticky top-0 z-[1] bg-[var(--color-slate-900,#f7f4ef)]">
+                    <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+                      <th className="px-2 py-2">#</th>
+                      <th className="px-2 py-2">Barcode</th>
+                      <th className="px-2 py-2">Metal</th>
+                      <th className="px-2 py-2">Style</th>
+                      <th className="px-2 py-2">SKU</th>
+                      <th className="hidden px-2 py-2 sm:table-cell">Product</th>
+                      <th className="px-2 py-2">Wt (g)</th>
+                      <th className="hidden px-2 py-2 md:table-cell">Purity</th>
+                      <th className="px-2 py-2">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {pieces.length > 200 ? (
-                <p className="mt-2 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                  Showing first 200 of {pieces.length} — download for full list.
-                </p>
-              ) : null}
+                  </thead>
+                  <tbody>
+                    {pieces.map((p, i) => (
+                      <tr key={p.barcode} className="border-b border-[var(--color-slate-700,#e8e4df)]/60 bg-white">
+                        <td className="px-2 py-1.5 tabular-nums text-[var(--color-jewelry-black,#1a1814)]/45">{i + 1}</td>
+                        <td className="px-2 py-1.5 font-mono text-[var(--color-jewelry-black,#1a1814)]">{p.barcode}</td>
+                        <td className="px-2 py-1.5 text-[var(--color-jewelry-black,#1a1814)]">{p.metal_type || '—'}</td>
+                        <td className="px-2 py-1.5 text-[var(--color-jewelry-black,#1a1814)]">{p.style_code}</td>
+                        <td className="px-2 py-1.5 text-[var(--color-jewelry-black,#1a1814)]">{p.sku}</td>
+                        <td className="hidden px-2 py-1.5 text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
+                          {p.product_name || '—'}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{p.avg_weight}</td>
+                        <td className="hidden px-2 py-1.5 tabular-nums text-[var(--color-jewelry-black,#1a1814)] md:table-cell">
+                          {p.purity ?? '—'}
+                        </td>
+                        <td className="px-2 py-1.5 text-[var(--color-jewelry-black,#1a1814)]">{pieceStatusLabel(p.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          ) : null}
+          ) : (
+            <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">No pieces match these filters.</p>
+          )}
         </div>
       ) : null}
     </div>

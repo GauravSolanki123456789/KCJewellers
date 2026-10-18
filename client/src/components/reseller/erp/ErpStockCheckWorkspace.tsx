@@ -25,6 +25,7 @@ import {
 import {
   buildReportData,
   buildFloorSummary,
+  buildScopeDetailRows,
   previewStockCheckPdf,
 } from '@/lib/erp-stock-check-pdf'
 import {
@@ -235,6 +236,11 @@ export function ErpStockCheckWorkspace() {
     () => buildStats(scopeBarcodes, scans),
     [scopeBarcodes, scans],
   )
+  const scopeDetailRows = useMemo(
+    () => (scopeLoaded ? buildScopeDetailRows(scopeToArray(scopeBarcodes), uniqueScanRows) : []),
+    [scopeLoaded, scopeBarcodes, uniqueScanRows],
+  )
+
   const weightStats = useMemo(
     () => computeStockCheckWeightSummary(scopeBarcodes, scans),
     [scopeBarcodes, scans],
@@ -744,7 +750,7 @@ export function ErpStockCheckWorkspace() {
             <button
               type="button"
               className={erpBtnGhost}
-              disabled={!uniqueScanRows.length || pdfBusy}
+              disabled={!scopeLoaded || pdfBusy}
               onClick={previewCurrent}
             >
               {pdfBusy ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
@@ -817,6 +823,54 @@ export function ErpStockCheckWorkspace() {
           <div className="max-h-40 overflow-auto rounded-lg border border-red-200 bg-white p-2 font-mono text-[11px] text-red-950">
             {stats.missingBarcodes.slice(0, 120).join(', ')}
             {stats.missingBarcodes.length > 120 ? '…' : ''}
+          </div>
+        </div>
+      ) : null}
+
+      {scopeLoaded && scopeDetailRows.length > 0 ? (
+        <div className={erpCardCls}>
+          <p className="mb-1 text-xs font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+            Every piece in scope ({scopeDetailRows.length})
+          </p>
+          <p className="mb-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+            Full detail for each barcode in your floor/box scope — same data as Full report CSV and PDF.
+          </p>
+          <div className="max-h-[min(520px,calc(100vh-12rem))] overflow-auto rounded-lg border border-[var(--color-slate-900,#e8e4dc)]">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-[var(--color-slate-900,#f7f4ef)] text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+                <tr>
+                  <th className="px-2 py-2">#</th>
+                  <th className="px-2 py-2">Barcode</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">Wt (g)</th>
+                  <th className="hidden px-2 py-2 sm:table-cell">SKU</th>
+                  <th className="hidden px-2 py-2 md:table-cell">Product</th>
+                  <th className="hidden px-2 py-2 lg:table-cell">Floor</th>
+                  <th className="hidden px-2 py-2 lg:table-cell">Box</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scopeDetailRows.map((row, i) => (
+                  <tr
+                    key={row.barcode}
+                    className={
+                      row.scanned
+                        ? 'border-b border-[var(--color-slate-700,#e8e4df)]/60 bg-emerald-50/80 text-emerald-950'
+                        : 'border-b border-[var(--color-slate-700,#e8e4df)]/60 bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                    }
+                  >
+                    <td className="px-2 py-1.5 tabular-nums opacity-60">{i + 1}</td>
+                    <td className="px-2 py-1.5 font-mono font-semibold">{row.barcode}</td>
+                    <td className="px-2 py-1.5 font-medium">{row.scanned ? 'Scanned' : 'Pending'}</td>
+                    <td className="px-2 py-1.5 tabular-nums">{formatStockCheckWeightGm(row.wtGm)}</td>
+                    <td className="hidden px-2 py-1.5 sm:table-cell">{row.sku || '—'}</td>
+                    <td className="hidden px-2 py-1.5 md:table-cell">{row.product_name || '—'}</td>
+                    <td className="hidden px-2 py-1.5 lg:table-cell">{row.floor_name || '—'}</td>
+                    <td className="hidden px-2 py-1.5 lg:table-cell">{row.box_code || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
