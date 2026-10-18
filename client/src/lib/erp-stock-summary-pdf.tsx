@@ -4,6 +4,7 @@ import { presentPdfBlob } from '@/lib/pdf-share'
 type SkuRow = { style_code: string; sku: string; count: number; total_weight_g: number; avg_weight_g: number }
 type StyleRow = { style_code: string; count: number; total_weight_g: number; avg_weight_g: number; sku_count?: number }
 type RangeRow = { label: string; count: number }
+type MetalRow = { metal_type: string; count: number; total_weight_g: number; avg_weight_g: number }
 
 export type StockSummaryPdfData = {
   total_pieces: number
@@ -14,6 +15,7 @@ export type StockSummaryPdfData = {
   by_sku: SkuRow[]
   by_style: StyleRow[]
   weight_ranges: RangeRow[]
+  by_metal?: MetalRow[]
 }
 
 const styles = StyleSheet.create({
@@ -29,8 +31,18 @@ function StockSummaryDocument({ summary }: { summary: StockSummaryPdfData }) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <Text style={styles.title}>Stock summary report</Text>
+        <Text style={styles.title}>Stock in hand</Text>
         <Text>Total pcs: {summary.total_pieces} · Weight: {summary.total_weight_g} g · Avg: {summary.average_weight_g} g</Text>
+        {summary.by_metal?.length ? (
+          <>
+            <Text style={styles.section}>By metal</Text>
+            {summary.by_metal.map((m) => (
+              <Text key={m.metal_type}>
+                {m.metal_type}: {m.count} pcs · {m.total_weight_g} g
+              </Text>
+            ))}
+          </>
+        ) : null}
         <Text style={styles.section}>By SKU</Text>
         <View style={[styles.row, styles.head]}>
           <Text style={styles.c}>Style</Text>

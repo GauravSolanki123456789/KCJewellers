@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
-import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { downloadStockSummaryPdf } from '@/lib/erp-stock-summary-pdf'
 
 type DesignTree = {
@@ -25,6 +25,7 @@ type StockSummary = {
   weight_ranges: { label: string; count: number }[]
   by_style: { style_code: string; count: number; total_weight_g: number; avg_weight_g: number; sku_count: number }[]
   by_sku: { style_code: string; sku: string; count: number; total_weight_g: number; avg_weight_g: number }[]
+  by_metal?: { metal_type: string; count: number; total_weight_g: number; avg_weight_g: number }[]
 }
 
 type StockPiece = {
@@ -36,13 +37,25 @@ type StockPiece = {
   avg_weight: number
   purity: number | null
   mc_rate: number | null
+  metal_type?: string
   status: string
+}
+
+const METAL_OPTIONS = ['SILVER', 'GOLD']
+
+function chipCls(on: boolean) {
+  return `min-h-[40px] rounded-xl border px-3 py-2 text-xs font-semibold ${
+    on
+      ? 'border-emerald-700 bg-emerald-700 text-white'
+      : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+  }`
 }
 
 export function ErpStockReportWorkspace() {
   const [tree, setTree] = useState<DesignTree>([])
   const [reportType, setReportType] = useState<'detail' | 'summary'>('summary')
-  const [styleCode, setStyleCode] = useState('')
+  const [selectedMetals, setSelectedMetals] = useState<string[]>([])
+  const [selectedStyles, setSelectedStyles] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [status, setStatus] = useState('in_stock')
   const [busy, setBusy] = useState(false)
@@ -57,34 +70,79 @@ export function ErpStockReportWorkspace() {
       .catch(() => setTree([]))
   }, [])
 
-  const styleSkus = useMemo(() => {
-    const style = tree.find((s) => s.style_code === styleCode)
-    return style?.skus || []
-  }, [tree, styleCode])
+  const styleByCode = useMemo(() => {
+    const map = new Map<string, DesignTree[number]>()
+    for (const s of tree) map.set(s.style_code, s)
+    return map
+  }, [tree])
 
-  const onStyleChange = (code: string) => {
-    setStyleCode(code)
-    setSelectedSkus([])
+  const skuOptions = useMemo(() => {
+    const styles = selectedStyles.length ? selectedStyles : tree.map((s) => s.style_code)
+    const out: { style: string; sku: string; id: string }[] = []
+    for (const code of styles) {
+      const row = styleByCode.get(code)
+      for (const sk of row?.skus || []) {
+        out.push({ style: code, sku: sk.sku, id: `${code}::${sk.sku}` })
+      }
+    }
+    return out
+  }, [selectedStyles, tree, styleByCode])
+
+  const toggleMetal = (metal: string) => {
+    setSelectedMetals((prev) => (prev.includes(metal) ? prev.filter((m) => m !== metal) : [...prev, metal]))
   }
 
-  const toggleSku = (sku: string) => {
-    setSelectedSkus((prev) => (prev.includes(sku) ? prev.filter((s) => s !== sku) : [...prev, sku]))
+  const skuKey = (style: string, sku: string) => `${style}::${sku}`
+
+  const toggleStyle = (code: string) => {
+    const style = styleByCode.get(code)
+    const styleSkuKeys = (style?.skus || []).map((s) => skuKey(code, s.sku))
+    setSelectedStyles((prev) => {
+      const on = prev.includes(code)
+      if (on) {
+        setSelectedSkus((skus) => skus.filter((s) => !styleSkuKeys.includes(s)))
+        return prev.filter((s) => s !== code)
+      }
+      setSelectedSkus((skus) => Array.from(new Set([...skus, ...styleSkuKeys])))
+      return [...prev, code]
+    })
   }
 
-  const selectAllSkusInStyle = () => {
-    setSelectedSkus(styleSkus.map((s) => s.sku))
+  const toggleSku = (key: string) => {
+    setSelectedSkus((prev) => (prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]))
   }
+
+  const selectAllStyles = () => {
+    const all = tree.map((s) => s.style_code)
+    const allSkuKeys = tree.flatMap((s) => (s.skus || []).map((k) => skuKey(s.style_code, k.sku)))
+    setSelectedStyles(all)
+    setSelectedSkus(Array.from(new Set(allSkuKeys)))
+  }
+
+  const buildParams = useCallback(() => {
+    const params: Record<string, string> = { type: reportType, status }
+    if (selectedMetals.length) params.metals = selectedMetals.join(',')
+    if (selectedStyles.length) params.style_codes = selectedStyles.join(',')
+    const styleSkuSet = new Set(
+      selectedStyles.flatMap((code) =>
+        (styleByCode.get(code)?.skus || []).map((s) => `${code}::${s.sku}`),
+      ),
+    )
+    const skuSubset =
+      selectedStyles.length > 0 && selectedSkus.length > 0 && selectedSkus.length < styleSkuSet.size
+    if (skuSubset || (!selectedStyles.length && selectedSkus.length)) {
+      params.skus = selectedSkus.join(',')
+    }
+    return params
+  }, [reportType, status, selectedMetals, selectedStyles, selectedSkus, styleByCode])
 
   const fetchSummary = useCallback(async () => {
-    const params: Record<string, string> = { type: reportType, status }
-    if (styleCode) params.style_code = styleCode
-    if (selectedSkus.length) params.skus = selectedSkus.join(',')
     const res = await axios.get<{ summary: StockSummary; pieces?: StockPiece[]; pieceCount: number }>(
       '/api/reseller/erp/shadow/stock-report',
-      { params },
+      { params: buildParams() },
     )
     return res.data
-  }, [reportType, styleCode, selectedSkus, status])
+  }, [buildParams])
 
   const loadPreview = useCallback(async () => {
     setBusy(true)
@@ -93,7 +151,7 @@ export function ErpStockReportWorkspace() {
       const data = await fetchSummary()
       setSummary(data.summary)
       setPieces(data.pieces || [])
-      setMsg(`Loaded ${data.pieceCount} piece(s).`)
+      setMsg(`Loaded ${data.pieceCount} piece(s) in hand.`)
     } catch (e) {
       setMsg(erpErr(e))
       setSummary(null)
@@ -120,13 +178,7 @@ export function ErpStockReportWorkspace() {
   const download = async (format: 'csv') => {
     setBusy(true)
     try {
-      const params: Record<string, string> = {
-        type: reportType,
-        format,
-        status,
-      }
-      if (styleCode) params.style_code = styleCode
-      if (selectedSkus.length) params.skus = selectedSkus.join(',')
+      const params = { ...buildParams(), format }
       const res = await axios.get('/api/reseller/erp/shadow/stock-report', {
         params,
         responseType: 'blob',
@@ -135,7 +187,7 @@ export function ErpStockReportWorkspace() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `stock-${reportType}-${new Date().toISOString().slice(0, 10)}.csv`
+      a.download = `stock-in-hand-${reportType}-${new Date().toISOString().slice(0, 10)}.csv`
       a.click()
       URL.revokeObjectURL(url)
       setMsg('Excel/CSV downloaded.')
@@ -149,8 +201,11 @@ export function ErpStockReportWorkspace() {
   return (
     <div className="space-y-4">
       <div className={erpCardCls}>
-        <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Stock report</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <p className="mb-1 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Stock in hand</p>
+        <p className="mb-3 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
+          Choose metal, then style (all SKUs under it are selected), then deselect any SKU you do not need.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
             Report type
             <select
@@ -163,37 +218,79 @@ export function ErpStockReportWorkspace() {
             </select>
           </label>
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
-            Style (optional)
-            <select className={`${erpInputCls} mt-1`} value={styleCode} onChange={(e) => onStyleChange(e.target.value)}>
-              <option value="">All styles</option>
-              {tree.map((s) => (
-                <option key={s.id} value={s.style_code}>
-                  {s.style_code}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
             Status
             <select className={`${erpInputCls} mt-1`} value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="in_stock">In stock (available)</option>
-              <option value="lane">Lane reserved (Jainav)</option>
-              <option value="sold">Sold (official)</option>
-              <option value="all">All statuses</option>
+              <option value="in_stock">Stock in hand</option>
+              <option value="sold">Billed / out of stock</option>
+              <option value="all">All pieces</option>
             </select>
           </label>
         </div>
 
-        {styleCode && styleSkus.length ? (
-          <div className="mt-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40 p-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">SKU filter</p>
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Metal</p>
+          <div className="flex flex-wrap gap-2">
+            {METAL_OPTIONS.map((m) => (
+              <button key={m} type="button" className={chipCls(selectedMetals.includes(m))} onClick={() => toggleMetal(m)}>
+                {m}
+              </button>
+            ))}
+            {selectedMetals.length ? (
+              <button type="button" className={`${erpBtnGhost} !min-h-[40px] text-[11px]`} onClick={() => setSelectedMetals([])}>
+                All metals
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Style</p>
+            <button type="button" className="text-[11px] font-medium text-emerald-800 underline" onClick={selectAllStyles}>
+              Select all styles
+            </button>
+            {selectedStyles.length ? (
               <button
                 type="button"
-                className="text-[11px] font-medium text-[var(--kc-accent,#c41e3a)] underline"
-                onClick={selectAllSkusInStyle}
+                className="text-[11px] font-medium text-[var(--color-jewelry-black,#1a1814)]/50 underline"
+                onClick={() => {
+                  setSelectedStyles([])
+                  setSelectedSkus([])
+                }}
               >
-                Select all in {styleCode}
+                Clear styles
+              </button>
+            ) : null}
+          </div>
+          <div className="flex max-h-40 flex-wrap gap-2 overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40 p-2">
+            {tree.length ? (
+              tree.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={chipCls(selectedStyles.includes(s.style_code))}
+                  onClick={() => toggleStyle(s.style_code)}
+                >
+                  {s.style_code}
+                  <span className="ml-1 opacity-70">({s.skus?.length || 0})</span>
+                </button>
+              ))
+            ) : (
+              <p className="px-2 py-1 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">No styles in design master.</p>
+            )}
+          </div>
+        </div>
+
+        {skuOptions.length ? (
+          <div className="mt-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">SKU</p>
+              <button
+                type="button"
+                className="text-[11px] font-medium text-emerald-800 underline"
+                onClick={() => setSelectedSkus(Array.from(new Set(skuOptions.map((s) => s.id))))}
+              >
+                Select all SKUs
               </button>
               {selectedSkus.length ? (
                 <button
@@ -201,25 +298,16 @@ export function ErpStockReportWorkspace() {
                   className="text-[11px] font-medium text-[var(--color-jewelry-black,#1a1814)]/50 underline"
                   onClick={() => setSelectedSkus([])}
                 >
-                  Clear
+                  Clear SKUs
                 </button>
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              {styleSkus.map((s) => {
-                const on = selectedSkus.includes(s.sku)
+              {skuOptions.map((s) => {
+                const on = selectedSkus.includes(s.id)
                 return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={`min-h-[36px] rounded-lg border px-2.5 py-1 text-xs font-medium ${
-                      on
-                        ? 'border-emerald-700 bg-emerald-700 text-white'
-                        : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
-                    }`}
-                    onClick={() => toggleSku(s.sku)}
-                  >
-                    {s.sku}
+                  <button key={s.id} type="button" className={chipCls(on)} onClick={() => toggleSku(s.id)}>
+                    <span className="opacity-60">{s.style}</span> · {s.sku}
                   </button>
                 )
               })}
@@ -240,17 +328,17 @@ export function ErpStockReportWorkspace() {
             PDF download
           </button>
         </div>
-        {msg ? <p className="mt-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/65">{msg}</p> : null}
+        {msg ? <p className="mt-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">{msg}</p> : null}
       </div>
 
       {summary ? (
         <div className={erpCardCls}>
-          <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Summary preview</p>
+          <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Preview</p>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
-              { l: 'Available', v: String(summary.total_pieces) },
+              { l: 'In hand', v: String(summary.total_pieces) },
               ...(summary.lane_reserved_count
-                ? [{ l: 'Lane reserved', v: String(summary.lane_reserved_count) }]
+                ? [{ l: 'Billed (out)', v: String(summary.lane_reserved_count) }]
                 : []),
               { l: 'Total weight', v: `${summary.total_weight_g} g` },
               { l: 'Avg weight', v: `${summary.average_weight_g} g` },
@@ -264,6 +352,33 @@ export function ErpStockReportWorkspace() {
           </div>
           {reportType === 'summary' ? (
             <>
+              {summary.by_metal?.length ? (
+                <>
+                  <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By metal</p>
+                  <div className="mb-4 overflow-x-auto">
+                    <table className="w-full min-w-[360px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
+                          <th className="py-2 pr-2">Metal</th>
+                          <th className="py-2 pr-2">Count</th>
+                          <th className="py-2 pr-2">Total g</th>
+                          <th className="py-2">Avg g</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.by_metal.map((s) => (
+                          <tr key={s.metal_type} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
+                            <td className="py-2 pr-2 font-medium text-[var(--color-jewelry-black,#1a1814)]">{s.metal_type}</td>
+                            <td className="py-2 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.count}</td>
+                            <td className="py-2 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.total_weight_g}</td>
+                            <td className="py-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.avg_weight_g}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : null}
               {summary.by_sku.length ? (
                 <>
                   <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">By SKU</p>
@@ -281,11 +396,11 @@ export function ErpStockReportWorkspace() {
                       <tbody>
                         {summary.by_sku.map((s) => (
                           <tr key={`${s.style_code}-${s.sku}`} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
-                            <td className="py-2 pr-2 font-medium">{s.style_code}</td>
-                            <td className="py-2 pr-2">{s.sku}</td>
-                            <td className="py-2 pr-2 tabular-nums">{s.count}</td>
-                            <td className="py-2 pr-2 tabular-nums">{s.total_weight_g}</td>
-                            <td className="py-2 tabular-nums">{s.avg_weight_g}</td>
+                            <td className="py-2 pr-2 font-medium text-[var(--color-jewelry-black,#1a1814)]">{s.style_code}</td>
+                            <td className="py-2 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{s.sku}</td>
+                            <td className="py-2 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.count}</td>
+                            <td className="py-2 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.total_weight_g}</td>
+                            <td className="py-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.avg_weight_g}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -307,24 +422,15 @@ export function ErpStockReportWorkspace() {
                   <tbody>
                     {summary.by_style.map((s) => (
                       <tr key={s.style_code} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
-                        <td className="py-2 pr-2 font-medium">{s.style_code}</td>
-                        <td className="py-2 pr-2 tabular-nums">{s.count}</td>
-                        <td className="py-2 pr-2 tabular-nums">{s.total_weight_g}</td>
-                        <td className="py-2 tabular-nums">{s.avg_weight_g}</td>
+                        <td className="py-2 pr-2 font-medium text-[var(--color-jewelry-black,#1a1814)]">{s.style_code}</td>
+                        <td className="py-2 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.count}</td>
+                        <td className="py-2 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.total_weight_g}</td>
+                        <td className="py-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{s.avg_weight_g}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="mb-2 text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Weight ranges</p>
-              <ul className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {summary.weight_ranges.map((r) => (
-                  <li key={r.label} className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] px-2 py-1.5 text-xs">
-                    <span className="font-medium">{r.label}</span>
-                    <span className="ml-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]/70">{r.count}</span>
-                  </li>
-                ))}
-              </ul>
             </>
           ) : pieces.length ? (
             <div className="overflow-x-auto">
@@ -332,6 +438,7 @@ export function ErpStockReportWorkspace() {
                 <thead>
                   <tr className="border-b border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/55">
                     <th className="py-2 pr-2">Barcode</th>
+                    <th className="py-2 pr-2">Metal</th>
                     <th className="py-2 pr-2">Style</th>
                     <th className="py-2 pr-2">SKU</th>
                     <th className="py-2 pr-2">Wt (g)</th>
@@ -341,11 +448,14 @@ export function ErpStockReportWorkspace() {
                 <tbody>
                   {pieces.slice(0, 200).map((p) => (
                     <tr key={p.barcode} className="border-b border-[var(--color-slate-700,#e8e4df)]/60">
-                      <td className="py-1.5 pr-2 font-mono">{p.barcode}</td>
-                      <td className="py-1.5 pr-2">{p.style_code}</td>
-                      <td className="py-1.5 pr-2">{p.sku}</td>
-                      <td className="py-1.5 pr-2 tabular-nums">{p.avg_weight}</td>
-                      <td className="py-1.5">{p.status}</td>
+                      <td className="py-1.5 pr-2 font-mono text-[var(--color-jewelry-black,#1a1814)]">{p.barcode}</td>
+                      <td className="py-1.5 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{p.metal_type || '—'}</td>
+                      <td className="py-1.5 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{p.style_code}</td>
+                      <td className="py-1.5 pr-2 text-[var(--color-jewelry-black,#1a1814)]">{p.sku}</td>
+                      <td className="py-1.5 pr-2 tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{p.avg_weight}</td>
+                      <td className="py-1.5 capitalize text-[var(--color-jewelry-black,#1a1814)]">
+                        {p.status === 'in_stock' ? 'in stock' : 'sold'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

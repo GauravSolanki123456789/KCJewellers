@@ -458,9 +458,9 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
   },
   {
     id: 'stock-reports',
-    title: 'Stock reports',
-    short: 'Inventory',
-    description: 'Detailed or summary stock · PDF / Excel',
+    title: 'Stock in hand',
+    short: 'Stock in hand',
+    description: 'Choose metal, style, SKU · summary or detailed · PDF / Excel',
     icon: Warehouse,
     group: 'jainav',
     kind: 'workspace',

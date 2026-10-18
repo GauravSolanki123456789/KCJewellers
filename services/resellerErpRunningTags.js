@@ -112,18 +112,8 @@ function lineNetWeightGm(line) {
     return 0;
 }
 
-async function recomputeRunningTagBalances(query, resellerUserId) {
-    const tags = await query(
-        `SELECT * FROM reseller_erp_running_tags WHERE reseller_user_id = $1`,
-        [resellerUserId],
-    );
-    const out = [];
-    for (const tag of tags) {
-        const barcode = String(tag.barcode || '').trim();
-        const kind = tag.kind;
-        if (!barcode) continue;
-        const soldRows = await query(
-            `SELECT COALESCE(SUM(
+async function saleWeightOnRunningTagSql() {
+    return `COALESCE(SUM(
                 CASE
                     WHEN b.bill_type = 'sale' THEN COALESCE(
                         NULLIF(line->>'originalWeightGm', '')::numeric,
@@ -137,8 +127,31 @@ async function recomputeRunningTagBalances(query, resellerUserId) {
                     )
                     ELSE 0
                 END
-            ), 0) AS gm
-             FROM reseller_erp_bills b,
+            ), 0)`;
+}
+
+async function gstSoldGmForRunningTag(query, resellerUserId, barcode) {
+    const soldRows = await query(
+        `SELECT ${await saleWeightOnRunningTagSql()} AS gm
+         FROM reseller_erp_bills b,
+              jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
+         WHERE b.reseller_user_id = $1
+           AND b.bill_type IN ('sale', 'sales_return')
+           AND lower(COALESCE(b.status, '')) IN ('completed', 'paid', 'final', 'issued')
+           AND (
+                lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
+                OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
+           )`,
+        [resellerUserId, barcode],
+    );
+    return roundGm(soldRows[0]?.gm);
+}
+
+async function extraSoldGmForRunningTag(query, resellerUserId, barcode) {
+    try {
+        const soldRows = await query(
+            `SELECT ${await saleWeightOnRunningTagSql()} AS gm
+             FROM reseller_erp_shadow_bills b,
                   jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
              WHERE b.reseller_user_id = $1
                AND b.bill_type IN ('sale', 'sales_return')
@@ -146,9 +159,38 @@ async function recomputeRunningTagBalances(query, resellerUserId) {
                AND (
                     lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
                     OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
+               )
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM reseller_erp_bills ob,
+                         jsonb_array_elements(COALESCE(ob.lines_json, '[]'::jsonb)) AS oline
+                    WHERE ob.reseller_user_id = b.reseller_user_id
+                      AND ob.bill_type IN ('sale', 'sales_return')
+                      AND lower(COALESCE(ob.status, '')) IN ('completed', 'paid', 'final', 'issued')
+                      AND (
+                            lower(trim(COALESCE(oline->>'barcode', ''))) = lower($2)
+                            OR lower(trim(COALESCE(oline->>'code', ''))) = lower($2)
+                      )
                )`,
             [resellerUserId, barcode],
         );
+        return roundGm(soldRows[0]?.gm);
+    } catch {
+        return 0;
+    }
+}
+
+async function recomputeRunningTagBalances(query, resellerUserId, opts = {}) {
+    const tags = await query(
+        `SELECT * FROM reseller_erp_running_tags WHERE reseller_user_id = $1`,
+        [resellerUserId],
+    );
+    const out = [];
+    const showAll = opts.includeAllSales === true;
+    for (const tag of tags) {
+        const barcode = String(tag.barcode || '').trim();
+        if (!barcode) continue;
+        const gstSoldGm = await gstSoldGmForRunningTag(query, resellerUserId, barcode);
         const intakeRows = await query(
             `SELECT COALESCE(SUM(avg_weight), 0) AS gm
              FROM reseller_erp_stock_pieces
@@ -159,17 +201,18 @@ async function recomputeRunningTagBalances(query, resellerUserId) {
                )`,
             [resellerUserId, barcode],
         );
-        const soldGm = roundGm(soldRows[0]?.gm);
         const intakeGm = roundGm(intakeRows[0]?.gm);
-        const balanceGm = roundGm(intakeGm - soldGm);
+        const storedGm = roundGm(intakeGm - gstSoldGm);
+        const extraGm = showAll ? await extraSoldGmForRunningTag(query, resellerUserId, barcode) : 0;
+        const displayGm = roundGm(storedGm - extraGm);
         const updated = await query(
             `UPDATE reseller_erp_running_tags
              SET balance_gm = $1, updated_at = NOW()
              WHERE id = $2
              RETURNING *`,
-            [balanceGm, tag.id],
+            [storedGm, tag.id],
         );
-        out.push(mapTag(updated[0]));
+        out.push(mapTag({ ...(updated[0] || tag), balance_gm: displayGm }));
     }
     return out;
 }
@@ -296,9 +339,12 @@ function registerResellerErpRunningTagRoutes(app, deps) {
     app.get('/api/reseller/erp/running-tags', checkAuth, erpGate, async (req, res) => {
         try {
             const refresh = String(req.query.refresh || '') === '1';
+            const includeAllSales = req.session?.shadowUnlocked === true;
             const tags = refresh
-                ? await recomputeRunningTagBalances(query, req.user.id)
-                : await listRunningTags(query, req.user.id);
+                ? await recomputeRunningTagBalances(query, req.user.id, { includeAllSales })
+                : (includeAllSales
+                    ? await recomputeRunningTagBalances(query, req.user.id, { includeAllSales: true })
+                    : await listRunningTags(query, req.user.id));
             const byKind = { jewellery: null, articles: null };
             for (const t of tags) {
                 if (t && KINDS.includes(t.kind)) byKind[t.kind] = t;

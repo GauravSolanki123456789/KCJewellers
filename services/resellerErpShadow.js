@@ -839,7 +839,61 @@ function mapStockPieceRow(row) {
     };
 }
 
-async function loadStockPiecesForReport(query, resellerUserId, { styleCode, skus, status }) {
+function parseReportList(raw) {
+    if (Array.isArray(raw)) return raw.map((s) => String(s || '').trim()).filter(Boolean);
+    return String(raw || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+}
+
+function applyStockReportFilters(sql, params, { styleCode, styleCodes, skus, metals }) {
+    const styles = [
+        ...parseReportList(styleCodes),
+        ...(styleCode ? [String(styleCode).trim()] : []),
+    ].filter(Boolean);
+    if (styles.length) {
+        params.push(styles.map((s) => s.toUpperCase()));
+        sql += ` AND UPPER(TRIM(style_code)) = ANY($${params.length})`;
+    }
+    const skuList = parseReportList(skus);
+    if (skuList.length) {
+        const plain = [];
+        const pairs = [];
+        for (const raw of skuList) {
+            const idx = raw.indexOf('::');
+            if (idx > 0) {
+                pairs.push({
+                    style: raw.slice(0, idx).trim().toUpperCase(),
+                    sku: raw.slice(idx + 2).trim().toUpperCase(),
+                });
+            } else {
+                plain.push(raw.toUpperCase());
+            }
+        }
+        const parts = [];
+        if (plain.length) {
+            params.push(plain);
+            parts.push(`UPPER(TRIM(sku)) = ANY($${params.length})`);
+        }
+        for (const pair of pairs) {
+            params.push(pair.style);
+            params.push(pair.sku);
+            parts.push(
+                `(UPPER(TRIM(style_code)) = $${params.length - 1} AND UPPER(TRIM(sku)) = $${params.length})`,
+            );
+        }
+        if (parts.length) sql += ` AND (${parts.join(' OR ')})`;
+    }
+    const metalList = parseReportList(metals);
+    if (metalList.length) {
+        params.push(metalList.map((m) => m.toUpperCase()));
+        sql += ` AND UPPER(TRIM(COALESCE(metal_type, ''))) = ANY($${params.length})`;
+    }
+    return sql;
+}
+
+async function loadStockPiecesForReport(query, resellerUserId, { styleCode, styleCodes, skus, metals, status }) {
     const params = [resellerUserId];
     let sql = `SELECT id, barcode, sku, style_code, product_name, size, avg_weight, gross_weight,
                       purity, wastage_pct, mc_rate, mc_type, pcs, metal_type, item_code, status,
@@ -850,50 +904,32 @@ async function loadStockPiecesForReport(query, resellerUserId, { styleCode, skus
     if (st && st !== 'all') {
         if (st === 'in_stock' || st === 'available') {
             sql += ` AND status = 'in_stock'`;
+        } else if (st === 'sold') {
+            sql += ` AND status IN ('sold', 'shadow_sold', 'lane')`;
         } else {
             params.push(st);
             sql += ` AND LOWER(status) = $${params.length}`;
         }
     }
-    if (styleCode) {
-        params.push(styleCode);
-        sql += ` AND UPPER(TRIM(style_code)) = UPPER(TRIM($${params.length}))`;
-    }
-    const skuList = Array.isArray(skus)
-        ? skus.map((s) => String(s || '').trim()).filter(Boolean)
-        : String(skus || '')
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean);
-    if (skuList.length) {
-        params.push(skuList.map((s) => s.toUpperCase()));
-        sql += ` AND UPPER(TRIM(sku)) = ANY($${params.length})`;
-    }
+    sql = applyStockReportFilters(sql, params, { styleCode, styleCodes, skus, metals });
     sql += ` ORDER BY style_code NULLS LAST, sku NULLS LAST, barcode ASC`;
     const rows = await query(sql, params);
-    return rows.map(mapStockPieceRow);
+    return rows.map((r) => {
+        const mapped = mapStockPieceRow(r);
+        if (mapped.status === 'shadow_sold' || mapped.status === 'lane') {
+            mapped.status = 'sold';
+        }
+        return mapped;
+    });
 }
 
-async function countLaneReservedForReport(query, resellerUserId, { styleCode, skus }) {
+async function countLaneReservedForReport(query, resellerUserId, { styleCode, styleCodes, skus, metals }) {
     const params = [resellerUserId];
     let sql = `SELECT COUNT(*)::int AS count,
                       COALESCE(SUM(COALESCE(avg_weight, 0)), 0)::float AS total_weight
                FROM reseller_erp_stock_pieces
-               WHERE reseller_user_id = $1 AND status = 'lane'`;
-    if (styleCode) {
-        params.push(styleCode);
-        sql += ` AND UPPER(TRIM(style_code)) = UPPER(TRIM($${params.length}))`;
-    }
-    const skuList = Array.isArray(skus)
-        ? skus.map((s) => String(s || '').trim()).filter(Boolean)
-        : String(skus || '')
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean);
-    if (skuList.length) {
-        params.push(skuList.map((s) => s.toUpperCase()));
-        sql += ` AND UPPER(TRIM(sku)) = ANY($${params.length})`;
-    }
+               WHERE reseller_user_id = $1 AND status IN ('shadow_sold', 'lane')`;
+    sql = applyStockReportFilters(sql, params, { styleCode, styleCodes, skus, metals });
     const rows = await query(sql, params);
     const count = rows[0]?.count ?? 0;
     const totalWeight = Number(rows[0]?.total_weight) || 0;
@@ -909,9 +945,11 @@ function buildStockSummary(pieces) {
     const totalPcs = pieces.reduce((s, p) => s + (p.pcs || 1), 0);
     const byStyle = {};
     const bySku = {};
+    const byMetal = {};
     for (const p of pieces) {
         const style = p.style_code || '(no style)';
         const sku = p.sku || '(no sku)';
+        const metal = String(p.metal_type || '').trim() || '(no metal)';
         if (!byStyle[style]) byStyle[style] = { style_code: style, count: 0, total_weight: 0, skus: new Set() };
         byStyle[style].count += 1;
         byStyle[style].total_weight += p.avg_weight || 0;
@@ -920,6 +958,9 @@ function buildStockSummary(pieces) {
         if (!bySku[skuKey]) bySku[skuKey] = { style_code: style, sku, count: 0, total_weight: 0 };
         bySku[skuKey].count += 1;
         bySku[skuKey].total_weight += p.avg_weight || 0;
+        if (!byMetal[metal]) byMetal[metal] = { metal_type: metal, count: 0, total_weight: 0 };
+        byMetal[metal].count += 1;
+        byMetal[metal].total_weight += p.avg_weight || 0;
     }
     const weightRanges = WEIGHT_RANGE_BUCKETS.map((b) => ({
         label: b.label,
@@ -950,6 +991,12 @@ function buildStockSummary(pieces) {
             total_weight_g: Math.round(s.total_weight * 1000) / 1000,
             avg_weight_g: s.count ? Math.round((s.total_weight / s.count) * 1000) / 1000 : 0,
         })).sort((a, b) => `${a.style_code}/${a.sku}`.localeCompare(`${b.style_code}/${b.sku}`)),
+        by_metal: Object.values(byMetal).map((s) => ({
+            metal_type: s.metal_type,
+            count: s.count,
+            total_weight_g: Math.round(s.total_weight * 1000) / 1000,
+            avg_weight_g: s.count ? Math.round((s.total_weight / s.count) * 1000) / 1000 : 0,
+        })).sort((a, b) => a.metal_type.localeCompare(b.metal_type)),
     };
 }
 
@@ -1594,12 +1641,31 @@ function registerShadowRoutes(app, deps) {
             const reportType = String(req.query.type || 'detail').trim().toLowerCase() === 'summary' ? 'summary' : 'detail';
             const format = String(req.query.format || 'json').trim().toLowerCase();
             const styleCode = trimStr(req.query.style_code || req.query.style, 128);
+            const styleCodes = String(req.query.style_codes || '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
             const skusRaw = req.query.skus || req.query.sku || '';
             const skus = String(skusRaw).split(',').map((s) => s.trim()).filter(Boolean);
+            const metals = String(req.query.metals || req.query.metal || '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
             const status = trimStr(req.query.status, 32) || 'in_stock';
-            const pieces = await loadStockPiecesForReport(query, req.user.id, { styleCode, skus, status });
+            const pieces = await loadStockPiecesForReport(query, req.user.id, {
+                styleCode,
+                styleCodes,
+                skus,
+                metals,
+                status,
+            });
             const summary = buildStockSummary(pieces);
-            const laneReserved = await countLaneReservedForReport(query, req.user.id, { styleCode, skus });
+            const laneReserved = await countLaneReservedForReport(query, req.user.id, {
+                styleCode,
+                styleCodes,
+                skus,
+                metals,
+            });
             summary.lane_reserved_count = laneReserved.count;
             summary.lane_reserved_weight_g = laneReserved.total_weight_g;
             summary.available_count = summary.total_pieces;

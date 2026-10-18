@@ -547,6 +547,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         setPayCustomerResults([])
         return
       }
+      if (form.customer_id && payCustomerLabel) {
+        const selectedName = payCustomerLabel.split(' · ')[0]?.trim().toLowerCase()
+        if (selectedName && payCustomerQ.trim().toLowerCase() === selectedName) {
+          setPayCustomerResults([])
+          return
+        }
+      }
       void axios
         .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
           params: { q: payCustomerQ.trim(), ...(laneMode ? { lane_books: '1' } : {}) },
@@ -555,7 +562,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         .catch(() => setPayCustomerResults([]))
     }, 200)
     return () => clearTimeout(t)
-  }, [payCustomerQ, laneMode])
+  }, [payCustomerQ, laneMode, form.customer_id, payCustomerLabel])
 
   useEffect(() => {
     if (!form.customer_id) {

@@ -57,9 +57,9 @@ function ErpHubContent() {
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: 'Customers', value: summary ? String(summary.customers) : '—' },
-          { label: 'GST bills / estimates', value: summary ? String(summary.bills) : '—' },
+          { label: 'Bills / estimates', value: summary ? String(summary.bills) : '—' },
           {
-            label: 'GST sales value',
+            label: 'Sales value',
             value: summary ? formatErpInr(summary.billTotalInr) : '—',
           },
           {

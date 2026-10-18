@@ -2414,27 +2414,32 @@ function registerResellerErpRoutes(app, deps) {
             if (!code) return res.status(400).json({ error: 'code required' });
 
             const forOrder = String(req.query.for_order || '') === '1';
-            const stockHit = await lookupStockPiece(query, req.user.id, code);
+            const unlocked = req.session?.shadowUnlocked === true;
+            const stockHit = await lookupStockPiece(query, req.user.id, code, {
+                includeHiddenSold: unlocked,
+            });
             if (stockHit?.piece) {
                 const p = await enrichStockPieceFromCatalog(query, stockHit.piece);
                 if (p.status === 'lane') {
-                    p.status = 'in_stock';
+                    p.status = unlocked ? 'sold' : 'in_stock';
                 }
                 if (!forOrder && (p.status === 'shadow_sold' || p.status === 'sold')) {
+                    if (p.status === 'shadow_sold') {
+                        return res.status(404).json({ error: 'Product not found' });
+                    }
                     const conflicts = await findSoldBarcodeConflicts(query, req.user.id, [code]);
                     const soldBill = conflicts[0]?.sold_bill || null;
-                    const laneNo = soldBill && /^SCB\d{4}-\d+/i.test(String(soldBill.bill_number || ''));
                     return res.status(409).json({
-                        error: soldBill && !laneNo
+                        error: soldBill
                             ? `This piece is already sold in bill ${soldBill.bill_number}`
                             : 'This piece is already sold',
                         availability: stockHit.availability,
-                        sold_bill: soldBill && !laneNo ? soldBill : null,
-                        conflicts: laneNo ? [{ barcode: code, source: 'stock_piece', sold_bill: null }] : conflicts,
+                        sold_bill: soldBill,
+                        conflicts,
                     });
                 }
                 if (!forOrder && p.status !== 'in_stock') {
-                    return res.status(409).json({ error: `Piece status: ${p.status}` });
+                    return res.status(404).json({ error: 'Product not found' });
                 }
                 let imageUrl = p.image_url;
                 if (!imageUrl) {

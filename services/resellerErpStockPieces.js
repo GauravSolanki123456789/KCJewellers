@@ -1101,10 +1101,12 @@ async function markPiecesShadowLane(query, resellerUserId, lines) {
 
 function mapPieceForClient(row, opts = {}) {
     const p = mapPiece(row);
-    if (opts.maskLane !== false && (p.status === 'lane' || p.status === 'shadow_sold')) {
-        return { ...p, status: 'in_stock' };
+    const hidden = p.status === 'lane' || p.status === 'shadow_sold';
+    if (!hidden) return p;
+    if (opts.maskLane === false) {
+        return { ...p, status: 'sold' };
     }
-    return p;
+    return { ...p, status: 'in_stock' };
 }
 
 function rfidFromPayload(payloadJson) {
@@ -1162,7 +1164,7 @@ async function healLanePiecesToInStock(query, resellerUserId) {
     }
 }
 
-async function lookupStockPiece(query, resellerUserId, code) {
+async function lookupStockPiece(query, resellerUserId, code, opts = {}) {
     await healLanePiecesToInStock(query, resellerUserId);
     const trimmed = String(code || '').trim();
     if (!trimmed) return null;
@@ -1174,6 +1176,9 @@ async function lookupStockPiece(query, resellerUserId, code) {
     );
     if (!rows.length) return null;
     const p = mapPiece(rows[0]);
+    if (!opts.includeHiddenSold && (p.status === 'lane' || p.status === 'shadow_sold')) {
+        return null;
+    }
     let availability = null;
     if (p.item_code) {
         const avail = await query(
@@ -1258,7 +1263,7 @@ async function findSoldBarcodeConflicts(query, resellerUserId, barcodes, exclude
          LEFT JOIN reseller_erp_bills b ON b.id = p.sold_bill_id AND b.reseller_user_id = p.reseller_user_id
          WHERE p.reseller_user_id = $1
            AND lower(trim(p.barcode)) = ANY($2::text[])
-           AND p.status IN ('sold', 'shadow_sold')`,
+           AND p.status = 'sold'`,
         [resellerUserId, normalized],
     );
     for (const row of stockRows) {
@@ -1400,7 +1405,9 @@ function registerStockPieceRoutes(app, deps) {
             }
             res.json({
                 batch: batchRows[0],
-                pieces: pieces.map((r) => mapPieceForClient(r)),
+                pieces: pieces.map((r) =>
+                    mapPieceForClient(r, { maskLane: req.session?.shadowUnlocked !== true }),
+                ),
                 purchase_voucher: purchaseVoucher,
             });
         } catch (e) {
@@ -1542,7 +1549,7 @@ function registerStockPieceRoutes(app, deps) {
             const itemCodes = new Set();
             const insertedPieces = [];
 
-            const markUploadedPieceSold = async (pieceId, originalBarcode, isRunningTag) => {
+            const markUploadedPieceSold = async (pieceId, originalBarcode) => {
                 if (!pieceId) return;
                 let sale = null;
                 try {
@@ -1550,13 +1557,23 @@ function registerStockPieceRoutes(app, deps) {
                 } catch {
                     sale = null;
                 }
-                if (!isRunningTag && !sale) return;
-                const officialBillId = sale && sale.source !== 'jainav' ? sale.id : null;
+                if (!sale) return;
+                if (sale.source === 'jainav') {
+                    await query(
+                        `UPDATE reseller_erp_stock_pieces
+                         SET status = 'shadow_sold', shadow_bill_id = COALESCE($1, shadow_bill_id),
+                             sold_bill_id = NULL, updated_at = NOW()
+                         WHERE id = $2 AND status <> 'sold'`,
+                        [sale.id, pieceId],
+                    );
+                    markedSold += 1;
+                    return;
+                }
                 await query(
                     `UPDATE reseller_erp_stock_pieces
                      SET status = 'sold', sold_bill_id = COALESCE($1, sold_bill_id), updated_at = NOW()
                      WHERE id = $2`,
-                    [officialBillId, pieceId],
+                    [sale.id, pieceId],
                 );
                 markedSold += 1;
             };
@@ -1700,7 +1717,7 @@ function registerStockPieceRoutes(app, deps) {
                         await unlinkRfidRows(query, req.user.id, [{ rfid_tag: oldTag, barcode: p.barcode }]);
                     }
                     updated++;
-                    await markUploadedPieceSold(existing[0].id, originalBarcode, isRunningTag);
+                    await markUploadedPieceSold(existing[0].id, originalBarcode);
                 } else {
                     const ins = await query(
                         `INSERT INTO reseller_erp_stock_pieces (
@@ -1771,7 +1788,7 @@ function registerStockPieceRoutes(app, deps) {
                             id: ins[0].id,
                             barcode: ins[0].barcode,
                         });
-                        await markUploadedPieceSold(ins[0].id, originalBarcode, isRunningTag);
+                        await markUploadedPieceSold(ins[0].id, originalBarcode);
                     }
                 }
                 if (p.item_code) itemCodes.add(p.item_code);
@@ -2214,7 +2231,12 @@ function registerStockPieceRoutes(app, deps) {
                  WHERE batch_id = $1::uuid AND reseller_user_id = $2 ORDER BY id`,
                 [batchId, req.user.id],
             );
-            res.json({ success: true, pieces: pieces.map(mapPiece) });
+            res.json({
+                success: true,
+                pieces: pieces.map((r) =>
+                    mapPieceForClient(r, { maskLane: req.session?.shadowUnlocked !== true }),
+                ),
+            });
         } catch (e) {
             console.error('erp stock rows update:', e);
             res.status(500).json({ error: e.message || 'Failed to save rows' });

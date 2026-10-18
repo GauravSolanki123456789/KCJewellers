@@ -101,9 +101,10 @@ function mapPv(row) {
     if (!row) return row;
     const weightKg = Number(row.weight_kg) || 0;
     const receivedKg = Number(row.received_weight_kg) || 0;
-    const weightGm = Math.round(weightKg * 1000 * 1000) / 1000;
-    const receivedGm = Math.round(receivedKg * 1000 * 1000) / 1000;
-    const pendingKg = Math.max(0, Math.round((weightKg - receivedKg) * 1000) / 1000);
+    const weightGm = roundPvGm(weightKg * 1000);
+    const receivedGm = roundPvGm(receivedKg * 1000);
+    const pendingGm = roundPvGm(Math.max(0, weightGm - receivedGm));
+    const pendingKg = pendingGm / 1000;
     return {
         id: row.id,
         pv_number: row.pv_number,
@@ -116,7 +117,7 @@ function mapPv(row) {
         pending_weight_kg: pendingKg,
         weight_gm: weightGm,
         received_weight_gm: receivedGm,
-        pending_weight_gm: Math.round(pendingKg * 1000 * 1000) / 1000,
+        pending_weight_gm: pendingGm,
         metal_type: row.metal_type,
         narration: row.narration,
         ledger_entry_id: row.ledger_entry_id,
@@ -197,7 +198,7 @@ async function applyReceivedWeight(query, resellerUserId, pvId, addedWeightKg) {
         `UPDATE reseller_erp_purchase_vouchers SET
             received_weight_kg = LEAST(weight_kg, received_weight_kg + $1),
             status = CASE
-                WHEN (received_weight_kg + $1) >= weight_kg - 0.001 THEN 'tallied'
+                WHEN (received_weight_kg + $1) >= weight_kg - 0.00005 THEN 'tallied'
                 WHEN (received_weight_kg + $1) > 0 THEN 'partial'
                 ELSE status
             END,
@@ -223,10 +224,10 @@ async function sumBatchPieceWeightKg(query, resellerUserId, batchId) {
 }
 
 function pvStatusFromReceived(weightKg, receivedKg) {
-    const hold = Number(weightKg) || 0;
-    const received = Number(receivedKg) || 0;
-    if (received <= 0.000001) return 'open';
-    if (received >= hold - 0.001) return 'tallied';
+    const holdGm = roundPvGm((Number(weightKg) || 0) * 1000);
+    const receivedGm = roundPvGm((Number(receivedKg) || 0) * 1000);
+    if (receivedGm <= 0.0005) return 'open';
+    if (receivedGm >= holdGm - 0.05) return 'tallied';
     return 'partial';
 }
 
