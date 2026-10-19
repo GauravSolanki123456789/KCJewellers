@@ -1185,6 +1185,16 @@ body {
     background-color: #ffffff !important;
   }
 
+  .kc-reseller-upload-panel .kc-batch-photo-list {
+    overflow-anchor: auto;
+  }
+
+  .kc-reseller-upload-panel .kc-batch-photo-row {
+    contain: layout style paint;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 220px;
+  }
+
   /* Reseller vanity homepage — cream page, dark text on light cards */
   .kc-storefront-home {
     color: var(--color-jewelry-black, #1a1814);

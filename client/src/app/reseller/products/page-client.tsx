@@ -84,7 +84,7 @@ function ResellerProductsContent() {
   }
 
   return (
-    <div className="kc-reseller-upload-panel min-h-screen bg-[var(--color-slate-950,#faf8f4)] pb-[var(--kc-mobile-nav-stack,5rem)] md:pb-12">
+    <div className="kc-reseller-upload-panel isolate min-h-screen overflow-x-hidden bg-[var(--color-slate-950,#faf8f4)] pb-[var(--kc-mobile-nav-stack,5rem)] md:pb-12">
       <div className="border-b border-[var(--color-slate-700,#e8e4df)] bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-4">
           <Link

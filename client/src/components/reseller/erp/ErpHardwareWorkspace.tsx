@@ -28,7 +28,13 @@ import { printErpTestReceipt, printErpTestReceiptBillsBanao } from '@/lib/erp-bi
 import { kcPoshRfidHealthUrl, kcPoshRfidInventoryUrl } from '@/lib/api-base'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import Image from 'next/image'
-import { Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
+import { Barcode, Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
+import {
+  DEFAULT_STOCK_BARCODE_PREFIX,
+  normalizeStockBarcodePrefix,
+  STOCK_BARCODE_PREFIX_OPTIONS,
+  type StockBarcodePrefixSource,
+} from '@/lib/erp-stock-barcode-settings'
 
 function SerialFields({
   value,
@@ -145,12 +151,18 @@ export function ErpHardwareWorkspace() {
   }, [])
   const [epsonTestBusy, setEpsonTestBusy] = useState(false)
   const [billsBanaoTestBusy, setBillsBanaoTestBusy] = useState(false)
+  const [stockBarcodePrefix, setStockBarcodePrefix] = useState<StockBarcodePrefixSource>(
+    DEFAULT_STOCK_BARCODE_PREFIX,
+  )
 
   useEffect(() => {
     void axios
-      .get<{ settings: { hardware?: ErpHardwareSettings } }>('/api/reseller/erp/settings')
+      .get<{ settings: { hardware?: ErpHardwareSettings; stockBarcodePrefix?: string } }>(
+        '/api/reseller/erp/settings',
+      )
       .then((res) => {
         setHw(migrateHardwareSettings(res.data.settings?.hardware))
+        setStockBarcodePrefix(normalizeStockBarcodePrefix(res.data.settings?.stockBarcodePrefix))
       })
       .catch(() => {})
   }, [])
@@ -159,7 +171,9 @@ export function ErpHardwareWorkspace() {
     setBusy(true)
     setSaved(false)
     try {
-      await axios.put('/api/reseller/erp/settings', { settings: { hardware: hw } })
+      await axios.put('/api/reseller/erp/settings', {
+        settings: { hardware: hw, stockBarcodePrefix },
+      })
       setSaved(true)
     } catch {
       alert('Could not save hardware settings')
@@ -316,8 +330,50 @@ export function ErpHardwareWorkspace() {
     }
   }, [])
 
+  const barcodeExample =
+    STOCK_BARCODE_PREFIX_OPTIONS.find((o) => o.value === stockBarcodePrefix)?.example ?? 'PCPBRG-00001-48291'
+
   return (
     <div className="space-y-4">
+      <div className={erpCardCls}>
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+          <Barcode className="size-4 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
+          Stock upload — auto barcode prefix
+        </div>
+        <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
+          When Excel has no barcode column, new pieces get{' '}
+          <span className="font-mono font-medium text-[var(--color-jewelry-black,#1a1814)]">PREFIX-#####</span>{' '}
+          (random 5 digits, never reused in your stock). Applies to new uploads and new rows — not existing barcodes.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {STOCK_BARCODE_PREFIX_OPTIONS.map((opt) => {
+            const on = stockBarcodePrefix === opt.value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setStockBarcodePrefix(opt.value)}
+                className={`rounded-xl border px-3 py-3 text-left text-xs transition ${
+                  on
+                    ? 'border-emerald-700 bg-emerald-700 text-white'
+                    : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-emerald-600/40'
+                }`}
+              >
+                <p className="font-semibold">{opt.label}</p>
+                <p className={`mt-1 font-mono text-[10px] ${on ? 'text-emerald-50' : 'text-[var(--color-jewelry-black,#1a1814)]/55'}`}>
+                  e.g. {opt.example}
+                </p>
+              </button>
+            )
+          })}
+        </div>
+        <p className="mt-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
+          Current example: <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]">{barcodeExample}</span>
+          {' · '}
+          Save hardware settings below to apply.
+        </p>
+      </div>
+
       <ErpWorkstationPanel value={workstation} onChange={setWorkstation} />
 
       {rfidEnabled ? (

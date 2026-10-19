@@ -188,6 +188,8 @@ function trimCatalogKey(v, max = 255) {
     return s || null;
 }
 
+const STOCK_BARCODE_PREFIX_SOURCES = new Set(['product_name', 'sku', 'style_code']);
+
 function normalizeItemCodeBase(itemCode, productName) {
     const raw = String(productName || itemCode || 'ITEM')
         .replace(/\s+/g, '')
@@ -195,12 +197,52 @@ function normalizeItemCodeBase(itemCode, productName) {
     return raw.slice(0, 32) || 'ITEM';
 }
 
+function normalizeStockBarcodePrefixSetting(raw) {
+    const v = String(raw || '').trim().toLowerCase();
+    if (v === 'sku') return 'sku';
+    if (v === 'style_code' || v === 'style' || v === 'stylecode') return 'style_code';
+    return 'product_name';
+}
+
+async function loadStockBarcodePrefixSource(query, resellerUserId) {
+    try {
+        const rows = await query(`SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`, [
+            resellerUserId,
+        ]);
+        let settings = rows[0]?.settings ?? {};
+        if (typeof settings === 'string') {
+            try {
+                settings = JSON.parse(settings);
+            } catch {
+                settings = {};
+            }
+        }
+        const v = settings?.stockBarcodePrefix;
+        return STOCK_BARCODE_PREFIX_SOURCES.has(v) ? v : 'product_name';
+    } catch {
+        return 'product_name';
+    }
+}
+
+function resolveStockBarcodeBase(piece, prefixSource) {
+    const mode = STOCK_BARCODE_PREFIX_SOURCES.has(prefixSource) ? prefixSource : 'product_name';
+    let raw = '';
+    if (mode === 'sku') {
+        raw = piece?.sku || piece?.item_code || piece?.product_name || 'SKU';
+    } else if (mode === 'style_code') {
+        raw = piece?.style_code || piece?.sku || piece?.product_name || 'STYLE';
+    } else {
+        raw = piece?.product_name || piece?.item_code || piece?.sku || 'ITEM';
+    }
+    return normalizeItemCodeBase(null, raw);
+}
+
 function randomFiveDigitSuffix() {
     return String(Math.floor(10000 + Math.random() * 90000));
 }
 
-async function generateUniqueStockBarcode(query, resellerUserId, itemCode, productName, usedInBatch) {
-    const base = normalizeItemCodeBase(itemCode, productName);
+async function generateUniqueStockBarcode(query, resellerUserId, piece, usedInBatch, prefixSource) {
+    const base = resolveStockBarcodeBase(piece, prefixSource);
     for (let attempt = 0; attempt < 100; attempt++) {
         const bc = `${base}-${randomFiveDigitSuffix()}`;
         if (usedInBatch.has(bc)) continue;
@@ -1425,6 +1467,7 @@ function registerStockPieceRoutes(app, deps) {
             const pieces = [];
             const usedBarcodes = new Set();
             const duplicateInFile = [];
+            const barcodePrefixSource = await loadStockBarcodePrefixSource(query, req.user.id);
             for (const row of rawRows) {
                 let p = applyNetWeightToPiece(parseExcelRowToPiece(row));
                 if (!p) continue;
@@ -1453,9 +1496,9 @@ function registerStockPieceRoutes(app, deps) {
                     p.barcode = await generateUniqueStockBarcode(
                         query,
                         req.user.id,
-                        p.product_name || p.item_code,
-                        p.product_name,
+                        p,
                         usedBarcodes,
+                        barcodePrefixSource,
                     );
                 } else {
                     usedBarcodes.add(String(p.barcode).trim());
@@ -1595,9 +1638,9 @@ function registerStockPieceRoutes(app, deps) {
                         p.barcode = await generateUniqueStockBarcode(
                             query,
                             req.user.id,
-                            p.product_name || p.item_code,
-                            p.product_name,
+                            p,
                             usedBarcodes,
+                            barcodePrefixSource,
                         );
                     }
                 }
@@ -1998,6 +2041,7 @@ function registerStockPieceRoutes(app, deps) {
             );
             if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
 
+            const barcodePrefixSource = await loadStockBarcodePrefixSource(query, req.user.id);
             const itemCodes = new Set();
             for (const r of rows) {
                 const id = parseInt(String(r.id), 10);
@@ -2070,9 +2114,9 @@ function registerStockPieceRoutes(app, deps) {
                         pieceRow.barcode = await generateUniqueStockBarcode(
                             query,
                             req.user.id,
-                            pieceRow.product_name || pieceRow.item_code,
-                            pieceRow.product_name,
+                            pieceRow,
                             new Set(),
+                            barcodePrefixSource,
                         );
                     }
                     if (!pieceRow.image_url) {

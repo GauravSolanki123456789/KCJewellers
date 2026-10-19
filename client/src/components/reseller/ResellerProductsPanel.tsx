@@ -1,6 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+
+function useObjectUrl(file: File | null): string | null {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!file) {
+      setUrl(null)
+      return
+    }
+    const objectUrl = URL.createObjectURL(file)
+    setUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [file])
+  return url
+}
+
 import axios from '@/lib/axios'
 import {
   emptyProductPayload,
@@ -1050,7 +1065,7 @@ export function ResellerProductsPanel({
                             <Loader2 className="size-6 animate-spin" />
                           </div>
                         ) : (
-                          <ul className="mt-4 space-y-4">
+                          <ul className="kc-batch-photo-list mt-4 space-y-4">
                             {Object.entries(
                               batchProducts.reduce<Record<string, typeof batchProducts>>((acc, p) => {
                                 const key = String(p.style_code || 'Uncategorized').trim() || 'Uncategorized'
@@ -1103,7 +1118,7 @@ function ImageUploadTile({
   inputRef: RefObject<HTMLInputElement | null>
   onPick: (f: File | null) => void
 }) {
-  const preview = file ? URL.createObjectURL(file) : null
+  const preview = useObjectUrl(file)
   return (
     <div className="kc-upload-photo-tile rounded-xl border border-dashed border-[var(--color-slate-700,#d6d3d1)] bg-[var(--color-slate-900,#f7f4ef)] p-3">
       <p className="kc-upload-label text-xs font-medium">{label}</p>
@@ -1163,6 +1178,7 @@ function BatchBulkPhotoUpload({
   const backRef = useRef<HTMLInputElement>(null)
   const boxRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState<BulkPhotoKind | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
   const [showNames, setShowNames] = useState(false)
 
@@ -1209,18 +1225,29 @@ function BatchBulkPhotoUpload({
   const handleBulk = async (kind: BulkPhotoKind, files: FileList | null) => {
     if (!files?.length) return
     setUploading(kind)
+    setUploadProgress(null)
     setResult(null)
     try {
       const list = Array.from(files)
-      const data = await uploadBatchPhotosBulk(batchId, kind, list)
+      const data = await uploadBatchPhotosBulk(batchId, kind, list, (p) => {
+        setUploadProgress(
+          p.phase === 'prepare'
+            ? `Preparing ${p.done}/${p.total}…`
+            : `Uploading ${p.done}/${p.total}…`,
+        )
+      })
       const unmatchedHint =
         data.unmatched.length > 0
           ? ` ${data.unmatched.length} file${data.unmatched.length === 1 ? '' : 's'} not matched (${data.unmatched.slice(0, 3).join(', ')}${data.unmatched.length > 3 ? '…' : ''}).`
           : ''
       const errHint =
         data.errors.length > 0 ? ` ${data.errors.length} error${data.errors.length === 1 ? '' : 's'}.` : ''
+      const softTimeout =
+        data.errors.some((x) => /timed out|network/i.test(x.error)) && data.matched > 0
+          ? ' If the page looked stuck, refresh — photos may already be saved.'
+          : ''
       setResult(
-        `${data.matched} ${bulkPhotoKindLabel(kind)} photo${data.matched === 1 ? '' : 's'} linked.${unmatchedHint}${errHint}`,
+        `${data.matched} ${bulkPhotoKindLabel(kind)} photo${data.matched === 1 ? '' : 's'} linked.${unmatchedHint}${errHint}${softTimeout}`,
       )
       await onComplete()
     } catch (e: unknown) {
@@ -1233,6 +1260,7 @@ function BatchBulkPhotoUpload({
       setResult(msg || 'Bulk upload failed')
     } finally {
       setUploading(null)
+      setUploadProgress(null)
       if (frontRef.current) frontRef.current.value = ''
       if (backRef.current) backRef.current.value = ''
       if (boxRef.current) boxRef.current.value = ''
@@ -1320,6 +1348,9 @@ function BatchBulkPhotoUpload({
         ) : null}
       </div>
 
+      {uploadProgress ? (
+        <p className="mt-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]">{uploadProgress}</p>
+      ) : null}
       {result ? (
         <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
           {result}
@@ -1415,6 +1446,9 @@ function BatchProductPhotoRow({
   const photoNames = submissionPhotoFilenames(row)
   const livePriceHint = submissionLivePriceHint(row, rates)
   const weightLabel = getCustomerDisplayWeightLabel(submissionToCatalogItem(row))
+  const primaryPreview = useObjectUrl(primary)
+  const secondaryPreview = useObjectUrl(secondary)
+  const boxPreview = useObjectUrl(boxImage)
 
   const save = async () => {
     if (!primary && !secondary && !boxImage && !video) return
@@ -1452,7 +1486,7 @@ function BatchProductPhotoRow({
   return (
     <li
       id={`batch-product-${row.id}`}
-      className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:p-4"
+      className="kc-batch-photo-row rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 sm:p-4"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
@@ -1499,12 +1533,14 @@ function BatchProductPhotoRow({
           {!boxOnly ? (
             <>
               <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
-                {existingPrimary || primary ? (
+                {existingPrimary || primaryPreview ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={primary ? URL.createObjectURL(primary) : existingPrimary}
+                    src={primaryPreview || existingPrimary}
                     alt=""
                     className="size-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <div className="flex size-full items-center justify-center text-[var(--color-jewelry-black,#1a1814)]/25">
@@ -1513,12 +1549,14 @@ function BatchProductPhotoRow({
                 )}
               </div>
               <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-[var(--color-slate-700,#e8e4df)]">
-                {existingSecondary || secondary ? (
+                {existingSecondary || secondaryPreview ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={secondary ? URL.createObjectURL(secondary) : existingSecondary}
+                    src={secondaryPreview || existingSecondary}
                     alt=""
                     className="size-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <div className="flex size-full items-center justify-center text-[10px] text-[var(--color-jewelry-black,#1a1814)]/30">
@@ -1530,11 +1568,13 @@ function BatchProductPhotoRow({
           ) : null}
           {(existingBox || boxImage || boxOnly) ? (
             <div className="size-14 overflow-hidden rounded-lg bg-[var(--color-slate-900,#f7f4ef)] ring-1 ring-emerald-500/30">
-              {existingBox || boxImage ? (
+              {existingBox || boxPreview ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={boxImage ? URL.createObjectURL(boxImage) : existingBox}
+                  src={boxPreview || existingBox}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="size-full object-cover"
                 />
               ) : (
