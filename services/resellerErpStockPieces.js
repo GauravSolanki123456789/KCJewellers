@@ -20,6 +20,7 @@ const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 const {
     loadRunningTagBarcodeSet,
     findAnySaleForBarcode,
+    findSaleForRunningTagUpload,
     recomputeRunningTagBalances,
 } = require('./resellerErpRunningTags');
 
@@ -1592,11 +1593,18 @@ function registerStockPieceRoutes(app, deps) {
             const itemCodes = new Set();
             const insertedPieces = [];
 
-            const markUploadedPieceSold = async (pieceId, originalBarcode) => {
+            const markUploadedPieceSold = async (pieceId, originalBarcode, pieceWeightGm, isRunningTagRow) => {
                 if (!pieceId) return;
                 let sale = null;
                 try {
-                    sale = await findAnySaleForBarcode(query, req.user.id, originalBarcode);
+                    sale = isRunningTagRow
+                        ? await findSaleForRunningTagUpload(
+                              query,
+                              req.user.id,
+                              originalBarcode,
+                              pieceWeightGm,
+                          )
+                        : await findAnySaleForBarcode(query, req.user.id, originalBarcode);
                 } catch {
                     sale = null;
                 }
@@ -1760,7 +1768,12 @@ function registerStockPieceRoutes(app, deps) {
                         await unlinkRfidRows(query, req.user.id, [{ rfid_tag: oldTag, barcode: p.barcode }]);
                     }
                     updated++;
-                    await markUploadedPieceSold(existing[0].id, originalBarcode);
+                    await markUploadedPieceSold(
+                        existing[0].id,
+                        originalBarcode,
+                        p.avg_weight,
+                        isRunningTag,
+                    );
                 } else {
                     const ins = await query(
                         `INSERT INTO reseller_erp_stock_pieces (
@@ -1831,7 +1844,12 @@ function registerStockPieceRoutes(app, deps) {
                             id: ins[0].id,
                             barcode: ins[0].barcode,
                         });
-                        await markUploadedPieceSold(ins[0].id, originalBarcode);
+                        await markUploadedPieceSold(
+                            ins[0].id,
+                            originalBarcode,
+                            p.avg_weight,
+                            isRunningTag,
+                        );
                     }
                 }
                 if (p.item_code) itemCodes.add(p.item_code);

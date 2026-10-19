@@ -147,7 +147,13 @@ async function gstSoldGmForRunningTag(query, resellerUserId, barcode) {
     return roundGm(soldRows[0]?.gm);
 }
 
-async function extraSoldGmForRunningTag(query, resellerUserId, barcode) {
+const RUNNING_TAG_PIECE_MATCH = `(
+    lower(trim(barcode)) = lower($2)
+    OR lower(COALESCE(payload_json->>'running_tag_barcode', '')) = lower($2)
+)`;
+
+/** Jainav / shadow bills on this running tag (draft + final; excludes void). */
+async function jainavSoldGmForRunningTag(query, resellerUserId, barcode) {
     try {
         const soldRows = await query(
             `SELECT ${await saleWeightOnRunningTagSql()} AS gm
@@ -155,22 +161,10 @@ async function extraSoldGmForRunningTag(query, resellerUserId, barcode) {
                   jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
              WHERE b.reseller_user_id = $1
                AND b.bill_type IN ('sale', 'sales_return')
-               AND lower(COALESCE(b.status, '')) IN ('completed', 'paid', 'final', 'issued')
+               AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void')
                AND (
                     lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
                     OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
-               )
-               AND NOT EXISTS (
-                    SELECT 1
-                    FROM reseller_erp_bills ob,
-                         jsonb_array_elements(COALESCE(ob.lines_json, '[]'::jsonb)) AS oline
-                    WHERE ob.reseller_user_id = b.reseller_user_id
-                      AND ob.bill_type IN ('sale', 'sales_return')
-                      AND lower(COALESCE(ob.status, '')) IN ('completed', 'paid', 'final', 'issued')
-                      AND (
-                            lower(trim(COALESCE(oline->>'barcode', ''))) = lower($2)
-                            OR lower(trim(COALESCE(oline->>'code', ''))) = lower($2)
-                      )
                )`,
             [resellerUserId, barcode],
         );
@@ -180,31 +174,44 @@ async function extraSoldGmForRunningTag(query, resellerUserId, barcode) {
     }
 }
 
+async function sumRunningTagIntakeGm(query, resellerUserId, barcode, mode) {
+    const statusSql =
+        mode === 'shadow'
+            ? `status = 'shadow_sold'`
+            : `status IN ('in_stock', 'reserved')`;
+    const rows = await query(
+        `SELECT COALESCE(SUM(avg_weight), 0) AS gm
+         FROM reseller_erp_stock_pieces
+         WHERE reseller_user_id = $1
+           AND ${statusSql}
+           AND ${RUNNING_TAG_PIECE_MATCH}`,
+        [resellerUserId, barcode],
+    );
+    return roundGm(rows[0]?.gm);
+}
+
 async function recomputeRunningTagBalances(query, resellerUserId, opts = {}) {
     const tags = await query(
         `SELECT * FROM reseller_erp_running_tags WHERE reseller_user_id = $1`,
         [resellerUserId],
     );
     const out = [];
-    const showAll = opts.includeAllSales === true;
+    const jainavBooks = opts.includeAllSales === true;
     for (const tag of tags) {
         const barcode = String(tag.barcode || '').trim();
         if (!barcode) continue;
         const gstSoldGm = await gstSoldGmForRunningTag(query, resellerUserId, barcode);
-        const intakeRows = await query(
-            `SELECT COALESCE(SUM(avg_weight), 0) AS gm
-             FROM reseller_erp_stock_pieces
-             WHERE reseller_user_id = $1
-               AND (
-                    lower(trim(barcode)) = lower($2)
-                    OR lower(COALESCE(payload_json->>'running_tag_barcode', '')) = lower($2)
-               )`,
-            [resellerUserId, barcode],
+        const intakeBookGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'book');
+        const intakeShadowGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'shadow');
+        const jainavSoldGm = jainavBooks
+            ? await jainavSoldGmForRunningTag(query, resellerUserId, barcode)
+            : 0;
+        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm);
+        const jainavBalanceGm = roundGm(
+            intakeBookGm + intakeShadowGm - gstSoldGm - jainavSoldGm,
         );
-        const intakeGm = roundGm(intakeRows[0]?.gm);
-        const storedGm = roundGm(intakeGm - gstSoldGm);
-        const extraGm = showAll ? await extraSoldGmForRunningTag(query, resellerUserId, barcode) : 0;
-        const displayGm = roundGm(storedGm - extraGm);
+        const storedGm = normalBalanceGm;
+        const displayGm = jainavBooks ? jainavBalanceGm : normalBalanceGm;
         const updated = await query(
             `UPDATE reseller_erp_running_tags
              SET balance_gm = $1, updated_at = NOW()
@@ -285,6 +292,52 @@ async function findCompletedSaleForBarcode(query, resellerUserId, barcode) {
         [resellerUserId, bc],
     );
     return rows[0] || null;
+}
+
+const RUNNING_TAG_WEIGHT_MATCH_EPS_GM = 0.05;
+
+/**
+ * When PV Excel uses a running-tag barcode, pick the Jainav bill line that matches weight (if any),
+ * else fall back to official / any shadow sale on that tag.
+ */
+async function findSaleForRunningTagUpload(query, resellerUserId, runningTagBarcode, weightGm) {
+    const bc = String(runningTagBarcode || '').trim();
+    if (!bc) return null;
+    const targetWt = roundGm(weightGm);
+    const lineWtSql = `COALESCE(
+        NULLIF(line->>'originalWeightGm', '')::numeric,
+        NULLIF(line->>'weightGm', '')::numeric,
+        0
+    )`;
+    try {
+        const shadowRows = await query(
+            `SELECT b.id, b.bill_number, 'jainav' AS source, ${lineWtSql} AS line_gm
+             FROM reseller_erp_shadow_bills b,
+                  jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
+             WHERE b.reseller_user_id = $1
+               AND b.bill_type = 'sale'
+               AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void')
+               AND (
+                    lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
+                    OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
+               )
+             ORDER BY ABS(${lineWtSql} - $3::numeric) ASC, b.created_at DESC
+             LIMIT 12`,
+            [resellerUserId, bc, targetWt],
+        );
+        if (shadowRows.length) {
+            const exact = shadowRows.find(
+                (r) => Math.abs(roundGm(r.line_gm) - targetWt) <= RUNNING_TAG_WEIGHT_MATCH_EPS_GM,
+            );
+            const pick = exact || (targetWt > 0 ? null : shadowRows[0]);
+            if (pick) {
+                return { id: pick.id, bill_number: pick.bill_number, source: 'jainav' };
+            }
+        }
+    } catch {
+        /* shadow optional */
+    }
+    return findAnySaleForBarcode(query, resellerUserId, bc);
 }
 
 /** Any official sale (incl. draft) or Jainav/shadow bill that used this barcode — for marking uploaded stock sold. */
@@ -379,6 +432,7 @@ module.exports = {
     recomputeRunningTagBalances,
     findCompletedSaleForBarcode,
     findAnySaleForBarcode,
+    findSaleForRunningTagUpload,
     lineNetWeightGm,
     roundGm,
     formatGm,
