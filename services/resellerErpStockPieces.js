@@ -3011,7 +3011,7 @@ function registerStockPieceRoutes(app, deps) {
                 );
                 tspl = erpPrint.renderTemplate(
                     prnTemplate,
-                    erpPrint.buildLabelTemplateVarsFromItemData(itemData),
+                    erpPrint.buildLabelTemplateVarsFromItemData(itemData, prnTemplate),
                 );
             } else if (erpPrint.isZebraLabelProfile(profile)) {
                 tspl = labelPrinter.generateZPLLabel(itemData);

@@ -807,7 +807,18 @@ function formatLabelWeight(piece, field) {
     return n.toFixed(3);
 }
 
-function buildLabelTemplateVars(piece, hw, profile) {
+/** PCS line for label templates — only when {{pcs_label}} is present in the template. */
+function resolvePcsLabel(template, pcsRaw) {
+    const tpl = String(template || '');
+    if (!tpl.includes('{{pcs_label}}')) return '';
+    const pcs = Math.max(1, Math.floor(Number(pcsRaw) || 1));
+    if (/PCS:\s*\{\{pcs_label\}\}/i.test(tpl)) {
+        return String(pcs);
+    }
+    return `Pcs:${pcs}`;
+}
+
+function buildLabelTemplateVars(piece, hw, profile, template) {
     const companyCode = profile?.companyCode || hw?.companyCode || 'BMS925';
     const net = formatLabelWeight(piece, 'avg_weight');
     const gross = formatLabelWeight(piece, 'gross_weight') || net;
@@ -829,8 +840,8 @@ function buildLabelTemplateVars(piece, hw, profile) {
         mc_type: String(piece.mc_type || '').trim(),
         company_code: companyCode,
         metal_type: String(piece.metal_type || 'SILVER').toUpperCase(),
-        pcs: String(piece.pcs || 1),
-        pcs_label: (Number(piece.pcs) || 1) > 1 ? `Pcs:${Number(piece.pcs)}` : '',
+        pcs: String(Math.max(1, Math.floor(Number(piece.pcs) || 1))),
+        pcs_label: resolvePcsLabel(template, piece.pcs),
         bags: String(piece.bags || '').trim(),
         bag_wt: piece.bag_wt != null && Number.isFinite(Number(piece.bag_wt))
             ? Number(piece.bag_wt).toFixed(3)
@@ -860,7 +871,7 @@ function buildLabelTemplateVars(piece, hw, profile) {
     };
 }
 
-function buildLabelTemplateVarsFromItemData(itemData) {
+function buildLabelTemplateVarsFromItemData(itemData, template) {
     return {
         barcode: itemData.barcodeNumber || '',
         product_name: itemData.styleCode || '',
@@ -875,15 +886,16 @@ function buildLabelTemplateVarsFromItemData(itemData) {
         mc_type: '',
         company_code: itemData.companyCode || 'BMS925',
         metal_type: itemData.material || 'SILVER',
-        pcs: String(itemData.pcs || 1),
-        pcs_label: (Number(itemData.pcs) || 1) > 1 ? `Pcs:${Number(itemData.pcs)}` : '',
+        pcs: String(Math.max(1, Math.floor(Number(itemData.pcs) || 1))),
+        pcs_label: resolvePcsLabel(template, itemData.pcs),
         bags: String(itemData.bags || '').trim(),
     };
 }
 
 function renderPrnLabel(template, piece, hw, profile) {
-    const vars = buildLabelTemplateVars(piece, hw, profile);
-    return renderTemplate(template || DEFAULT_LABEL_PRN, vars);
+    const tpl = template || DEFAULT_LABEL_PRN;
+    const vars = buildLabelTemplateVars(piece, hw, profile, tpl);
+    return renderTemplate(tpl, vars);
 }
 
 function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
@@ -894,7 +906,7 @@ function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
         : isTvs
           ? resolveLabelTvsLp46PrnTemplate(piece, printFormats)
           : resolveLabelPrnTemplate(piece, printFormats);
-    const vars = buildLabelTemplateVars(piece, hw, profile);
+    const vars = buildLabelTemplateVars(piece, hw, profile, resolved.template);
     const tspl = renderTemplate(resolved.template, vars, {
         plainText: isZebra || isZplLabelTemplate(resolved.template),
     });
@@ -2561,6 +2573,7 @@ module.exports = {
     ruleMatchesPiece,
     pieceFieldHasValue,
     newRuleId,
+    resolvePcsLabel,
     buildLabelTemplateVars,
     buildLabelTemplateVarsFromItemData,
     buildBillTemplateVars,
