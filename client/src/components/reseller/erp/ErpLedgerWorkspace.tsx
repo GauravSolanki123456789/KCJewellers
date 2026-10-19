@@ -2117,7 +2117,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2 lg:col-span-3">
-              Link customer (optional — purchase posts to their ledger)
+              <span className="sr-only">Customer (optional)</span>
               <div className="relative mt-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-jewelry-black,#1a1814)]/40" />
                 <input
@@ -2359,9 +2359,6 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               Add employee
             </button>
           </div>
-          {laneMode ? (
-            <p className="text-xs text-emerald-800">Cash entries here stay in Jainav lane only (hidden from normal ledger).</p>
-          ) : null}
           <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void saveExpense()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
             Save entry

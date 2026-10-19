@@ -12,7 +12,7 @@ import {
   type ResellerSubmissionStatus,
 } from '@/lib/reseller-products'
 import { KC_ADMIN_INBOX_REFRESH_EVENT } from '@/lib/admin-inbox-summary'
-import { Check, Loader2, Package, Pencil, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Loader2, Package, Pencil, Trash2, X } from 'lucide-react'
 
 const FILTERS = [
   { key: 'pending', label: 'Pending' },
@@ -42,6 +42,7 @@ export function ResellerProductSubmissionsPanel() {
   const [actingId, setActingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [editRow, setEditRow] = useState<ResellerProductSubmission | null>(null)
+  const [expandedApprovedBatchIds, setExpandedApprovedBatchIds] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -93,8 +94,25 @@ export function ResellerProductSubmissionsPanel() {
       if (existing) existing.rows.push(row)
       else map.set(batchId, { batchId, label, rows: [row] })
     }
-    return [...map.values()]
+    return [...map.values()].sort(
+      (a, b) =>
+        new Date(b.rows[0]?.created_at || 0).getTime() - new Date(a.rows[0]?.created_at || 0).getTime(),
+    )
   }, [rows])
+
+  const approvedOrphanRows = useMemo(
+    () => rows.filter((r) => r.submission_status === 'approved' && !r.batch_id),
+    [rows],
+  )
+
+  const toggleApprovedBatch = (batchId: string) => {
+    setExpandedApprovedBatchIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(batchId)) next.delete(batchId)
+      else next.add(batchId)
+      return next
+    })
+  }
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -191,17 +209,22 @@ export function ResellerProductSubmissionsPanel() {
     }
   }
 
-  const deleteBatch = async (batchId: string, count: number) => {
+  const deleteBatch = async (batchId: string, count: number, opts?: { approved?: boolean }) => {
     if (!batchId || batchId.startsWith('single-')) return
+    const approved = opts?.approved === true
     if (
       !window.confirm(
-        `Delete all ${count} pending items in this Excel batch? Already-approved live products will stay on the catalogue and remain editable under All.`,
+        approved
+          ? `Delete this Excel batch (${count} live products)? Products will be hidden from the catalogue and their uploaded photos will be removed from the server.`
+          : `Delete all ${count} items in this Excel batch? Uploaded photos for these products will be removed.`,
       )
     )
       return
     setActingId(-4)
     try {
-      await axios.delete(`/api/admin/reseller-product-submissions/batch/${batchId}`)
+      await axios.delete(`/api/admin/reseller-product-submissions/batch/${batchId}`, {
+        params: approved ? { delete_live_product: '1' } : {},
+      })
       window.dispatchEvent(new Event(KC_ADMIN_INBOX_REFRESH_EVENT))
       await load()
     } catch (e: unknown) {
@@ -248,7 +271,7 @@ export function ResellerProductSubmissionsPanel() {
   }
 
   return (
-    <section className="mb-8 rounded-2xl border border-amber-500/25 bg-slate-900/40 p-4 sm:p-6">
+    <section className="relative mb-8 rounded-2xl border border-amber-500/25 bg-slate-900/40 p-4 sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-amber-400 flex items-center gap-2">
@@ -363,42 +386,91 @@ export function ResellerProductSubmissionsPanel() {
             )
           })}
         </div>
-      ) : filter === 'approved' && approvedGroups.length > 0 ? (
-        <div className="space-y-6">
-          {approvedGroups.map((group) => (
-            <div key={group.batchId} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3 sm:p-4">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-200">{group.label}</p>
-                  <p className="text-xs text-slate-500">{group.rows.length} live product(s)</p>
-                </div>
+      ) : filter === 'approved' && (approvedGroups.length > 0 || approvedOrphanRows.length > 0) ? (
+        <div className="space-y-3">
+          {approvedGroups.map((group) => {
+            const open = expandedApprovedBatchIds.has(group.batchId)
+            return (
+              <div key={group.batchId} className="rounded-xl border border-slate-800 bg-slate-950/30 overflow-hidden">
                 <button
                   type="button"
-                  disabled={actingId === -3}
-                  onClick={() => void republishBatch(group.batchId, group.rows.length)}
-                  className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 disabled:opacity-60"
+                  onClick={() => toggleApprovedBatch(group.batchId)}
+                  className="flex w-full items-start justify-between gap-3 p-3 text-left sm:p-4"
                 >
-                  {actingId === -3 ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                  Re-sync batch placements
+                  <div className="flex min-w-0 items-start gap-2">
+                    {open ? (
+                      <ChevronDown className="mt-0.5 size-4 shrink-0 text-amber-400/80" aria-hidden />
+                    ) : (
+                      <ChevronRight className="mt-0.5 size-4 shrink-0 text-amber-400/80" aria-hidden />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-200">{group.label}</p>
+                      <p className="text-xs text-slate-500">
+                        {group.rows.length} live product{group.rows.length === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-medium text-amber-300/90">{open ? 'Hide' : 'Open'}</span>
                 </button>
+                {open ? (
+                  <div className="border-t border-slate-800 px-3 pb-3 sm:px-4 sm:pb-4">
+                    <div className="mb-3 flex flex-wrap justify-end gap-2 pt-3">
+                      <button
+                        type="button"
+                        disabled={actingId === -3}
+                        onClick={() => void republishBatch(group.batchId, group.rows.length)}
+                        className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 disabled:opacity-60"
+                      >
+                        {actingId === -3 ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                        Re-sync batch placements
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actingId === -4}
+                        onClick={() => void deleteBatch(group.batchId, group.rows.length, { approved: true })}
+                        className="flex min-h-[36px] items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200 disabled:opacity-60"
+                      >
+                        {actingId === -4 ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                        Delete entire batch
+                      </button>
+                    </div>
+                    <ul className="space-y-3">
+                      {group.rows.map((row) => (
+                        <AdminSubmissionRow
+                          key={row.id}
+                          row={row}
+                          acting={actingId === row.id}
+                          selected={selected.has(row.id)}
+                          onToggleSelect={() => toggleSelect(row.id)}
+                          onApprove={() => void approve(row.id)}
+                          onReject={() => void reject(row.id)}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => void remove(row.id, row.submission_status === 'approved')}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
-              <ul className="space-y-3">
-                {group.rows.map((row) => (
-                  <AdminSubmissionRow
-                    key={row.id}
-                    row={row}
-                    acting={actingId === row.id}
-                    selected={selected.has(row.id)}
-                    onToggleSelect={() => toggleSelect(row.id)}
-                    onApprove={() => void approve(row.id)}
-                    onReject={() => void reject(row.id)}
-                    onEdit={() => setEditRow(row)}
-                    onDelete={() => void remove(row.id, row.submission_status === 'approved')}
-                  />
-                ))}
-              </ul>
-            </div>
-          ))}
+            )
+          })}
+          {approvedOrphanRows.length > 0 ? (
+            <ul className="space-y-3">
+              {approvedOrphanRows.map((row) => (
+                <AdminSubmissionRow
+                  key={row.id}
+                  row={row}
+                  acting={actingId === row.id}
+                  selected={selected.has(row.id)}
+                  onToggleSelect={() => toggleSelect(row.id)}
+                  onApprove={() => void approve(row.id)}
+                  onReject={() => void reject(row.id)}
+                  onEdit={() => setEditRow(row)}
+                  onDelete={() => void remove(row.id, true)}
+                />
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : (
         <ul className="space-y-3">

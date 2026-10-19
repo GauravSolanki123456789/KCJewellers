@@ -785,6 +785,78 @@ function rewriteMediaUrlStem(url, oldStem, newStem) {
     return u.split(o).join(n);
 }
 
+function deleteProductMediaOnDisk(uploadsDir, stem) {
+    const s = String(stem || '').trim();
+    if (!s || s.includes('..')) return;
+    const pairs = [
+        { suf: '', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_secondary', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_box', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_video', exts: PRODUCT_MEDIA_VIDEO_EXTS },
+    ];
+    for (const { suf, exts } of pairs) {
+        for (const ext of exts) {
+            const abs = path.join(uploadsDir, `${s}${suf}${ext}`);
+            try {
+                if (fs.existsSync(abs) && fs.statSync(abs).isFile()) fs.unlinkSync(abs);
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+}
+
+function submissionMediaStem(row) {
+    return String(row?.web_product_sku || row?.barcode || '').trim();
+}
+
+async function deactivateLiveCatalogForSubmission(query, row) {
+    const stem = submissionMediaStem(row);
+    const sid = parseInt(String(row?.id), 10);
+    if (Number.isFinite(sid) && sid > 0) {
+        await query(
+            `UPDATE web_products SET is_active = false, updated_at = CURRENT_TIMESTAMP
+             WHERE reseller_submission_id = $1 AND (is_active IS NULL OR is_active = true)`,
+            [sid],
+        );
+    }
+    if (stem) {
+        await query(
+            `UPDATE web_products SET is_active = false, updated_at = CURRENT_TIMESTAMP
+             WHERE (LOWER(TRIM(sku)) = LOWER($1) OR LOWER(TRIM(barcode)) = LOWER($1))
+               AND (is_active IS NULL OR is_active = true)`,
+            [stem],
+        );
+    }
+}
+
+async function purgeResellerSubmission(query, uploadsDir, row, { deactivateLive = false } = {}) {
+    if (!row?.id) return;
+    const stem = submissionMediaStem(row);
+    if (stem) deleteProductMediaOnDisk(uploadsDir, stem);
+    if (deactivateLive) await deactivateLiveCatalogForSubmission(query, row);
+    await query('DELETE FROM reseller_product_submissions WHERE id = $1', [row.id]);
+}
+
+async function countBatchPhotoStats(query, userId, batchId, uploadsDir) {
+    const subs = await query(
+        `SELECT image_url, secondary_image_url, web_product_sku, barcode
+         FROM reseller_product_submissions
+         WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
+        [batchId, userId],
+    );
+    let withPrimary = 0;
+    let withSecondary = 0;
+    for (const s of subs) {
+        const stem = submissionMediaStem(s);
+        if (String(s.image_url || '').trim()) withPrimary += 1;
+        else if (stem && diskFileExistsInWebProducts(uploadsDir, `${stem}.webp`)) withPrimary += 1;
+        if (String(s.secondary_image_url || '').trim()) withSecondary += 1;
+        else if (stem && diskFileExistsInWebProducts(uploadsDir, `${stem}_secondary.webp`)) withSecondary += 1;
+    }
+    return { with_primary_image: withPrimary, with_secondary_image: withSecondary };
+}
+
 function applyVariantStemChangeToFields(fields, existingRow, resolved, uploadsDir) {
     const oldStem = String(existingRow.web_product_sku || '').trim();
     const newStem = String(resolved.prodSku || '').trim();
@@ -980,6 +1052,76 @@ async function assertResellerBatchStylesAllowed(query, userId, batchId) {
         await assertResellerStyleAllowed(query, userId, styleCode, {
             metalType: row.metal_type,
         });
+    }
+}
+
+function diskFileExistsInWebProducts(uploadsDir, filename) {
+    const safe = path.basename(String(filename || ''));
+    if (!safe || safe.includes('..')) return false;
+    try {
+        const abs = path.join(uploadsDir, safe);
+        return fs.existsSync(abs) && fs.statSync(abs).isFile();
+    } catch {
+        return false;
+    }
+}
+
+function existingWebProductMediaFromDisk(prodSku, apiBase, uploadsDir) {
+    const stem = String(prodSku || '').trim();
+    if (!stem) return null;
+    const out = {};
+    if (diskFileExistsInWebProducts(uploadsDir, `${stem}.webp`)) {
+        out.image_url = `${apiBase}/uploads/web_products/${stem}.webp`;
+    }
+    if (diskFileExistsInWebProducts(uploadsDir, `${stem}_secondary.webp`)) {
+        out.secondary_image_url = `${apiBase}/uploads/web_products/${stem}_secondary.webp`;
+    }
+    if (diskFileExistsInWebProducts(uploadsDir, `${stem}_box.webp`)) {
+        out.box_image_url = `${apiBase}/uploads/web_products/${stem}_box.webp`;
+    }
+    return Object.keys(out).length ? out : null;
+}
+
+async function linkDiskImagesToSubmissionRow(query, row, uploadsDir, apiBase) {
+    if (!row?.id) return enrichSubmissionRow(row);
+    const enriched = enrichSubmissionRow(row);
+    const stem = String(enriched.web_product_sku || enriched.barcode || '').trim();
+    const media = existingWebProductMediaFromDisk(stem, apiBase, uploadsDir);
+    if (!media) return enriched;
+    const patches = {};
+    if (media.image_url && !String(row.image_url || '').trim()) patches.image_url = media.image_url;
+    if (media.secondary_image_url && !String(row.secondary_image_url || '').trim()) {
+        patches.secondary_image_url = media.secondary_image_url;
+    }
+    if (media.box_image_url && !String(row.box_image_url || '').trim()) {
+        patches.box_image_url = media.box_image_url;
+    }
+    if (!Object.keys(patches).length) return enriched;
+    const sets = [];
+    const params = [row.id];
+    let idx = 2;
+    for (const [k, v] of Object.entries(patches)) {
+        sets.push(`${k} = $${idx++}`);
+        params.push(v);
+    }
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    const updated = await query(
+        `UPDATE reseller_product_submissions SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+        params,
+    );
+    return enrichSubmissionRow(updated[0] || enriched);
+}
+
+async function linkDiskImagesForUserDrafts(query, userId, uploadsDir, apiBase) {
+    const rows = await query(
+        `SELECT * FROM reseller_product_submissions
+         WHERE submitted_by_user_id = $1
+           AND submission_status = 'draft'
+           AND batch_id IS NOT NULL`,
+        [userId],
+    );
+    for (const row of rows) {
+        await linkDiskImagesToSubmissionRow(query, row, uploadsDir, apiBase);
     }
 }
 
@@ -1219,7 +1361,19 @@ function registerResellerProductRoutes(app, deps) {
             }
             sql += ' ORDER BY rps.created_at DESC LIMIT 500';
             const rows = await query(sql, params);
-            const reconciled = await Promise.all(rows.map((row) => reconcileSubmissionIdentity(query, row)));
+            let reconciled = await Promise.all(rows.map((row) => reconcileSubmissionIdentity(query, row)));
+            if (batchId) {
+                reconciled = await Promise.all(
+                    reconciled.map((row) =>
+                        linkDiskImagesToSubmissionRow(
+                            query,
+                            row,
+                            uploadsWebProductsDir,
+                            getPublicApiBaseUrl(),
+                        ),
+                    ),
+                );
+            }
             res.json(reconciled);
         } catch (e) {
             res.status(500).json({ error: e.message });
@@ -1430,8 +1584,14 @@ function registerResellerProductRoutes(app, deps) {
                         req.body.batch_label != null
                             ? String(req.body.batch_label).slice(0, 255)
                             : `Excel ${new Date().toLocaleDateString('en-IN')}`;
-                    const row = await insertSubmission(query, fields);
-                    created.push(row);
+                    let row = await insertSubmission(query, fields);
+                    row = await linkDiskImagesToSubmissionRow(
+                        query,
+                        row,
+                        uploadsWebProductsDir,
+                        getPublicApiBaseUrl(),
+                    );
+                    created.push(enrichSubmissionRow(row));
                     existingSubmissions.unshift(row);
                 } catch (rowErr) {
                     const raw = products[i];
@@ -1506,8 +1666,14 @@ function registerResellerProductRoutes(app, deps) {
                             req.body?.batch_label != null
                                 ? String(req.body.batch_label).slice(0, 255)
                                 : `Excel ${new Date().toLocaleDateString('en-IN')}`;
-                        const row = await insertSubmission(query, fields);
-                        created.push(row);
+                        let row = await insertSubmission(query, fields);
+                        row = await linkDiskImagesToSubmissionRow(
+                            query,
+                            row,
+                            uploadsWebProductsDir,
+                            getPublicApiBaseUrl(),
+                        );
+                        created.push(enrichSubmissionRow(row));
                     } catch (rowErr) {
                         errors.push({ row: i, error: rowErr.message });
                     }
@@ -1646,7 +1812,13 @@ function registerResellerProductRoutes(app, deps) {
             if (!existing.length) return res.status(404).json({ error: 'Submission not found' });
             const st = existing[0].submission_status;
             if (st === 'draft') {
-                await query('DELETE FROM reseller_product_submissions WHERE id = $1', [id]);
+                const full = await query(
+                    `SELECT * FROM reseller_product_submissions WHERE id = $1 AND submitted_by_user_id = $2`,
+                    [id, req.user.id],
+                );
+                if (full.length) {
+                    await purgeResellerSubmission(query, uploadsWebProductsDir, full[0], { deactivateLive: false });
+                }
                 return res.json({ success: true, deleted: true });
             }
             if (st === 'pending') {
@@ -1667,6 +1839,12 @@ function registerResellerProductRoutes(app, deps) {
     // ---- Reseller: list Excel batches (draft + pending review) ----
     app.get('/api/reseller/product-batches', requireResellerUpload, async (req, res) => {
         try {
+            await linkDiskImagesForUserDrafts(
+                query,
+                req.user.id,
+                uploadsWebProductsDir,
+                getPublicApiBaseUrl(),
+            );
             const rows = await query(
                 `SELECT batch_id,
                         MAX(batch_label) AS batch_label,
@@ -1690,7 +1868,44 @@ function registerResellerProductRoutes(app, deps) {
                  LIMIT 100`,
                 [req.user.id],
             );
+            for (const b of rows) {
+                const stats = await countBatchPhotoStats(
+                    query,
+                    req.user.id,
+                    b.batch_id,
+                    uploadsWebProductsDir,
+                );
+                b.with_primary_image = stats.with_primary_image;
+                b.with_secondary_image = stats.with_secondary_image;
+            }
             res.json(rows);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // ---- Reseller: delete entire Excel batch (draft only — removes rows + on-disk photos) ----
+    app.delete('/api/reseller/product-batches/:batchId', requireResellerUpload, async (req, res) => {
+        try {
+            const batchId = String(req.params.batchId || '').trim();
+            if (!batchId) return res.status(400).json({ error: 'batchId required' });
+            const rows = await query(
+                `SELECT * FROM reseller_product_submissions
+                 WHERE batch_id = $1::uuid AND submitted_by_user_id = $2`,
+                [batchId, req.user.id],
+            );
+            if (!rows.length) return res.status(404).json({ error: 'Batch not found' });
+            const nonDraft = rows.filter((r) => String(r.submission_status).toLowerCase() !== 'draft');
+            if (nonDraft.length) {
+                return res.status(400).json({
+                    error:
+                        'Only draft batches can be deleted here. If already sent to KC, withdraw items or ask admin to remove the batch.',
+                });
+            }
+            for (const row of rows) {
+                await purgeResellerSubmission(query, uploadsWebProductsDir, row, { deactivateLive: false });
+            }
+            res.json({ success: true, deleted_count: rows.length });
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
@@ -2258,11 +2473,7 @@ function registerResellerProductRoutes(app, deps) {
             const deleteLive = req.query.delete_live_product === '1' || req.query.delete_live_product === 'true';
             const rows = await query('SELECT * FROM reseller_product_submissions WHERE id = $1', [id]);
             if (!rows.length) return res.status(404).json({ error: 'Not found' });
-            const sku = rows[0].web_product_sku;
-            await query('DELETE FROM reseller_product_submissions WHERE id = $1', [id]);
-            if (deleteLive && sku) {
-                await query('UPDATE web_products SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE sku = $1', [sku]);
-            }
+            await purgeResellerSubmission(query, uploadsWebProductsDir, rows[0], { deactivateLive: deleteLive });
             res.json({ success: true, deleted_id: id });
         } catch (e) {
             res.status(500).json({ error: e.message });
@@ -2274,44 +2485,19 @@ function registerResellerProductRoutes(app, deps) {
         try {
             const batchId = String(req.params.batchId || '').trim();
             if (!batchId) return res.status(400).json({ error: 'batchId required' });
-            const deleteLive = req.query.delete_live_product === '1' || req.query.delete_live_product === 'true';
-            const rows = await query(
-                `SELECT id, submission_status, web_product_sku
-                 FROM reseller_product_submissions WHERE batch_id = $1::uuid`,
-                [batchId],
-            );
-            const approved = rows.filter((r) => String(r.submission_status).toLowerCase() === 'approved');
-            const pendingLike = rows.filter((r) => String(r.submission_status).toLowerCase() !== 'approved');
-
-            if (pendingLike.length) {
-                await query(
-                    `DELETE FROM reseller_product_submissions
-                     WHERE batch_id = $1::uuid AND submission_status <> 'approved'`,
-                    [batchId],
-                );
+            const deleteLive =
+                req.query.delete_live_product === '1' ||
+                req.query.delete_live_product === 'true' ||
+                req.query.delete_live_product === undefined;
+            const rows = await query(`SELECT * FROM reseller_product_submissions WHERE batch_id = $1::uuid`, [batchId]);
+            if (!rows.length) return res.status(404).json({ error: 'Batch not found' });
+            for (const row of rows) {
+                const st = String(row.submission_status).toLowerCase();
+                const deactivate =
+                    deleteLive && (st === 'approved' || st === 'pending' || st === 'rejected');
+                await purgeResellerSubmission(query, uploadsWebProductsDir, row, { deactivateLive: deactivate });
             }
-            if (approved.length) {
-                await query(
-                    `UPDATE reseller_product_submissions SET
-                        batch_id = NULL,
-                        batch_label = NULL,
-                        updated_at = CURRENT_TIMESTAMP
-                     WHERE batch_id = $1::uuid AND submission_status = 'approved'`,
-                    [batchId],
-                );
-            }
-            if (deleteLive) {
-                for (const r of approved) {
-                    if (r.web_product_sku) {
-                        await query('UPDATE web_products SET is_active = false WHERE sku = $1', [r.web_product_sku]);
-                    }
-                }
-            }
-            res.json({
-                success: true,
-                deleted_count: pendingLike.length,
-                preserved_approved: approved.length,
-            });
+            res.json({ success: true, deleted_count: rows.length });
         } catch (e) {
             res.status(500).json({ error: e.message });
         }

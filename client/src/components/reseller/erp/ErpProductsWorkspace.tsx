@@ -749,10 +749,6 @@ export function ErpProductsWorkspace() {
           <ScanBarcode className="size-4 text-rose-700" aria-hidden />
           <div>
             <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Delete tag by barcode</p>
-            <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-              Scan a stock barcode or RFID tag (e.g. BM1487) and press Enter — deletes the piece, unlinks RFID,
-              and removes it from all uploads.
-            </p>
           </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -794,10 +790,7 @@ export function ErpProductsWorkspace() {
         ) : null}
       </div>
       <div className={`${erpCardCls} border-blue-100 bg-gradient-to-br from-white to-blue-50/30`}>
-        <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Open purchase voucher (PV)</p>
-        <p className="mb-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-          Enter PV number from Ledger → Purchase (PV). Upload Excel here until weight tallies.
-        </p>
+        <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Open purchase voucher (PV)</p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             className={`${erpInputCls} font-mono uppercase`}
@@ -854,9 +847,6 @@ export function ErpProductsWorkspace() {
             <>
               <Upload className="mb-2 size-8 text-[var(--kc-accent,#c41e3a)]" />
               <span className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Choose .xlsx or .csv</span>
-              <span className="mt-1 max-w-sm text-center text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-                PCS is pieces on one tag (a pair = 1 product, 2 pcs). Split later from Tag split.
-              </span>
             </>
           )}
         </label>

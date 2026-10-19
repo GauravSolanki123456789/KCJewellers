@@ -946,7 +946,7 @@ export default function AdminProductsPage() {
         )}
 
         <div className="min-h-screen bg-slate-950 text-slate-100">
-          <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
+          <main className="relative mx-auto max-w-6xl px-4 py-8 pb-24">
             <Link
               href="/admin"
               className="inline-flex items-center gap-2 text-slate-400 hover:text-amber-500 mb-6"

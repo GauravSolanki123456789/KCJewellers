@@ -47,6 +47,7 @@ import {
   Pencil,
   Plus,
   Send,
+  Trash2,
   Upload,
 } from 'lucide-react'
 
@@ -211,19 +212,23 @@ export function ResellerProductsPanel({
     }
   }, [])
 
-  const loadBatchProducts = useCallback(async (batchId: string, opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setBatchProductsLoading(true)
-    try {
-      const res = await axios.get<ResellerProductSubmission[]>('/api/reseller/product-submissions', {
-        params: { batch_id: batchId },
-      })
-      setBatchProducts(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      setBatchProducts([])
-    } finally {
-      if (!opts?.silent) setBatchProductsLoading(false)
-    }
-  }, [])
+  const loadBatchProducts = useCallback(
+    async (batchId: string, opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setBatchProductsLoading(true)
+      try {
+        const res = await axios.get<ResellerProductSubmission[]>('/api/reseller/product-submissions', {
+          params: { batch_id: batchId },
+        })
+        setBatchProducts(Array.isArray(res.data) ? res.data : [])
+        void loadBatches({ silent: true })
+      } catch {
+        setBatchProducts([])
+      } finally {
+        if (!opts?.silent) setBatchProductsLoading(false)
+      }
+    },
+    [loadBatches],
+  )
 
   useEffect(() => {
     void loadBatches()
@@ -459,6 +464,38 @@ export function ResellerProductsPanel({
     } finally {
       setBulkParsing(false)
       if (excelInputRef.current) excelInputRef.current.value = ''
+    }
+  }
+
+  const deleteDraftBatch = async (batch: ResellerProductBatch) => {
+    const allDraft =
+      (batch.draft_count ?? 0) > 0 && (batch.draft_count ?? 0) === (batch.product_count ?? 0)
+    if (!allDraft) {
+      setError('Only draft batches (not yet sent to KC) can be deleted here.')
+      return
+    }
+    const label = batch.batch_label || 'Excel import'
+    if (
+      !window.confirm(
+        `Delete "${label}" (${batch.product_count} products)? This removes the batch and deletes uploaded photos for these items.`,
+      )
+    ) {
+      return
+    }
+    try {
+      await axios.delete(`/api/reseller/product-batches/${batch.batch_id}`)
+      setMessage(`Deleted batch "${label}".`)
+      if (expandedBatchId === batch.batch_id) {
+        setExpandedBatchId(null)
+        setBatchProducts([])
+      }
+      await loadBatches()
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      setError(msg || 'Could not delete batch')
     }
   }
 
@@ -947,19 +984,29 @@ export function ResellerProductsPanel({
                           </button>
                         </div>
                         {canSubmit ? (
-                          <button
-                            type="button"
-                            disabled={submittingBatchId === b.batch_id}
-                            onClick={() => void submitBatchForReview(b.batch_id)}
-                            className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                          >
-                            {submittingBatchId === b.batch_id ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Send className="size-4" />
-                            )}
-                            Send batch to KC for review
-                          </button>
+                          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                            <button
+                              type="button"
+                              disabled={submittingBatchId === b.batch_id}
+                              onClick={() => void submitBatchForReview(b.batch_id)}
+                              className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--kc-accent,#c41e3a)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                              {submittingBatchId === b.batch_id ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Send className="size-4" />
+                              )}
+                              Send batch to KC for review
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteDraftBatch(b)}
+                              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-900 transition hover:bg-rose-100"
+                            >
+                              <Trash2 className="size-4" />
+                              Delete batch
+                            </button>
+                          </div>
                         ) : (
                           <p className="kc-upload-hint mt-4 text-xs">
                             {b.pending_count
@@ -1200,31 +1247,6 @@ function BatchBulkPhotoUpload({
         </div>
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk upload photos</p>
-          <p className="kc-upload-hint mt-1 text-xs leading-relaxed">
-            {allBoxOnly ? (
-              <>
-                These products are <span className="font-semibold text-emerald-900">with-box only</span> — rename each
-                image to the with-box filename below (e.g.{' '}
-                <span className="font-mono text-emerald-800">ganesh-sfidol001_box.webp</span>), then bulk upload
-                with-box images.
-              </>
-            ) : (
-              <>
-                Name files like the product code below — e.g.{' '}
-                <span className="font-mono text-[var(--kc-accent,#c41e3a)]">HMEF_LPHS-00001</span> or{' '}
-                <span className="font-mono text-[var(--kc-accent,#c41e3a)]">hmeflphs-00001</span> (PNG/JPG/WebP all
-                work) for front,{' '}
-                <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]/80">…_secondary</span> for back
-                {hasBoxProducts ? (
-                  <>
-                    ,{' '}
-                    <span className="font-mono text-emerald-800">BAANI-01_box.webp</span> for with-box
-                  </>
-                ) : null}
-                . Large AI/studio PNGs (even 20+ MB) are auto-compressed to high-quality WebP before upload — no need to shrink files manually. Then pick many files at once on phone or laptop.
-              </>
-            )}
-          </p>
         </div>
       </div>
 

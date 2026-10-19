@@ -172,10 +172,6 @@ export function ResellerBatchExcelEditor({
               <Columns3 className="size-5 shrink-0 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
               <h3 className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Edit Excel data</h3>
             </div>
-            <p className="kc-upload-hint mt-1 text-xs leading-relaxed">
-              Fix MCType (MC/GM ↔ MC/PC), weights, wastage, and rates here — like Excel. Changes apply to all
-              products in this batch after you save. Then add photos below.
-            </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <button
