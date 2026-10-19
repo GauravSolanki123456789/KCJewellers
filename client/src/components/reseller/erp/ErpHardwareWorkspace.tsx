@@ -154,6 +154,11 @@ export function ErpHardwareWorkspace() {
   const [stockBarcodePrefix, setStockBarcodePrefix] = useState<StockBarcodePrefixSource>(
     DEFAULT_STOCK_BARCODE_PREFIX,
   )
+  const [savedBarcodePrefix, setSavedBarcodePrefix] = useState<StockBarcodePrefixSource>(
+    DEFAULT_STOCK_BARCODE_PREFIX,
+  )
+  const [barcodePrefixBusy, setBarcodePrefixBusy] = useState(false)
+  const [barcodePrefixSavedFlash, setBarcodePrefixSavedFlash] = useState(false)
 
   useEffect(() => {
     void axios
@@ -162,10 +167,30 @@ export function ErpHardwareWorkspace() {
       )
       .then((res) => {
         setHw(migrateHardwareSettings(res.data.settings?.hardware))
-        setStockBarcodePrefix(normalizeStockBarcodePrefix(res.data.settings?.stockBarcodePrefix))
+        const prefix = normalizeStockBarcodePrefix(res.data.settings?.stockBarcodePrefix)
+        setStockBarcodePrefix(prefix)
+        setSavedBarcodePrefix(prefix)
       })
       .catch(() => {})
   }, [])
+
+  const barcodePrefixDirty = stockBarcodePrefix !== savedBarcodePrefix
+
+  const saveBarcodePrefix = async () => {
+    setBarcodePrefixBusy(true)
+    setBarcodePrefixSavedFlash(false)
+    try {
+      await axios.put('/api/reseller/erp/settings', {
+        settings: { stockBarcodePrefix },
+      })
+      setSavedBarcodePrefix(stockBarcodePrefix)
+      setBarcodePrefixSavedFlash(true)
+    } catch {
+      alert('Could not save barcode prefix')
+    } finally {
+      setBarcodePrefixBusy(false)
+    }
+  }
 
   const save = async () => {
     setBusy(true)
@@ -174,6 +199,7 @@ export function ErpHardwareWorkspace() {
       await axios.put('/api/reseller/erp/settings', {
         settings: { hardware: hw, stockBarcodePrefix },
       })
+      setSavedBarcodePrefix(stockBarcodePrefix)
       setSaved(true)
     } catch {
       alert('Could not save hardware settings')
@@ -330,48 +356,54 @@ export function ErpHardwareWorkspace() {
     }
   }, [])
 
-  const barcodeExample =
-    STOCK_BARCODE_PREFIX_OPTIONS.find((o) => o.value === stockBarcodePrefix)?.example ?? 'PCPBRG-00001-48291'
-
   return (
     <div className="space-y-4">
       <div className={erpCardCls}>
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-          <Barcode className="size-4 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
-          Stock upload — auto barcode prefix
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            <Barcode className="size-4 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
+            Stock upload — auto barcode prefix
+          </div>
+          {!barcodePrefixDirty && barcodePrefixSavedFlash ? (
+            <span className="text-xs font-medium text-emerald-700">Saved</span>
+          ) : null}
         </div>
-        <p className="mb-3 text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65">
-          When Excel has no barcode column, new pieces get{' '}
-          <span className="font-mono font-medium text-[var(--color-jewelry-black,#1a1814)]">PREFIX-#####</span>{' '}
-          (random 5 digits, never reused in your stock). Applies to new uploads and new rows — not existing barcodes.
-        </p>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {STOCK_BARCODE_PREFIX_OPTIONS.map((opt) => {
             const on = stockBarcodePrefix === opt.value
             return (
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setStockBarcodePrefix(opt.value)}
-                className={`rounded-xl border px-3 py-3 text-left text-xs transition ${
+                onClick={() => {
+                  setStockBarcodePrefix(opt.value)
+                  setBarcodePrefixSavedFlash(false)
+                }}
+                className={`min-h-[48px] rounded-xl border px-3 py-3 text-sm font-semibold transition ${
                   on
-                    ? 'border-emerald-700 bg-emerald-700 text-white'
+                    ? 'border-emerald-700 bg-emerald-700 text-white shadow-sm'
                     : 'border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:border-emerald-600/40'
                 }`}
               >
-                <p className="font-semibold">{opt.label}</p>
-                <p className={`mt-1 font-mono text-[10px] ${on ? 'text-emerald-50' : 'text-[var(--color-jewelry-black,#1a1814)]/55'}`}>
-                  e.g. {opt.example}
-                </p>
+                {opt.label}
               </button>
             )
           })}
         </div>
-        <p className="mt-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-          Current example: <span className="font-mono text-[var(--color-jewelry-black,#1a1814)]">{barcodeExample}</span>
-          {' · '}
-          Save hardware settings below to apply.
-        </p>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            className={`${erpBtnPrimary} min-h-[44px] w-full sm:w-auto`}
+            disabled={barcodePrefixBusy || !barcodePrefixDirty}
+            onClick={() => void saveBarcodePrefix()}
+          >
+            {barcodePrefixBusy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            Save barcode prefix
+          </button>
+          {barcodePrefixDirty ? (
+            <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">Unsaved changes</span>
+          ) : null}
+        </div>
       </div>
 
       <ErpWorkstationPanel value={workstation} onChange={setWorkstation} />
