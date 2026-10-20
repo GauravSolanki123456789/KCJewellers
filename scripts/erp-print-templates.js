@@ -23,7 +23,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim();
 
@@ -51,7 +51,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 720,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim();
 
@@ -78,7 +78,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim();
 
@@ -208,7 +208,7 @@ TEXT 666,77,"ROMAN.TTF",180,1,9,"{{fixed_price}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim();
 
@@ -748,6 +748,27 @@ function normalizePrnTemplate(raw) {
     return preserved;
 }
 
+/** Older TSC firmware skips QRCODE when M2/S7 sit where justification is expected. */
+function fixTsplQrcodeCommands(tspl) {
+    return String(tspl || '')
+        .split('\n')
+        .map((line) => {
+            const t = line.trim();
+            if (!/^QRCODE\b/i.test(t)) return line;
+            const dataMatch = t.match(/"([^"]*)"\s*$/);
+            const data = dataMatch ? String(dataMatch[1] || '').trim() : '';
+            if (!data) return line;
+            const m = t.match(
+                /^QRCODE\s+(\d+)\s*,\s*(\d+)\s*,\s*([LMQH])\s*,\s*(\d+)\s*,\s*([AMan])\s*,\s*(\d+)/i,
+            );
+            const safe = data.replace(/"/g, "'");
+            if (!m) return `QRCODE 400,30,L,2,A,180,"${safe}"`;
+            const cell = Math.min(4, Math.max(2, parseInt(m[4], 10) || 2));
+            return `QRCODE ${m[1]},${m[2]},${m[3].toUpperCase()},${cell},A,${m[6]},"${safe}"`;
+        })
+        .join('\n');
+}
+
 function formatTsplLineEndings(tspl, windowsPrinterName) {
     if (isZplLabelTemplate(tspl)) {
         const body = preserveZplTemplate(tspl);
@@ -758,7 +779,7 @@ function formatTsplLineEndings(tspl, windowsPrinterName) {
         }
         return out;
     }
-    const body = normalizePrnTemplate(tspl);
+    const body = fixTsplQrcodeCommands(normalizePrnTemplate(tspl));
     return `${body.split('\n').join('\r\n')}\r\n`;
 }
 
@@ -780,6 +801,7 @@ function renderTemplate(template, vars, opts) {
         const replacement = key === 'lines_table' ? String(val ?? '') : tsplSafe(val);
         out = out.split(`{{${key}}}`).join(replacement);
     }
+    if (!zpl) out = fixTsplQrcodeCommands(out);
     return out;
 }
 

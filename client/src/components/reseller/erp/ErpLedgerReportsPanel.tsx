@@ -34,8 +34,7 @@ const REPORTS: ReportMeta[] = [
   {
     id: 'customer_balances',
     title: 'Customer balances',
-    description:
-      'Who owes you and who you owe — GSTIN, contact, sales bills, and full transaction detail per customer.',
+    description: '',
     icon: Users,
   },
 ]
@@ -119,7 +118,9 @@ export function ErpLedgerReportsPanel({
 
   useEffect(() => {
     if (activeReport === 'customer_balances') void loadBalances()
-  }, [activeReport, loadBalances])
+    // Run once when the report is opened. Date filters apply via Run report.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeReport])
 
   const loadDetail = useCallback(
     async (customerId: number) => {
@@ -182,9 +183,6 @@ export function ErpLedgerReportsPanel({
     return (
       <div className="space-y-3">
         <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Ledger reports</p>
-        <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Choose a report, set filters, then export or open details.
-        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {REPORTS.map((r) => {
             const Icon = r.icon
@@ -192,15 +190,12 @@ export function ErpLedgerReportsPanel({
               <button
                 key={r.id}
                 type="button"
-                className={`${erpCardCls} flex min-h-[88px] w-full flex-col items-start gap-2 text-left transition hover:border-emerald-600/40`}
+                className={`${erpCardCls} flex min-h-[72px] w-full flex-col items-start gap-2 text-left transition hover:border-emerald-600/40`}
                 onClick={() => setActiveReport(r.id)}
               >
                 <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                   <Icon className="size-4 text-[var(--kc-accent,#c41e3a)]" aria-hidden />
                   {r.title}
-                </span>
-                <span className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/60">
-                  {r.description}
                 </span>
                 <span className="mt-auto inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
                   Open <ChevronRight className="size-3.5" />

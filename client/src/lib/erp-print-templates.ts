@@ -21,7 +21,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim()
 
@@ -49,7 +49,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 720,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim()
 
@@ -76,7 +76,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim()
 
@@ -160,7 +160,7 @@ TEXT 720,29,"ROMAN.TTF",180,1,8,"BOX:"
 TEXT 648,29,"ROMAN.TTF",180,1,9,"{{box_name}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-QRCODE 418,70,L,3,A,180,M2,S7,"{{barcode}}"
+QRCODE 418,70,L,2,A,180,"{{barcode}}"
 PRINT 1,1
 `.trim()
 

@@ -84,7 +84,7 @@ function compactCustomerName(name) {
         .trim()
         .toLowerCase()
         .replace(/&/g, ' and ')
-        .replace(/[\s._\-()]+/g, '');
+        .replace(/[^a-z0-9]+/g, '');
 }
 
 async function ensureCashBookCustomers(query, resellerUserId) {
@@ -96,7 +96,7 @@ async function ensureCashBookCustomers(query, resellerUserId) {
         const existing = await query(
             `SELECT id FROM reseller_erp_customers
              WHERE reseller_user_id = $1
-               AND regexp_replace(lower(trim(name)), '[\\s._-]+', '', 'g') = $2
+               AND ${customerNameCompactSql('name')} = $2
              LIMIT 1`,
             [resellerUserId, compactCustomerName(book.name)],
         );
@@ -389,7 +389,11 @@ async function loadCustomerRow(query, resellerUserId, customerId) {
 }
 
 function customerNameCompactSql(columnExpr) {
-    return `regexp_replace(lower(trim(COALESCE(${columnExpr}, ''))), '[\\s._-]+', '', 'g')`;
+    return `regexp_replace(regexp_replace(lower(trim(COALESCE(${columnExpr}, ''))), '&', ' and ', 'g'), '[^a-z0-9]+', '', 'g')`;
+}
+
+function customerMobile10Sql(columnExpr) {
+    return `right(regexp_replace(COALESCE(${columnExpr}, ''), '[^0-9]', '', 'g'), 10)`;
 }
 
 /** Re-link bills / ledger rows after a customer was deleted and re-created (same name, new id). */
@@ -398,6 +402,7 @@ async function relinkOrphanedCustomerRecords(query, resellerUserId, customer) {
     const compact = compactCustomerName(customer.name);
     if (!compact) return;
     const customerId = customer.id;
+    const mobile10 = String(customer.mobile || '').replace(/\D/g, '').slice(-10);
 
     await query(
         `UPDATE reseller_erp_bills b
@@ -411,8 +416,14 @@ async function relinkOrphanedCustomerRecords(query, resellerUserId, customer) {
                     WHERE c.id = b.customer_id AND c.reseller_user_id = $2
                 )
            )
-           AND ${customerNameCompactSql('b.customer_name')} = $3`,
-        [customerId, resellerUserId, compact],
+           AND (
+                ${customerNameCompactSql('b.customer_name')} = $3
+                OR (
+                    length($4) = 10
+                    AND ${customerMobile10Sql(`COALESCE(b.session_json->>'mobile', '')`)} = $4
+                )
+           )`,
+        [customerId, resellerUserId, compact, mobile10],
     );
 
     await query(
@@ -462,6 +473,73 @@ async function relinkOrphanedCustomerRecords(query, resellerUserId, customer) {
     }
 }
 
+async function relinkAllOrphanedCustomerRecords(query, resellerUserId) {
+    await query(
+        `UPDATE reseller_erp_bills b
+         SET customer_id = c.id
+         FROM reseller_erp_customers c
+         WHERE b.reseller_user_id = $1
+           AND c.reseller_user_id = $1
+           AND b.customer_id IS DISTINCT FROM c.id
+           AND (
+                b.customer_id IS NULL
+                OR NOT EXISTS (
+                    SELECT 1 FROM reseller_erp_customers x
+                    WHERE x.id = b.customer_id AND x.reseller_user_id = $1
+                )
+           )
+           AND ${customerNameCompactSql('b.customer_name')} <> ''
+           AND ${customerNameCompactSql('b.customer_name')} = ${customerNameCompactSql('c.name')}`,
+        [resellerUserId],
+    );
+    await query(
+        `UPDATE reseller_erp_ledger_entries e
+         SET customer_id = c.id
+         FROM reseller_erp_customers c
+         WHERE e.reseller_user_id = $1
+           AND c.reseller_user_id = $1
+           AND e.customer_id IS DISTINCT FROM c.id
+           AND (
+                e.customer_id IS NULL
+                OR NOT EXISTS (
+                    SELECT 1 FROM reseller_erp_customers x
+                    WHERE x.id = e.customer_id AND x.reseller_user_id = $1
+                )
+           )
+           AND (
+                (${customerNameCompactSql('e.counterparty_name')} <> ''
+                 AND ${customerNameCompactSql('e.counterparty_name')} = ${customerNameCompactSql('c.name')})
+                OR e.bill_id IN (
+                    SELECT b.id FROM reseller_erp_bills b
+                    WHERE b.reseller_user_id = $1 AND b.customer_id = c.id
+                )
+           )`,
+        [resellerUserId],
+    );
+    try {
+        await query(
+            `UPDATE reseller_erp_shadow_bills sb
+             SET customer_id = c.id
+             FROM reseller_erp_customers c
+             WHERE sb.reseller_user_id = $1
+               AND c.reseller_user_id = $1
+               AND sb.customer_id IS DISTINCT FROM c.id
+               AND (
+                    sb.customer_id IS NULL
+                    OR NOT EXISTS (
+                        SELECT 1 FROM reseller_erp_customers x
+                        WHERE x.id = sb.customer_id AND x.reseller_user_id = $1
+                    )
+               )
+               AND ${customerNameCompactSql('sb.customer_name')} <> ''
+               AND ${customerNameCompactSql('sb.customer_name')} = ${customerNameCompactSql('c.name')}`,
+            [resellerUserId],
+        );
+    } catch {
+        /* shadow optional */
+    }
+}
+
 async function buildCustomerAccount(query, resellerUserId, opts) {
     const customerId = parseInt(String(opts.customerId), 10);
     if (!Number.isFinite(customerId) || customerId <= 0) {
@@ -508,12 +586,12 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     let shadowSales = [];
     if (includeShadow && book !== 'cash') {
-        const shParams = book === 'jainav2' ? [resellerUserId] : [resellerUserId, customerId, customer.name];
+        const shParams = book === 'jainav2' ? [resellerUserId] : [resellerUserId, customerId, nameCompact];
         let shSql = `SELECT id, bill_number, lane, bill_date, total_inr, payment_method, status, created_at, session_json, lines_json
                      FROM reseller_erp_shadow_bills
                      WHERE reseller_user_id = $1`;
         if (book !== 'jainav2') {
-            shSql += ` AND (customer_id = $2 OR LOWER(TRIM(customer_name)) = LOWER(TRIM($3)))`;
+            shSql += ` AND (customer_id = $2 OR ${customerNameCompactSql('customer_name')} = $3)`;
         }
         if (from) {
             shParams.push(from);
@@ -1048,49 +1126,170 @@ function customerAccountToCsv(account) {
     return lines.join('\r\n');
 }
 
+function dateBounds(opts) {
+    const on = parseDateOrNull(opts.on);
+    if (on) return { from: on, to: on };
+    return { from: parseDateOrNull(opts.from), to: parseDateOrNull(opts.to) };
+}
+
+function applyDateParams(sql, params, col, from, to) {
+    let out = sql;
+    if (from) {
+        params.push(from);
+        out += ` AND ${col} >= $${params.length}::date`;
+    }
+    if (to) {
+        params.push(to);
+        out += ` AND ${col} <= $${params.length}::date`;
+    }
+    return out;
+}
+
+function emptyBalanceBucket() {
+    return {
+        billed: 0,
+        paid: 0,
+        debit: 0,
+        credit: 0,
+        metal: 0,
+        bills: [],
+        tx: 0,
+    };
+}
+
+function resolveCustomerIdFromMaps(row, byId, byCompact) {
+    const id = parseInt(String(row.customer_id), 10);
+    if (Number.isFinite(id) && id > 0 && byId.has(id)) return id;
+    const compact = compactCustomerName(row.customer_name || row.counterparty_name || '');
+    if (compact && byCompact.has(compact)) return byCompact.get(compact);
+    return null;
+}
+
 async function buildCustomerBalancesReport(query, resellerUserId, opts = {}) {
     const from = parseDateOrNull(opts.from);
     const to = parseDateOrNull(opts.to);
     const on = parseDateOrNull(opts.on);
     const includeShadow = !!opts.includeShadow;
     const nonZeroOnly = opts.nonZeroOnly !== false;
+    const bounds = dateBounds(opts);
+
+    await relinkAllOrphanedCustomerRecords(query, resellerUserId);
 
     const customers = await query(
-        `SELECT id, name, mobile, email, gstin, pan, address
+        `SELECT id, name, mobile, email, gstin, pan, address, notes
          FROM reseller_erp_customers
          WHERE reseller_user_id = $1
            ${sqlExcludeInternalErpCustomers('name', 'notes', { allowCashBook: includeShadow })}
          ORDER BY name ASC`,
         [resellerUserId],
     );
+    const byId = new Map();
+    const byCompact = new Map();
+    for (const c of customers) {
+        byId.set(c.id, emptyBalanceBucket());
+        const compact = compactCustomerName(c.name);
+        if (compact && !byCompact.has(compact)) byCompact.set(compact, c.id);
+    }
+
+    const billParams = [resellerUserId];
+    let billSql = `SELECT customer_id, customer_name, bill_number, bill_type, total_inr, session_json
+                   FROM reseller_erp_bills
+                   WHERE reseller_user_id = $1
+                     AND bill_type IN ('sale', 'credit', 'debit', 'sales_return')
+                     AND LOWER(status) IN ('completed', 'paid', 'final', 'issued')`;
+    if (!includeShadow) {
+        billSql += ` AND COALESCE(session_json->>'ledgerScope', 'official') <> 'lane'`;
+    }
+    billSql = applyDateParams(billSql, billParams, 'bill_date', bounds.from, bounds.to);
+    const bills = await query(billSql, billParams);
+    for (const b of bills) {
+        const cid = resolveCustomerIdFromMaps(b, byId, byCompact);
+        if (!cid) continue;
+        const bucket = byId.get(cid);
+        const kind = String(b.bill_type || 'sale').toLowerCase();
+        const amt = Number(b.total_inr) || 0;
+        const isCredit = kind === 'credit' || kind === 'sales_return';
+        if (isCredit) bucket.credit += amt;
+        else {
+            bucket.debit += amt;
+            if (kind === 'sale' || kind === 'debit') bucket.billed += amt;
+        }
+        bucket.tx += 1;
+        if (kind === 'sale' && b.bill_number) bucket.bills.push(String(b.bill_number).trim());
+    }
+
+    if (includeShadow) {
+        const shParams = [resellerUserId];
+        let shSql = `SELECT id, customer_id, customer_name, bill_number, total_inr, session_json, lines_json, lane
+                     FROM reseller_erp_shadow_bills
+                     WHERE reseller_user_id = $1`;
+        shSql = applyDateParams(shSql, shParams, 'bill_date', bounds.from, bounds.to);
+        let shadowBills = [];
+        try {
+            shadowBills = await query(shSql, shParams);
+        } catch {
+            shadowBills = [];
+        }
+        for (const s of shadowBills) {
+            const cid = resolveCustomerIdFromMaps(s, byId, byCompact);
+            if (!cid) continue;
+            const bucket = byId.get(cid);
+            const tmp = [];
+            pushShadowSaleRows(tmp, s);
+            const row = tmp[0];
+            if (!row) continue;
+            bucket.debit += Number(row.debit) || 0;
+            bucket.billed += Number(row.debit) || 0;
+            bucket.metal += Number(row.debit_metal_gm) || 0;
+            bucket.tx += 1;
+            if (row.ref) bucket.bills.push(String(row.ref).trim());
+        }
+    }
+
+    const payParams = [resellerUserId];
+    let paySql = `SELECT customer_id, counterparty_name, entry_type, amount_inr, metal_gm, weight_kg, metal_cleared_gm, narration, bill_id
+                  FROM reseller_erp_ledger_entries
+                  WHERE reseller_user_id = $1 AND is_suspense = false`;
+    if (includeShadow) {
+        paySql += ` AND (
+            ledger_scope = 'lane'
+            OR entry_type = 'purchase'
+            OR (ledger_scope = 'official' AND LOWER(COALESCE(payment_mode, '')) = 'cash')
+            OR ledger_scope = 'official'
+        )`;
+    } else {
+        paySql += ` AND ledger_scope = 'official'`;
+    }
+    paySql = applyDateParams(paySql, payParams, 'entry_date', bounds.from, bounds.to);
+    const payments = await query(paySql, payParams);
+    const payKinds = new Set(['payment_in', 'bill_advance', 'suspense_in']);
+    for (const p of payments) {
+        const cid = resolveCustomerIdFromMaps(
+            { customer_id: p.customer_id, customer_name: p.counterparty_name },
+            byId,
+            byCompact,
+        );
+        if (!cid) continue;
+        const bucket = byId.get(cid);
+        const flows = ledgerEntryCashflows(p.entry_type, p.amount_inr);
+        bucket.credit += flows.received_inr;
+        bucket.debit += flows.paid_out_inr;
+        if (payKinds.has(p.entry_type)) bucket.paid += flows.received_inr;
+        const metalDc = metalDebitCreditFromLedgerEntry(
+            p.entry_type,
+            metalGmForRunningBalance(p),
+            p.narration,
+        );
+        bucket.metal += (Number(metalDc.debit_metal_gm) || 0) - (Number(metalDc.credit_metal_gm) || 0);
+        bucket.tx += 1;
+    }
 
     const rows = [];
     for (const c of customers) {
-        await relinkOrphanedCustomerRecords(query, resellerUserId, c);
-        let account;
-        try {
-            account = await buildCustomerAccount(query, resellerUserId, {
-                customerId: c.id,
-                from,
-                to,
-                on,
-                includeShadow,
-            });
-        } catch {
-            continue;
-        }
-        const balanceDue = Number(account.summary.balance_due_inr) || 0;
-        const metalBal = Number(account.summary.metal_balance_gm) || 0;
+        const bucket = byId.get(c.id) || emptyBalanceBucket();
+        const balanceDue = Math.round((bucket.debit - bucket.credit) * 100) / 100;
+        const metalBal = roundMetalGm(bucket.metal);
         if (nonZeroOnly && Math.abs(balanceDue) < 0.005 && Math.abs(metalBal) < 0.0005) continue;
-
-        const billNumbers = [
-            ...new Set(
-                (account.transactions || [])
-                    .filter((t) => t.kind === 'sale' && t.ref)
-                    .map((t) => String(t.ref).trim()),
-            ),
-        ];
-
         rows.push({
             customer_id: c.id,
             name: c.name,
@@ -1099,12 +1298,12 @@ async function buildCustomerBalancesReport(query, resellerUserId, opts = {}) {
             gstin: c.gstin || '',
             pan: c.pan || '',
             address: c.address || '',
-            total_billed_inr: account.summary.total_billed_inr,
-            total_paid_inr: account.summary.total_paid_inr,
+            total_billed_inr: Math.round(bucket.billed * 100) / 100,
+            total_paid_inr: Math.round(bucket.paid * 100) / 100,
             balance_due_inr: balanceDue,
             metal_balance_gm: metalBal,
-            bill_numbers: billNumbers,
-            transaction_count: account.summary.transaction_count,
+            bill_numbers: [...new Set(bucket.bills.filter(Boolean))],
+            transaction_count: bucket.tx,
         });
     }
 
