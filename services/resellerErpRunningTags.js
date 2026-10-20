@@ -149,6 +149,7 @@ async function gstSoldGmForRunningTag(query, resellerUserId, barcode) {
 
 const RUNNING_TAG_PIECE_MATCH = `(
     lower(trim(barcode)) = lower($2)
+    OR lower(trim(barcode)) LIKE lower($2) || '~%'
     OR lower(COALESCE(payload_json->>'running_tag_barcode', '')) = lower($2)
 )`;
 

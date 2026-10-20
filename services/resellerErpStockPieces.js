@@ -22,7 +22,32 @@ const {
     findAnySaleForBarcode,
     findSaleForRunningTagUpload,
     recomputeRunningTagBalances,
+    roundGm,
 } = require('./resellerErpRunningTags');
+
+/** Excel often stores 9-digit tags as numbers — avoid scientific notation / duplicates. */
+function normalizeStockBarcodeFromExcel(raw) {
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return String(Math.trunc(raw));
+    }
+    const s = String(raw).trim();
+    if (/^\d+(?:\.0+)?$/.test(s)) return String(Math.trunc(Number(s)));
+    return s.slice(0, 128);
+}
+
+/** Unique DB barcode per running-tag + weight line; UI shows the tag via payload / mapPiece. */
+function runningTagIntakeBarcode(runningTagBarcode, weightGm) {
+    const rt = String(runningTagBarcode || '').trim();
+    if (!rt) return rt;
+    const wt = roundGm(weightGm);
+    if (wt > 0) return `${rt}~${wt.toFixed(3)}`;
+    return rt;
+}
+
+function runningTagDedupeKey(runningTagBarcode, weightGm) {
+    return `${String(runningTagBarcode || '').trim().toLowerCase()}~${roundGm(weightGm)}`;
+}
 
 function normalizeComPort(raw) {
     const t = String(raw || '').trim().toUpperCase();
@@ -369,7 +394,7 @@ function parseExcelRowToPiece(row) {
     };
 
     return {
-        barcode: barcode ? String(barcode).trim().slice(0, 128) : null,
+        barcode: normalizeStockBarcodeFromExcel(barcode),
         sku: pickRowVal(row, EXCEL_ALIASES.sku) ? String(pickRowVal(row, EXCEL_ALIASES.sku)).trim().slice(0, 128) : null,
         style_code: pickRowVal(row, EXCEL_ALIASES.style_code)
             ? String(pickRowVal(row, EXCEL_ALIASES.style_code)).trim().slice(0, 128)
@@ -436,10 +461,17 @@ function mapPiece(row) {
         }
     }
     const comp = componentWeightsFromPayload(payload);
+    const runningTagBarcode =
+        payload && typeof payload === 'object' && payload.running_tag_barcode
+            ? String(payload.running_tag_barcode).trim()
+            : null;
+    const displayBarcode = runningTagBarcode || row.barcode;
     return {
         id: row.id,
         batch_id: row.batch_id,
-        barcode: row.barcode,
+        barcode: displayBarcode,
+        stock_barcode: row.barcode,
+        running_tag_barcode: runningTagBarcode,
         sku: row.sku,
         style_code: row.style_code,
         product_name: row.product_name,
@@ -1469,25 +1501,24 @@ function registerStockPieceRoutes(app, deps) {
             const usedBarcodes = new Set();
             const duplicateInFile = [];
             const barcodePrefixSource = await loadStockBarcodePrefixSource(query, req.user.id);
-            let runningTagSetEarly = new Set();
+            let runningTagSet = new Set();
             try {
-                runningTagSetEarly = await loadRunningTagBarcodeSet(query, req.user.id);
+                runningTagSet = await loadRunningTagBarcodeSet(query, req.user.id);
             } catch {
-                runningTagSetEarly = new Set();
+                runningTagSet = new Set();
             }
             for (const row of rawRows) {
                 let p = applyNetWeightToPiece(parseExcelRowToPiece(row));
                 if (!p) continue;
                 if (p.barcode) {
                     const bc = String(p.barcode).trim();
-                    const isRunningTagBarcode = runningTagSetEarly.has(bc.toLowerCase());
-                    if (!isRunningTagBarcode && usedBarcodes.has(bc)) {
-                        duplicateInFile.push(bc);
+                    const isRt = runningTagSet.has(bc.toLowerCase());
+                    const dedupeKey = isRt ? runningTagDedupeKey(bc, p.avg_weight) : bc;
+                    if (usedBarcodes.has(dedupeKey)) {
+                        duplicateInFile.push(isRt ? `${bc} @ ${roundGm(p.avg_weight)}g` : bc);
                         continue;
                     }
-                    if (!isRunningTagBarcode) {
-                        usedBarcodes.add(bc);
-                    }
+                    usedBarcodes.add(dedupeKey);
                 }
                 if (p.style_code && p.sku) {
                     try {
@@ -1510,8 +1541,15 @@ function registerStockPieceRoutes(app, deps) {
                         usedBarcodes,
                         barcodePrefixSource,
                     );
-                } else {
                     usedBarcodes.add(String(p.barcode).trim());
+                } else if (runningTagSet.has(String(p.barcode).trim().toLowerCase())) {
+                    const rt = String(p.barcode).trim();
+                    p.payload_json = {
+                        ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
+                        running_tag_barcode: rt,
+                    };
+                    p.barcode = runningTagIntakeBarcode(rt, p.avg_weight);
+                    usedBarcodes.add(p.barcode);
                 }
                 pieces.push(p);
             }
@@ -1549,21 +1587,16 @@ function registerStockPieceRoutes(app, deps) {
                 );
             }
 
-            let runningTagSet = new Set();
-            try {
-                runningTagSet = await loadRunningTagBarcodeSet(query, req.user.id);
-            } catch {
-                runningTagSet = new Set();
-            }
-
             let prospectiveAddGm = 0;
             for (const p of pieces) {
-                const bc = String(p.barcode || '').trim();
-                const isRt = !!(bc && runningTagSet.has(bc.toLowerCase()));
+                const rtBc = String(
+                    (p.payload_json && p.payload_json.running_tag_barcode) || p.barcode || '',
+                ).trim();
+                const isRt = !!(rtBc && runningTagSet.has(rtBc.toLowerCase()));
                 const existing = await query(
                     `SELECT status FROM reseller_erp_stock_pieces
                      WHERE reseller_user_id = $1 AND barcode = $2 LIMIT 1`,
-                    [req.user.id, bc],
+                    [req.user.id, p.barcode],
                 );
                 if (existing.length && !isRt) continue;
                 prospectiveAddGm += Number(p.avg_weight) || 0;
@@ -1642,30 +1675,18 @@ function registerStockPieceRoutes(app, deps) {
             };
 
             for (const p of pieces) {
-                const originalBarcode = String(p.barcode || '').trim();
-                const isRunningTag = !!(originalBarcode && runningTagSet.has(originalBarcode.toLowerCase()));
+                const originalBarcode = String(
+                    (p.payload_json && p.payload_json.running_tag_barcode) || p.barcode || '',
+                ).trim();
+                const isRunningTag = !!(
+                    originalBarcode && runningTagSet.has(originalBarcode.toLowerCase())
+                );
                 if (isRunningTag) {
                     p.payload_json = {
                         ...(p.payload_json && typeof p.payload_json === 'object' ? p.payload_json : {}),
                         running_tag_barcode: originalBarcode,
                     };
-                    const takenRt = await query(
-                        `SELECT id FROM reseller_erp_stock_pieces
-                         WHERE reseller_user_id = $1 AND barcode = $2 LIMIT 1`,
-                        [req.user.id, originalBarcode],
-                    );
-                    if (takenRt.length) {
-                        p.barcode = await generateUniqueStockBarcode(
-                            query,
-                            req.user.id,
-                            p,
-                            usedBarcodes,
-                            barcodePrefixSource,
-                        );
-                        usedBarcodes.add(String(p.barcode || '').trim());
-                    } else {
-                        usedBarcodes.add(originalBarcode);
-                    }
+                    p.barcode = runningTagIntakeBarcode(originalBarcode, p.avg_weight);
                 }
                 const rfidTag = p.rfid_tag ? poshRfid.normalizeRfidTag(p.rfid_tag) : null;
                 if (rfidTag) {
