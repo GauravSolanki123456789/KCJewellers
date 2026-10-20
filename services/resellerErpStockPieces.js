@@ -2887,9 +2887,10 @@ function registerStockPieceRoutes(app, deps) {
                 }
                 let tspl;
                 let labelRuleName = null;
+                const winPrinterName = profile?.windowsPrinter?.name || null;
                 if (usePrn) {
                     const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, printFormats);
-                    tspl = rendered.tspl;
+                    tspl = erpPrint.formatTsplLineEndings(rendered.tspl, winPrinterName);
                     labelRuleName = rendered.ruleName;
                 } else if (erpPrint.isZebraLabelProfile(profile)) {
                     const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, {
@@ -2898,10 +2899,13 @@ function registerStockPieceRoutes(app, deps) {
                             printFormats.labelZebraPrnTemplate || erpPrint.DEFAULT_LABEL_ZPL,
                         labelUseZebraPrn: true,
                     });
-                    tspl = rendered.tspl;
+                    tspl = erpPrint.formatTsplLineEndings(rendered.tspl, winPrinterName);
                     labelRuleName = rendered.ruleName;
                 } else {
-                    tspl = labelPrinter.generateTSPLLabel(itemData);
+                    tspl = erpPrint.formatTsplLineEndings(
+                        labelPrinter.generateTSPLLabel(itemData),
+                        winPrinterName,
+                    );
                 }
                 if (printerConfig?.type === 'serial') {
                     results.push({

@@ -21,7 +21,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim()
 
@@ -34,7 +34,6 @@ OFFSET 0 mm
 SET PEEL OFF
 SET CUTTER OFF
 SET PARTIAL_CUTTER OFF
-SET
 SET TEAR ON
 CLS
 CODEPAGE 1252
@@ -49,7 +48,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 720,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim()
 
@@ -76,7 +75,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim()
 
@@ -160,7 +159,7 @@ TEXT 720,29,"ROMAN.TTF",180,1,8,"BOX:"
 TEXT 648,29,"ROMAN.TTF",180,1,9,"{{box_name}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim()
 
@@ -271,6 +270,7 @@ CGST/SGST). Silver items omit purity/karat.
 
 export const LABEL_TEMPLATE_VARS = [
   'barcode',
+  'qr_code',
   'product_name',
   'style_code',
   'item_code',
@@ -636,6 +636,7 @@ function repairCorruptedPrnTemplate(raw: string): string {
   s = s.replace(/1252\s*TEXT/gi, '1252\nTEXT')
   s = s.replace(/"\s*TEXT/gi, '"\nTEXT')
   s = s.replace(/"\s*QRCODE/gi, '"\nQRCODE')
+  s = s.replace(/^\s*SET\s*$/gim, '')
 
   const cmds = [
     'SIZE',
@@ -698,6 +699,63 @@ export function zebraEplDriverNeedsZplWake(windowsPrinterName: string | null | u
   return /EPL/i.test(String(windowsPrinterName || ''))
 }
 
+function labelHeightMmFromTspl(tspl: string): number | null {
+  const m = String(tspl || '').match(/SIZE\s+[\d.]+\s*mm\s*,\s*([\d.]+)\s*mm/i)
+  if (!m) return null
+  const h = parseFloat(m[1])
+  return Number.isFinite(h) ? h : null
+}
+
+/** Payload for TSPL QRCODE — mirrors scripts/erp-print-templates.js */
+export function tsplQrContent(raw: string | null | undefined): string {
+  let s = String(raw ?? '').trim().toUpperCase()
+  if (!s) return ''
+  s = s.replace(/[()]/g, '').replace(/\s+/g, '')
+  s = s.replace(/"/g, "'")
+  return s.slice(0, 120)
+}
+
+/** Match server fix — 92.5×15 mm jewelry tags (QR beside BMS, rotation 180). */
+export function fixTsplQrcodeCommands(tspl: string): string {
+  const heightMm = labelHeightMmFromTspl(tspl)
+  const smallTag = heightMm != null && heightMm <= 16
+  return String(tspl || '')
+    .split('\n')
+    .map((line) => {
+      const t = line.trim()
+      if (!/^QRCODE\b/i.test(t)) return line
+      const dataMatch = t.match(/"([^"]*)"\s*$/)
+      let data = dataMatch ? String(dataMatch[1] || '').trim() : ''
+      data = tsplQrContent(data)
+      if (!data) return ''
+      const m = t.match(
+        /^QRCODE\s+(\d+)\s*,\s*(\d+)\s*,\s*([LMQH])\s*,\s*(\d+)\s*,\s*([AMan])\s*,\s*(\d+)/i,
+      )
+      const rot = m ? String(m[6] || '180') : '180'
+      let x = m ? parseInt(m[1], 10) : 418
+      let y = m ? parseInt(m[2], 10) : 68
+      const ecc = m ? String(m[3] || 'L').toUpperCase() : 'L'
+      let cell = m ? parseInt(m[4], 10) || 2 : 2
+      if (smallTag) {
+        cell = Math.min(2, Math.max(1, cell))
+        x = 418
+        y = 68
+      } else {
+        cell = Math.min(4, Math.max(2, cell))
+      }
+      return `QRCODE ${x},${y},${ecc},${cell},A,${rot},M2,S7,"${data}"`
+    })
+    .filter((line) => line !== '')
+    .join('\n')
+}
+
+function stripBareSetLines(tspl: string): string {
+  return String(tspl || '')
+    .split('\n')
+    .filter((line) => !/^\s*SET\s*$/i.test(line.trim()))
+    .join('\n')
+}
+
 export function formatRawLabelForPrint(
   raw: string,
   windowsPrinterName?: string | null,
@@ -711,7 +769,7 @@ export function formatRawLabelForPrint(
     }
     return out
   }
-  const body = normalizePrnTemplate(raw)
+  const body = fixTsplQrcodeCommands(stripBareSetLines(normalizePrnTemplate(raw)))
   return `${body.split('\n').join('\r\n')}\r\n`
 }
 

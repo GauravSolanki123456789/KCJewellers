@@ -23,7 +23,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim();
 
@@ -51,7 +51,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 720,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim();
 
@@ -78,7 +78,7 @@ TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
 TEXT 738,21,"ROMAN.TTF",180,1,8,"{{pcs_label}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim();
 
@@ -208,7 +208,7 @@ TEXT 666,77,"ROMAN.TTF",180,1,9,"{{fixed_price}}"
 TEXT 530,101,"ROMAN.TTF",180,1,9,"{{barcode}}"
 TEXT 530,61,"ROMAN.TTF",180,1,9,"{{company_code}}"
 TEXT 530,23,"ROMAN.TTF",180,1,9,"RFID:{{rfid_tag}}"
-QRCODE 418,70,L,2,A,180,"{{barcode}}"
+QRCODE 418,68,L,2,A,180,M2,S7,"{{qr_code}}"
 PRINT 1,1
 `.trim();
 
@@ -686,6 +686,15 @@ function tsplSafe(value) {
         .trim();
 }
 
+/** Payload for TSPL QRCODE — strip chars that make older TSC firmware skip the symbol silently. */
+function tsplQrContent(raw) {
+    let s = String(raw ?? '').trim().toUpperCase();
+    if (!s) return '';
+    s = s.replace(/[()]/g, '').replace(/\s+/g, '');
+    s = s.replace(/"/g, "'");
+    return s.slice(0, 120);
+}
+
 function preservePrnTemplate(raw) {
     if (raw == null) return '';
     return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -707,6 +716,7 @@ function repairCorruptedPrnTemplate(raw) {
     s = s.replace(/"\s*TEXT/gi, '"\nTEXT');
     s = s.replace(/"\s*QRCODE/gi, '"\nQRCODE');
     s = s.replace(/"\s*""\s*TEXT/gi, '""\nTEXT');
+    s = s.replace(/^\s*SET\s*$/gim, '');
 
     const cmds = [
         'SIZE',
@@ -748,24 +758,51 @@ function normalizePrnTemplate(raw) {
     return preserved;
 }
 
-/** Older TSC firmware skips QRCODE when M2/S7 sit where justification is expected. */
+function labelHeightMmFromTspl(tspl) {
+    const m = String(tspl || '').match(/SIZE\s+[\d.]+\s*mm\s*,\s*([\d.]+)\s*mm/i);
+    if (!m) return null;
+    const h = parseFloat(m[1]);
+    return Number.isFinite(h) ? h : null;
+}
+
+/** Normalize TSC QRCODE for 92.5×15 mm jewelry tags (demo: QR beside BMS, rotation 180). */
 function fixTsplQrcodeCommands(tspl) {
+    const heightMm = labelHeightMmFromTspl(tspl);
+    const smallTag = heightMm != null && heightMm <= 16;
     return String(tspl || '')
         .split('\n')
         .map((line) => {
             const t = line.trim();
             if (!/^QRCODE\b/i.test(t)) return line;
             const dataMatch = t.match(/"([^"]*)"\s*$/);
-            const data = dataMatch ? String(dataMatch[1] || '').trim() : '';
-            if (!data) return line;
+            let data = dataMatch ? String(dataMatch[1] || '').trim() : '';
+            data = tsplQrContent(data);
+            if (!data) return '';
             const m = t.match(
                 /^QRCODE\s+(\d+)\s*,\s*(\d+)\s*,\s*([LMQH])\s*,\s*(\d+)\s*,\s*([AMan])\s*,\s*(\d+)/i,
             );
-            const safe = data.replace(/"/g, "'");
-            if (!m) return `QRCODE 400,30,L,2,A,180,"${safe}"`;
-            const cell = Math.min(4, Math.max(2, parseInt(m[4], 10) || 2));
-            return `QRCODE ${m[1]},${m[2]},${m[3].toUpperCase()},${cell},A,${m[6]},"${safe}"`;
+            const rot = m ? String(m[6] || '180') : '180';
+            let x = m ? parseInt(m[1], 10) : 418;
+            let y = m ? parseInt(m[2], 10) : 68;
+            const ecc = m ? String(m[3] || 'L').toUpperCase() : 'L';
+            let cell = m ? parseInt(m[4], 10) || 2 : 2;
+            if (smallTag) {
+                cell = Math.min(2, Math.max(1, cell));
+                x = 418;
+                y = 68;
+            } else {
+                cell = Math.min(4, Math.max(2, cell));
+            }
+            return `QRCODE ${x},${y},${ecc},${cell},A,${rot},M2,S7,"${data}"`;
         })
+        .filter((line) => line !== '')
+        .join('\n');
+}
+
+function stripBareSetLines(tspl) {
+    return String(tspl || '')
+        .split('\n')
+        .filter((line) => !/^\s*SET\s*$/i.test(line.trim()))
         .join('\n');
 }
 
@@ -779,7 +816,7 @@ function formatTsplLineEndings(tspl, windowsPrinterName) {
         }
         return out;
     }
-    const body = fixTsplQrcodeCommands(normalizePrnTemplate(tspl));
+    const body = fixTsplQrcodeCommands(stripBareSetLines(normalizePrnTemplate(tspl)));
     return `${body.split('\n').join('\r\n')}\r\n`;
 }
 
@@ -801,7 +838,7 @@ function renderTemplate(template, vars, opts) {
         const replacement = key === 'lines_table' ? String(val ?? '') : tsplSafe(val);
         out = out.split(`{{${key}}}`).join(replacement);
     }
-    if (!zpl) out = fixTsplQrcodeCommands(out);
+    if (!zpl) out = fixTsplQrcodeCommands(stripBareSetLines(out));
     return out;
 }
 
@@ -850,6 +887,7 @@ function buildLabelTemplateVars(piece, hw, profile, template) {
             : '';
     return {
         barcode: String(piece.barcode || '').trim().toUpperCase(),
+        qr_code: tsplQrContent(piece.barcode),
         product_name: String(piece.product_name || piece.item_code || piece.style_code || '').trim(),
         style_code: String(piece.style_code || piece.product_name || '').trim(),
         item_code: String(piece.item_code || '').trim(),
@@ -896,6 +934,7 @@ function buildLabelTemplateVars(piece, hw, profile, template) {
 function buildLabelTemplateVarsFromItemData(itemData, template) {
     return {
         barcode: itemData.barcodeNumber || '',
+        qr_code: tsplQrContent(itemData.barcodeNumber),
         product_name: itemData.styleCode || '',
         style_code: itemData.styleCode || '',
         item_code: '',
@@ -2576,6 +2615,9 @@ module.exports = {
     LABEL_RULE_FIELD_KEYS,
     normalizePrnTemplate,
     formatTsplLineEndings,
+    fixTsplQrcodeCommands,
+    labelHeightMmFromTspl,
+    tsplQrContent,
     renderTemplate,
     renderPrnLabel,
     renderPrnLabelForPiece,

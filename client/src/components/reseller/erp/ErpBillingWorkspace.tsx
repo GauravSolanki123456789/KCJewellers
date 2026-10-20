@@ -315,7 +315,8 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     sku: p.sku || undefined,
     style_code: p.style_code || undefined,
     size: p.size ?? null,
-    qty: p.pcs ?? 1,
+    /** One stock tag scan = one bill line (tag PCS is label-only, not bill qty). */
+    qty: 1,
     originalWeightGm: wt,
     weightGm: wt,
     gross_weight: p.gross_weight ?? null,
