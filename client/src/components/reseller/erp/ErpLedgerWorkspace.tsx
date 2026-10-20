@@ -30,6 +30,7 @@ import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appAlert, appConfirm } from '@/lib/app-notice'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
+import { ErpLedgerReportsPanel } from '@/components/reseller/erp/ErpLedgerReportsPanel'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
@@ -459,6 +460,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [accountResetToken, setAccountResetToken] = useState(0)
+  const [focusCustomerId, setFocusCustomerId] = useState<number | null>(null)
   const [form, setForm] = useState(emptyPaymentForm)
 
   const [resolveCustomerId, setResolveCustomerId] = useState<Record<number, string>>({})
@@ -1627,6 +1629,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           from={from}
           to={to}
           resetToken={accountResetToken}
+          focusCustomerId={focusCustomerId}
           onCustomerSelected={(id) => setCustomerFilter(id ? String(id) : '')}
         />
       ) : null}
@@ -2816,69 +2819,17 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         </div>
       )}
 
-      {tab === 'report' && (
-        <div className={`${erpCardCls} space-y-3`}>
-          <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Customer-wise receipts</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              From
-              <ErpDateInput className={`${erpInputCls} mt-1`} value={from} onChange={setFrom} />
-            </label>
-            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              To
-              <ErpDateInput className={`${erpInputCls} mt-1`} value={to} onChange={setTo} />
-            </label>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)]">
-            <table className="min-w-full text-left text-xs">
-              <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
-                <tr>
-                  <th className="px-3 py-2.5">Customer</th>
-                  <th className="px-3 py-2.5 text-right">Received</th>
-                  <th className="px-3 py-2.5 text-right">Paid out</th>
-                  <th className="px-3 py-2.5 text-right">Net</th>
-                  <th className="px-3 py-2.5 w-28" />
-                </tr>
-              </thead>
-              <tbody>
-                {(summary?.by_customer || []).length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                      No customer payments in this period.
-                    </td>
-                  </tr>
-                ) : (
-                  (summary?.by_customer || []).map((row, i) => (
-                    <tr key={`${row.customer_id}-${i}`} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
-                      <td className="px-3 py-2.5">{row.customer_name || 'Walk-in / unassigned'}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{formatErpInr(row.received)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{formatErpInr(row.paid_out)}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                        {formatErpInr((row.received || 0) - (row.paid_out || 0))}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {row.customer_id == null && (row.paid_out || 0) > 0 ? (
-                          <button
-                            type="button"
-                            className="text-[10px] font-semibold text-blue-800 underline"
-                            onClick={() => {
-                              setDayBookDate(to || todayIso())
-                              setDayBookUnassignedOnly(true)
-                              setTab('daybook')
-                            }}
-                          >
-                            Day book
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {tab === 'report' ? (
+        <ErpLedgerReportsPanel
+          laneMode={laneMode}
+          defaultFrom={from}
+          defaultTo={to}
+          onOpenCustomerLedger={(customerId) => {
+            setFocusCustomerId(customerId)
+            setTab('customer')
+          }}
+        />
+      ) : null}
     </div>
   )
 }

@@ -83,7 +83,8 @@ function compactCustomerName(name) {
     return String(name || '')
         .trim()
         .toLowerCase()
-        .replace(/[\s._-]+/g, '');
+        .replace(/&/g, ' and ')
+        .replace(/[\s._\-()]+/g, '');
 }
 
 async function ensureCashBookCustomers(query, resellerUserId) {
@@ -387,6 +388,80 @@ async function loadCustomerRow(query, resellerUserId, customerId) {
     return rows[0] || null;
 }
 
+function customerNameCompactSql(columnExpr) {
+    return `regexp_replace(lower(trim(COALESCE(${columnExpr}, ''))), '[\\s._-]+', '', 'g')`;
+}
+
+/** Re-link bills / ledger rows after a customer was deleted and re-created (same name, new id). */
+async function relinkOrphanedCustomerRecords(query, resellerUserId, customer) {
+    if (!customer?.id) return;
+    const compact = compactCustomerName(customer.name);
+    if (!compact) return;
+    const customerId = customer.id;
+
+    await query(
+        `UPDATE reseller_erp_bills b
+         SET customer_id = $1
+         WHERE b.reseller_user_id = $2
+           AND b.customer_id IS DISTINCT FROM $1
+           AND (
+                b.customer_id IS NULL
+                OR NOT EXISTS (
+                    SELECT 1 FROM reseller_erp_customers c
+                    WHERE c.id = b.customer_id AND c.reseller_user_id = $2
+                )
+           )
+           AND ${customerNameCompactSql('b.customer_name')} = $3`,
+        [customerId, resellerUserId, compact],
+    );
+
+    await query(
+        `UPDATE reseller_erp_ledger_entries e
+         SET customer_id = $1
+         WHERE e.reseller_user_id = $2
+           AND e.customer_id IS DISTINCT FROM $1
+           AND (
+                e.customer_id IS NULL
+                OR NOT EXISTS (
+                    SELECT 1 FROM reseller_erp_customers c
+                    WHERE c.id = e.customer_id AND c.reseller_user_id = $2
+                )
+           )
+           AND (
+                ${customerNameCompactSql('e.counterparty_name')} = $3
+                OR e.bill_id IN (
+                    SELECT b.id FROM reseller_erp_bills b
+                    WHERE b.reseller_user_id = $2
+                      AND (
+                          b.customer_id = $1
+                          OR ${customerNameCompactSql('b.customer_name')} = $3
+                      )
+                )
+           )`,
+        [customerId, resellerUserId, compact],
+    );
+
+    try {
+        await query(
+            `UPDATE reseller_erp_shadow_bills sb
+             SET customer_id = $1
+             WHERE sb.reseller_user_id = $2
+               AND sb.customer_id IS DISTINCT FROM $1
+               AND (
+                    sb.customer_id IS NULL
+                    OR NOT EXISTS (
+                        SELECT 1 FROM reseller_erp_customers c
+                        WHERE c.id = sb.customer_id AND c.reseller_user_id = $2
+                    )
+               )
+               AND ${customerNameCompactSql('sb.customer_name')} = $3`,
+            [customerId, resellerUserId, compact],
+        );
+    } catch {
+        /* shadow table optional */
+    }
+}
+
 async function buildCustomerAccount(query, resellerUserId, opts) {
     const customerId = parseInt(String(opts.customerId), 10);
     if (!Number.isFinite(customerId) || customerId <= 0) {
@@ -403,12 +478,18 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const customer = await loadCustomerRow(query, resellerUserId, customerId);
     if (!customer) throw Object.assign(new Error('Customer not found'), { status: 404 });
+    await relinkOrphanedCustomerRecords(query, resellerUserId, customer);
     const book = cashBookKind(customer.name);
+    const nameCompact = compactCustomerName(customer.name);
 
-    const saleParams = [resellerUserId, customerId];
+    const saleParams = [resellerUserId, customerId, nameCompact];
     let saleSql = `SELECT id, bill_number, bill_date, bill_type, total_inr, status, created_at, lines_json, session_json
                    FROM reseller_erp_bills
-                   WHERE reseller_user_id = $1 AND customer_id = $2
+                   WHERE reseller_user_id = $1
+                     AND (
+                        customer_id = $2
+                        OR ${customerNameCompactSql('customer_name')} = $3
+                     )
                      AND bill_type IN ('sale', 'credit', 'debit', 'sales_return')
                      AND LOWER(status) IN ('completed', 'paid', 'final', 'issued')`;
     if (!includeShadow) {
@@ -446,7 +527,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         shadowSales = await query(shSql, shParams);
     }
 
-    const entryParams = book ? [resellerUserId] : [resellerUserId, customerId];
+    const entryParams = book ? [resellerUserId] : [resellerUserId, customerId, nameCompact];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
                            narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg, metal_gm,
                            metal_cleared_gm, virtual_metal_inr
@@ -462,9 +543,19 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             entrySql += ` AND FALSE`;
         }
     } else {
-        entrySql += ` AND customer_id = $2`;
-    if (!includeShadow) {
-        entrySql += ` AND ledger_scope = 'official'`;
+        entrySql += ` AND (
+            customer_id = $2
+            OR bill_id IN (
+                SELECT b.id FROM reseller_erp_bills b
+                WHERE b.reseller_user_id = $1
+                  AND (
+                      b.customer_id = $2
+                      OR ${customerNameCompactSql('b.customer_name')} = $3
+                  )
+            )
+        )`;
+        if (!includeShadow) {
+            entrySql += ` AND ledger_scope = 'official'`;
         }
     }
     if (from) {
@@ -957,6 +1048,127 @@ function customerAccountToCsv(account) {
     return lines.join('\r\n');
 }
 
+async function buildCustomerBalancesReport(query, resellerUserId, opts = {}) {
+    const from = parseDateOrNull(opts.from);
+    const to = parseDateOrNull(opts.to);
+    const on = parseDateOrNull(opts.on);
+    const includeShadow = !!opts.includeShadow;
+    const nonZeroOnly = opts.nonZeroOnly !== false;
+
+    const customers = await query(
+        `SELECT id, name, mobile, email, gstin, pan, address
+         FROM reseller_erp_customers
+         WHERE reseller_user_id = $1
+           ${sqlExcludeInternalErpCustomers('name', 'notes', { allowCashBook: includeShadow })}
+         ORDER BY name ASC`,
+        [resellerUserId],
+    );
+
+    const rows = [];
+    for (const c of customers) {
+        await relinkOrphanedCustomerRecords(query, resellerUserId, c);
+        let account;
+        try {
+            account = await buildCustomerAccount(query, resellerUserId, {
+                customerId: c.id,
+                from,
+                to,
+                on,
+                includeShadow,
+            });
+        } catch {
+            continue;
+        }
+        const balanceDue = Number(account.summary.balance_due_inr) || 0;
+        const metalBal = Number(account.summary.metal_balance_gm) || 0;
+        if (nonZeroOnly && Math.abs(balanceDue) < 0.005 && Math.abs(metalBal) < 0.0005) continue;
+
+        const billNumbers = [
+            ...new Set(
+                (account.transactions || [])
+                    .filter((t) => t.kind === 'sale' && t.ref)
+                    .map((t) => String(t.ref).trim()),
+            ),
+        ];
+
+        rows.push({
+            customer_id: c.id,
+            name: c.name,
+            mobile: c.mobile || '',
+            email: c.email || '',
+            gstin: c.gstin || '',
+            pan: c.pan || '',
+            address: c.address || '',
+            total_billed_inr: account.summary.total_billed_inr,
+            total_paid_inr: account.summary.total_paid_inr,
+            balance_due_inr: balanceDue,
+            metal_balance_gm: metalBal,
+            bill_numbers: billNumbers,
+            transaction_count: account.summary.transaction_count,
+        });
+    }
+
+    rows.sort((a, b) => Math.abs(b.balance_due_inr) - Math.abs(a.balance_due_inr));
+
+    return {
+        report: 'customer_balances',
+        from,
+        to,
+        on,
+        include_shadow: includeShadow,
+        rows,
+        summary: {
+            customer_count: rows.length,
+            total_balance_due_inr: Math.round(rows.reduce((s, r) => s + (Number(r.balance_due_inr) || 0), 0) * 100) / 100,
+            total_receivable_inr: Math.round(
+                rows.filter((r) => (Number(r.balance_due_inr) || 0) > 0).reduce((s, r) => s + r.balance_due_inr, 0) * 100,
+            ) / 100,
+            total_payable_inr: Math.round(
+                rows
+                    .filter((r) => (Number(r.balance_due_inr) || 0) < 0)
+                    .reduce((s, r) => s + Math.abs(r.balance_due_inr), 0) * 100,
+            ) / 100,
+        },
+    };
+}
+
+function customerBalancesReportToCsv(report) {
+    const lines = [];
+    const push = (row) => lines.push(row.map(accountCsvEscape).join(','));
+    push(['Customer balances report']);
+    if (report.from) push(['From', report.from]);
+    if (report.to) push(['To', report.to]);
+    if (report.on) push(['On', report.on]);
+    lines.push('');
+    push([
+        'Customer',
+        'Mobile',
+        'GSTIN',
+        'Address',
+        'Total billed ₹',
+        'Total paid ₹',
+        'Balance due ₹',
+        'Metal balance (g)',
+        'Sales bills',
+        'Transactions',
+    ]);
+    for (const r of report.rows || []) {
+        push([
+            r.name,
+            r.mobile,
+            r.gstin,
+            r.address,
+            Number(r.total_billed_inr || 0).toFixed(2),
+            Number(r.total_paid_inr || 0).toFixed(2),
+            Number(r.balance_due_inr || 0).toFixed(2),
+            Number(r.metal_balance_gm || 0).toFixed(3),
+            (r.bill_numbers || []).join('; '),
+            String(r.transaction_count || 0),
+        ]);
+    }
+    return lines.join('\r\n');
+}
+
 async function getCustomerBalancesBeforeLedgerEntry(query, resellerUserId, customerId, ledgerEntryId) {
     const account = await buildCustomerAccount(query, resellerUserId, {
         customerId,
@@ -977,12 +1189,15 @@ async function getCustomerBalancesBeforeLedgerEntry(query, resellerUserId, custo
 module.exports = {
     buildCustomerAccount,
     buildDaybook,
+    buildCustomerBalancesReport,
     customerAccountToCsv,
+    customerBalancesReportToCsv,
     daybookToCsv,
     cashBookKind,
     isInternalErpCustomerRow,
     sqlExcludeInternalErpCustomers,
     ensureCashBookCustomers,
     compactCustomerName,
+    relinkOrphanedCustomerRecords,
     getCustomerBalancesBeforeLedgerEntry,
 };

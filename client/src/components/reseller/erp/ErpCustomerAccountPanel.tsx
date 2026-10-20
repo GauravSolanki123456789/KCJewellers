@@ -72,6 +72,7 @@ type Props = {
   from: string
   to: string
   resetToken?: number
+  focusCustomerId?: number | null
   onCustomerSelected?: (customerId: number | null) => void
 }
 
@@ -80,6 +81,7 @@ export function ErpCustomerAccountPanel({
   from,
   to,
   resetToken = 0,
+  focusCustomerId = null,
   onCustomerSelected,
 }: Props) {
   const auth = useAuth()
@@ -225,6 +227,19 @@ export function ErpCustomerAccountPanel({
     if (!resetToken) return
     clear()
   }, [resetToken, clear])
+
+  useEffect(() => {
+    if (!focusCustomerId || focusCustomerId <= 0) return
+    void axios
+      .get<{ customers: ErpCustomer[] }>('/api/reseller/erp/customers', {
+        params: { id: focusCustomerId, ...(laneMode ? { lane_books: '1' } : { cash_book: '1' }) },
+      })
+      .then((r) => {
+        const c = r.data.customers?.[0]
+        if (c) void loadAccount(c)
+      })
+      .catch(() => {})
+  }, [focusCustomerId, laneMode, loadAccount])
 
   useEffect(() => {
     if (!selected) return

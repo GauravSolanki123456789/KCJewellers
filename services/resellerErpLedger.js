@@ -20,7 +20,9 @@ const LEDGER_SCOPES = new Set(['official', 'lane']);
 const {
     buildCustomerAccount,
     buildDaybook,
+    buildCustomerBalancesReport,
     customerAccountToCsv,
+    customerBalancesReportToCsv,
     daybookToCsv,
 } = require('./resellerErpCustomerAccount');
 const { normDateIso } = require('./erpDateNormalize');
@@ -1522,6 +1524,56 @@ function registerResellerErpLedgerRoutes(app, deps) {
         } catch (e) {
             const status = e.status || 500;
             if (status !== 500) return res.status(status).json({ error: e.message });
+            res.status(500).json({ error: e.message || 'Export failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/customer-balances', checkAuth, erpGate, async (req, res) => {
+        try {
+            const includeShadow = req.session?.shadowUnlocked === true;
+            const report = await buildCustomerBalancesReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+                includeShadow,
+                nonZeroOnly: String(req.query.all || '') !== '1',
+            });
+            res.json(report);
+        } catch (e) {
+            console.error('erp ledger report customer-balances:', e);
+            res.status(500).json({ error: e.message || 'Failed to load report' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/customer-balances/export', checkAuth, erpGate, async (req, res) => {
+        try {
+            const includeShadow = req.session?.shadowUnlocked === true;
+            const format = String(req.query.format || 'csv').toLowerCase();
+            const report = await buildCustomerBalancesReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+                includeShadow,
+                nonZeroOnly: String(req.query.all || '') !== '1',
+            });
+            const csv = customerBalancesReportToCsv(report);
+            const fname = `customer-balances-${new Date().toISOString().slice(0, 10)}.csv`;
+            if (format === 'html') {
+                const bodyRows = (report.rows || [])
+                    .map(
+                        (r) =>
+                            `<tr><td>${r.name}</td><td>${r.mobile || ''}</td><td>${r.gstin || ''}</td><td style="text-align:right">${Number(r.balance_due_inr).toFixed(2)}</td><td>${(r.bill_numbers || []).join(', ')}</td></tr>`,
+                    )
+                    .join('');
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                return res.send(
+                    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Customer balances</title></head><body><h1>Customer balances</h1><p>Receivable: ₹${report.summary.total_receivable_inr} · Payable: ₹${report.summary.total_payable_inr}</p><table border="1" cellpadding="4"><tr><th>Customer</th><th>Mobile</th><th>GSTIN</th><th>Balance ₹</th><th>Bills</th></tr>${bodyRows}</table></body></html>`,
+                );
+            }
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send('\ufeff' + csv);
+        } catch (e) {
             res.status(500).json({ error: e.message || 'Export failed' });
         }
     });
