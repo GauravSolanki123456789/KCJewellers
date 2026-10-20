@@ -76,7 +76,7 @@ export function printPdfBlob(blob: Blob): void {
       iframe.contentWindow?.focus()
       iframe.contentWindow?.print()
     } catch {
-      openPdfBlobInViewer(blob)
+      void openPdfBlobInViewer(blob, { filename: 'print.pdf', title: 'Print preview' })
     }
   }
   setTimeout(() => {
@@ -148,28 +148,22 @@ export function openPdfViewerOptionsFromPayload(
   }
 }
 
-/** Open PDF in an in-page overlay (same tab — no popup / sessionStorage issues). */
+/** Open PDF in an in-page overlay (same tab — never navigate to raw blob: URLs). */
 export async function openPdfBlobInViewer(blob: Blob, opts?: OpenPdfViewerOptions): Promise<void> {
   if (typeof window === 'undefined') return
 
-  if (opts?.filename) {
-    openPdfOverlay(blob, {
-      filename: opts.filename,
-      title: opts.title || opts.filename,
-      text: opts.text || opts.filename,
-      fallbackWhatsAppText: opts.fallbackWhatsAppText || opts.text || opts.filename,
-      fallbackWhatsAppHref: opts.fallbackWhatsAppHref ?? null,
-      customerWhatsAppHref: opts.customerWhatsAppHref ?? null,
-      customerMobile: opts.customerMobile ?? null,
-      brandLabel: opts.brandLabel,
-      invoiceCopy: opts.invoiceCopy,
-    })
-    return
-  }
-
-  const url = URL.createObjectURL(blob)
-  openExternalUrl(url, { preferNewTab: false })
-  setTimeout(() => URL.revokeObjectURL(url), 120_000)
+  const filename = (opts?.filename || '').trim() || 'document.pdf'
+  openPdfOverlay(blob, {
+    filename,
+    title: opts?.title || filename,
+    text: opts?.text || opts?.filename || filename,
+    fallbackWhatsAppText: opts?.fallbackWhatsAppText || opts?.text || filename,
+    fallbackWhatsAppHref: opts?.fallbackWhatsAppHref ?? null,
+    customerWhatsAppHref: opts?.customerWhatsAppHref ?? null,
+    customerMobile: opts?.customerMobile ?? null,
+    brandLabel: opts?.brandLabel,
+    invoiceCopy: opts?.invoiceCopy,
+  })
 }
 
 /** Default PDF action — open viewer tab instead of downloading. */

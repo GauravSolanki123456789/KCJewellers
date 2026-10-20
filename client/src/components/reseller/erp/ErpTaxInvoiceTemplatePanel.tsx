@@ -23,6 +23,7 @@ import {
   templateConfigToEditableText,
   type ErpTaxInvoiceTemplateConfig,
 } from '@/lib/erp-tax-invoice-template'
+import { presentPdfBlob } from '@/lib/pdf-share'
 import {
   Check,
   Eye,
@@ -52,7 +53,6 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
   const [previewBusy, setPreviewBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loadBusy, setLoadBusy] = useState(true)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   useEffect(() => {
     void axios
@@ -70,12 +70,6 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
       .catch(() => {})
       .finally(() => setLoadBusy(false))
   }, [variant])
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-    }
-  }, [previewUrl])
 
   const buildConfig = useCallback((): ErpTaxInvoiceTemplateConfig => {
     const parsed = parseEditableTextToTemplate(editText, DEFAULT_MARLECHA_TAX_INVOICE_TEMPLATE)
@@ -163,8 +157,11 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
           }
         />,
       ).toBlob()
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-      setPreviewUrl(URL.createObjectURL(blob))
+      const fname = `tax-invoice-template-preview-${variant}.pdf`
+      await presentPdfBlob(blob, fname, {
+        title: 'Tax invoice template preview',
+        text: fname,
+      })
     } catch (e) {
       alert((e as Error)?.message || 'Preview failed')
     } finally {
@@ -298,16 +295,6 @@ export function ErpTaxInvoiceTemplatePanel({ variant = 'bill', compact }: Props)
         />
       </div>
 
-      {previewUrl ? (
-        <div className={erpCardCls}>
-          <p className="mb-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">PDF preview</p>
-          <iframe
-            title="Tax invoice template preview"
-            src={previewUrl}
-            className="h-[min(70vh,520px)] w-full rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white"
-          />
-        </div>
-      ) : null}
     </div>
   )
 }

@@ -145,7 +145,7 @@ export default function PdfShareSheet({ open, onOpenChange, payload, minimal = f
             className="flex min-h-[52px] w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-md transition active:scale-[0.99] bg-emerald-700 hover:bg-emerald-600"
           >
             <FileText className="size-5 shrink-0" aria-hidden />
-            Open PDF in new tab
+            View PDF on this page
           </button>
 
           <button

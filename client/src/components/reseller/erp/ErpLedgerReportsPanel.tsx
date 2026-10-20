@@ -20,6 +20,11 @@ import {
 } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import { formatLedgerBalanceCell, formatMetalGm } from '@/lib/erp-ledger-metal'
+import { useAuth } from '@/hooks/useAuth'
+import {
+  customerBalancesReportToPdfPayload,
+  previewCustomerBalancesPdf,
+} from '@/lib/erp-ledger-customer-balances-pdf'
 
 type ReportId = 'customer_balances'
 
@@ -76,6 +81,7 @@ export function ErpLedgerReportsPanel({
   defaultTo,
   onOpenCustomerLedger,
 }: Props) {
+  const auth = useAuth()
   const [activeReport, setActiveReport] = useState<ReportId | null>(null)
   const [from, setFrom] = useState(defaultFrom)
   const [to, setTo] = useState(defaultTo)
@@ -156,9 +162,9 @@ export function ErpLedgerReportsPanel({
     void loadDetail(row.customer_id)
   }
 
-  const exportFile = async (format: 'csv' | 'html') => {
+  const exportCsv = async () => {
     const params = new URLSearchParams()
-    params.set('format', format)
+    params.set('format', 'csv')
     if (onDate) params.set('on', onDate)
     else {
       if (from) params.set('from', from)
@@ -166,10 +172,6 @@ export function ErpLedgerReportsPanel({
     }
     if (showAllCustomers) params.set('all', '1')
     const url = `/api/reseller/erp/ledger/reports/customer-balances/export?${params.toString()}`
-    if (format === 'html') {
-      window.open(url, '_blank', 'noopener,noreferrer')
-      return
-    }
     const res = await axios.get(url, { responseType: 'blob' })
     const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -177,6 +179,29 @@ export function ErpLedgerReportsPanel({
     a.download = `customer-balances-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(a.href)
+  }
+
+  const previewPdf = async () => {
+    if (!data?.rows?.length) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const u = auth.user as Record<string, unknown> | null | undefined
+      const shopName =
+        String(u?.shop_name || u?.business_name || u?.name || '').trim() || undefined
+      await previewCustomerBalancesPdf(
+        customerBalancesReportToPdfPayload(data, {
+          from: onDate ? '' : from,
+          to: onDate ? '' : to,
+          onDate,
+          shopName,
+        }),
+      )
+    } catch (e) {
+      setErr(erpErr(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (!activeReport) {
@@ -268,7 +293,7 @@ export function ErpLedgerReportsPanel({
             type="button"
             className={erpBtnGhost}
             disabled={busy || !data?.rows?.length}
-            onClick={() => void exportFile('csv')}
+            onClick={() => void exportCsv()}
           >
             <Download className="size-4" />
             Excel (CSV)
@@ -277,7 +302,7 @@ export function ErpLedgerReportsPanel({
             type="button"
             className={erpBtnGhost}
             disabled={busy || !data?.rows?.length}
-            onClick={() => void exportFile('html')}
+            onClick={() => void previewPdf()}
           >
             <FileText className="size-4" />
             Preview PDF

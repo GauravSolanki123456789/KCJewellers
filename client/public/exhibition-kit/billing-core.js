@@ -1204,14 +1204,16 @@ var KcExhibitionBillingModule = (() => {
     return Math.max(0, wh);
   }
   function resolveErpLineSilverMetalRatePerG(line, slab, silverPerG, wholesaleSilver, silverRateOffsetPerG = 0) {
-    const locked = Number(line.ratePerGram);
-    if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked;
-    return resolveErpSilverMetalRatePerG(
+    const rowRate = Number(line.ratePerGram);
+    if (line.rateLocked && Number.isFinite(rowRate) && rowRate > 0) return rowRate;
+    const slabRate = resolveErpSilverMetalRatePerG(
       slab,
       silverPerG,
       wholesaleSilver,
       silverRateOffsetPerG
     );
+    if (slab === "R" && Number.isFinite(rowRate) && rowRate > 0) return rowRate;
+    return slabRate;
   }
   function applyPieceSlabToLine(line, slab) {
     if (!lineHasPieceSlabFields(line)) return line;
@@ -1462,8 +1464,8 @@ var KcExhibitionBillingModule = (() => {
     };
   }
   function resolveManualRowRatePerG(line, slab, silverPerG, goldPerG, wholesaleSilver, wholesaleGold, displayRates, slabSettings) {
-    const locked = Number(line.ratePerGram);
-    if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked;
+    const rowRate = Number(line.ratePerGram);
+    if (line.rateLocked && Number.isFinite(rowRate) && rowRate > 0) return rowRate;
     const metal = String(line.metal_type || "silver").toLowerCase();
     if (metal.startsWith("gold")) {
       if (erpSlabUsesWholesaleMetal(slab)) {
@@ -1482,6 +1484,13 @@ var KcExhibitionBillingModule = (() => {
     if (erpSlabUsesWholesaleMetal(slab)) {
       const wh = Number(wholesaleSilver ?? silverPerG) || 0;
       return wh > 0 ? wh : silverPerG > 0 ? silverPerG : 0;
+    }
+    if (Number.isFinite(rowRate) && rowRate > 0) return rowRate;
+    if (slabSettings) {
+      const kind = erpSlabToKind(slab);
+      const tier = tierSettingsForSlab(slabSettings, kind, line.metal_type);
+      const offset = slab === "R" ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0;
+      return resolveErpSilverMetalRatePerG(slab, silverPerG, wholesaleSilver, offset);
     }
     return silverPerG > 0 ? silverPerG : 0;
   }
@@ -1685,9 +1694,15 @@ var KcExhibitionBillingModule = (() => {
   function computeSilverGiftMcGmBreakdown(line, slab, slabSettings, silverPerG, wholesaleSilver, gstPct = 3) {
     const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0;
     const qty = Math.max(1, Number(line.qty) || 1);
+    const wastPct = Number(line.wastage_pct ?? 0) || 0;
+    let billWt = netWt;
+    if (wastPct > 0) {
+      billWt = Math.round(netWt * (1 + wastPct / 100) * 1e3) / 1e3;
+    }
     const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type);
     const silverOffset = slab === "R" ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0;
-    const metalRate = resolveErpSilverMetalRatePerG(
+    const metalRate = resolveErpLineSilverMetalRatePerG(
+      line,
       slab,
       silverPerG,
       wholesaleSilver,
@@ -1696,9 +1711,8 @@ var KcExhibitionBillingModule = (() => {
     const mcBase = erpCatalogMcPerUnit(line) || Number(line.mc_rate) || 0;
     const mcPerG = erpEffectiveMcPerUnit(line, slab, slabSettings) || mcBase;
     const mcDisc = mcBase > mcPerG && mcBase > 0 ? Math.round((1 - mcPerG / mcBase) * 100) : 0;
-    const combinedPerG = metalRate + mcPerG;
-    const metalPart = Math.round(metalRate * netWt * qty);
-    const mc = Math.round(mcPerG * netWt * qty);
+    const metalPart = Math.round(metalRate * billWt * qty);
+    const mc = Math.round(mcPerG * billWt * qty);
     const taxable = metalPart + mc;
     const totalWithGst = Math.round(taxable * (1 + gstPct / 100));
     const gstAmt = totalWithGst - taxable;
@@ -1714,8 +1728,9 @@ var KcExhibitionBillingModule = (() => {
       total,
       rate_per_gram: metalRate,
       net_weight: netWt,
-      billable_weight_gm: netWt,
-      mc_before_discount: mcDisc > 0 && mcBase > mcPerG ? Math.round(mcBase * netWt * qty) : void 0,
+      billable_weight_gm: billWt,
+      wastage_pct: wastPct > 0 ? wastPct : void 0,
+      mc_before_discount: mcDisc > 0 && mcBase > mcPerG ? Math.round(mcBase * billWt * qty) : void 0,
       mc_discount_pct: mcDisc > 0 && mcBase > mcPerG ? mcDisc : void 0
     };
   }

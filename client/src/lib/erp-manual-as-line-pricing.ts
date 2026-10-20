@@ -6,7 +6,10 @@ import {
   mcSlabFieldForBillingSlab,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
-import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
+import {
+  pieceSlabMcRate,
+  resolveErpSilverMetalRatePerG,
+} from '@/lib/erp-piece-slab-pricing'
 import {
   erpCatalogMcPerUnit,
   erpEffectiveMcPerUnit,
@@ -131,8 +134,8 @@ function resolveManualRowRatePerG(
   displayRates?: unknown,
   slabSettings?: ResellerSlabSettings,
 ): number {
-  const locked = Number(line.ratePerGram)
-  if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
+  const rowRate = Number(line.ratePerGram)
+  if (line.rateLocked && Number.isFinite(rowRate) && rowRate > 0) return rowRate
   const metal = String(line.metal_type || 'silver').toLowerCase()
   if (metal.startsWith('gold')) {
     if (erpSlabUsesWholesaleMetal(slab)) {
@@ -151,6 +154,13 @@ function resolveManualRowRatePerG(
   if (erpSlabUsesWholesaleMetal(slab)) {
     const wh = Number(wholesaleSilver ?? silverPerG) || 0
     return wh > 0 ? wh : silverPerG > 0 ? silverPerG : 0
+  }
+  if (Number.isFinite(rowRate) && rowRate > 0) return rowRate
+  if (slabSettings) {
+    const kind = erpSlabToKind(slab)
+    const tier = tierSettingsForSlab(slabSettings, kind, line.metal_type)
+    const offset = slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
+    return resolveErpSilverMetalRatePerG(slab, silverPerG, wholesaleSilver, offset)
   }
   return silverPerG > 0 ? silverPerG : 0
 }

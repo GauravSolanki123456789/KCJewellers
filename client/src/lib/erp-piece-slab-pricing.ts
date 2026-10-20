@@ -111,14 +111,16 @@ export function resolveErpLineSilverMetalRatePerG(
   wholesaleSilver?: number | null,
   silverRateOffsetPerG = 0,
 ): number {
-  const locked = Number(line.ratePerGram)
-  if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
-  return resolveErpSilverMetalRatePerG(
+  const rowRate = Number(line.ratePerGram)
+  if (line.rateLocked && Number.isFinite(rowRate) && rowRate > 0) return rowRate
+  const slabRate = resolveErpSilverMetalRatePerG(
     slab,
     silverPerG,
     wholesaleSilver,
     silverRateOffsetPerG,
   )
+  if (slab === 'R' && Number.isFinite(rowRate) && rowRate > 0) return rowRate
+  return slabRate
 }
 
 /** Apply slab-adjusted weight + per-slab MC to a bill line (before totals). */

@@ -239,10 +239,16 @@ function computeSilverGiftMcGmBreakdown(
 ): PriceBreakdown {
   const netWt = Number(line.originalWeightGm ?? line.weightGm ?? 0) || 0
   const qty = Math.max(1, Number(line.qty) || 1)
+  const wastPct = Number(line.wastage_pct ?? 0) || 0
+  let billWt = netWt
+  if (wastPct > 0) {
+    billWt = Math.round(netWt * (1 + wastPct / 100) * 1000) / 1000
+  }
   const tier = tierSettingsForSlab(slabSettings, erpSlabToKind(slab), line.metal_type)
   const silverOffset =
     slab === 'R' ? Math.max(0, Number(tier.silver_rate_offset_per_g) || 0) : 0
-  const metalRate = resolveErpSilverMetalRatePerG(
+  const metalRate = resolveErpLineSilverMetalRatePerG(
+    line,
     slab,
     silverPerG,
     wholesaleSilver,
@@ -252,9 +258,8 @@ function computeSilverGiftMcGmBreakdown(
   const mcPerG = erpEffectiveMcPerUnit(line, slab, slabSettings) || mcBase
   const mcDisc =
     mcBase > mcPerG && mcBase > 0 ? Math.round((1 - mcPerG / mcBase) * 100) : 0
-  const combinedPerG = metalRate + mcPerG
-  const metalPart = Math.round(metalRate * netWt * qty)
-  const mc = Math.round(mcPerG * netWt * qty)
+  const metalPart = Math.round(metalRate * billWt * qty)
+  const mc = Math.round(mcPerG * billWt * qty)
   const taxable = metalPart + mc
   const totalWithGst = Math.round(taxable * (1 + gstPct / 100))
   const gstAmt = totalWithGst - taxable
@@ -270,9 +275,10 @@ function computeSilverGiftMcGmBreakdown(
     total,
     rate_per_gram: metalRate,
     net_weight: netWt,
-    billable_weight_gm: netWt,
+    billable_weight_gm: billWt,
+    wastage_pct: wastPct > 0 ? wastPct : undefined,
     mc_before_discount:
-      mcDisc > 0 && mcBase > mcPerG ? Math.round(mcBase * netWt * qty) : undefined,
+      mcDisc > 0 && mcBase > mcPerG ? Math.round(mcBase * billWt * qty) : undefined,
     mc_discount_pct: mcDisc > 0 && mcBase > mcPerG ? mcDisc : undefined,
   }
 }
