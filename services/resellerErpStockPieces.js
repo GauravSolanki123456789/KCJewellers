@@ -1469,16 +1469,25 @@ function registerStockPieceRoutes(app, deps) {
             const usedBarcodes = new Set();
             const duplicateInFile = [];
             const barcodePrefixSource = await loadStockBarcodePrefixSource(query, req.user.id);
+            let runningTagSetEarly = new Set();
+            try {
+                runningTagSetEarly = await loadRunningTagBarcodeSet(query, req.user.id);
+            } catch {
+                runningTagSetEarly = new Set();
+            }
             for (const row of rawRows) {
                 let p = applyNetWeightToPiece(parseExcelRowToPiece(row));
                 if (!p) continue;
                 if (p.barcode) {
                     const bc = String(p.barcode).trim();
-                    if (usedBarcodes.has(bc)) {
+                    const isRunningTagBarcode = runningTagSetEarly.has(bc.toLowerCase());
+                    if (!isRunningTagBarcode && usedBarcodes.has(bc)) {
                         duplicateInFile.push(bc);
                         continue;
                     }
-                    usedBarcodes.add(bc);
+                    if (!isRunningTagBarcode) {
+                        usedBarcodes.add(bc);
+                    }
                 }
                 if (p.style_code && p.sku) {
                     try {
@@ -1653,6 +1662,9 @@ function registerStockPieceRoutes(app, deps) {
                             usedBarcodes,
                             barcodePrefixSource,
                         );
+                        usedBarcodes.add(String(p.barcode || '').trim());
+                    } else {
+                        usedBarcodes.add(originalBarcode);
                     }
                 }
                 const rfidTag = p.rfid_tag ? poshRfid.normalizeRfidTag(p.rfid_tag) : null;
