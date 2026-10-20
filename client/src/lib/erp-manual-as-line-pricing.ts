@@ -1,11 +1,11 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import {
+  erpSlabToKind,
   erpSlabUsesWholesaleMetal,
   isRetailQuoteSlab,
   mcSlabFieldForBillingSlab,
   type ErpRateSlab,
 } from '@/lib/erp-billing-pricing'
-import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { pieceSlabMcRate } from '@/lib/erp-piece-slab-pricing'
 import {
   erpCatalogMcPerUnit,
@@ -19,7 +19,17 @@ import {
   metalSlabPctMultiplier,
 } from '@/lib/erp-metal-slab-field'
 import { isMcPerGmBillingType } from '@/lib/erp-mc-type-field'
-import type { PriceBreakdown } from '@/lib/pricing'
+import {
+  catalogGoldSlabRRatePerGram,
+  tierSettingsForSlab,
+  type ResellerSlabSettings,
+} from '@/lib/catalog-slab-pricing'
+import {
+  erpGoldBillableWeightGm,
+  erpGoldMetalPartInr,
+  purityPct,
+  type PriceBreakdown,
+} from '@/lib/pricing'
 
 export function erpMcBillingNetGm(line: ErpBillLine): number {
   const n = Number(line.originalWeightGm ?? line.weightGm ?? 0)
@@ -104,6 +114,13 @@ export function deriveManualNetWeightPatch(
   return { ...patch, weightGm, originalWeightGm: weightGm }
 }
 
+function manualLineAsItemForGoldRate(line: ErpBillLine) {
+  return {
+    metal_type: line.metal_type || 'gold',
+    purity: line.purity ?? 916,
+  }
+}
+
 function resolveManualRowRatePerG(
   line: ErpBillLine,
   slab: ErpRateSlab,
@@ -111,6 +128,8 @@ function resolveManualRowRatePerG(
   goldPerG: number,
   wholesaleSilver?: number | null,
   wholesaleGold?: number | null,
+  displayRates?: unknown,
+  slabSettings?: ResellerSlabSettings,
 ): number {
   const locked = Number(line.ratePerGram)
   if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked
@@ -119,6 +138,13 @@ function resolveManualRowRatePerG(
     if (erpSlabUsesWholesaleMetal(slab)) {
       const wh = Number(wholesaleGold ?? goldPerG) || 0
       return wh > 0 ? wh : goldPerG > 0 ? goldPerG : 0
+    }
+    if (displayRates && slabSettings) {
+      const kind = erpSlabToKind(slab)
+      const tier = tierSettingsForSlab(slabSettings, kind, line.metal_type)
+      const item = manualLineAsItemForGoldRate(line)
+      const r = catalogGoldSlabRRatePerGram(displayRates, item, tier)
+      if (r > 0) return r
     }
     return goldPerG > 0 ? goldPerG : 0
   }
@@ -158,6 +184,7 @@ export function computeManualAsLineBreakdown(
   wholesaleGold?: number | null,
   gstPct = GST_PCT,
   slabSettings?: ResellerSlabSettings,
+  displayRates?: unknown,
 ): PriceBreakdown {
   const netWt = erpLineNetWeightGm(line, slab) || 0
   if (netWt <= 0) {
@@ -166,9 +193,20 @@ export function computeManualAsLineBreakdown(
 
   const wastPct = Number(line.wastage_pct ?? 0) || 0
   const metalMult = metalSlabPctMultiplier(line, slab)
+  const metalKey = String(line.metal_type || 'silver').toLowerCase()
+  const isGold = metalKey.startsWith('gold')
+  const wholesaleMetalSlab = erpSlabUsesWholesaleMetal(slab)
+  const useMetalSlabMult =
+    wholesaleMetalSlab && metalMult != null && metalMult > 0 && !isGold
+
   let billedWt = netWt
-  if (metalMult != null && metalMult > 0) {
-    billedWt = netWt * metalMult
+  if (isGold && wholesaleMetalSlab) {
+    const purityVal = purityPct(manualLineAsItemForGoldRate(line))
+    billedWt = erpGoldBillableWeightGm(netWt, purityVal, wastPct)
+  } else if (isGold && slab === 'R') {
+    if (wastPct > 0) billedWt = netWt * (1 + wastPct / 100)
+  } else if (useMetalSlabMult) {
+    billedWt = netWt * (metalMult as number)
   } else if (wastPct > 0) {
     billedWt = netWt * (1 + wastPct / 100)
   }
@@ -180,9 +218,19 @@ export function computeManualAsLineBreakdown(
     goldPerG,
     wholesaleSilver,
     wholesaleGold,
+    displayRates,
+    slabSettings,
   )
   const pcs = Math.max(1, Number(line.qty) || 1)
-  const metalCost = rate > 0 ? billedWt * rate * pcs : 0
+  let metalCost = 0
+  if (rate > 0) {
+    if (isGold && wholesaleMetalSlab) {
+      const purityVal = purityPct(manualLineAsItemForGoldRate(line))
+      metalCost = erpGoldMetalPartInr(netWt, purityVal, wastPct, rate, pcs)
+    } else {
+      metalCost = billedWt * rate * pcs
+    }
+  }
 
   const catalogMc = erpCatalogMcPerUnit(line)
   const perGm = isMcPerGmBillingType(line.mc_type)

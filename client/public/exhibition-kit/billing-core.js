@@ -140,6 +140,20 @@ var KcExhibitionBillingModule = (() => {
     if (factor <= 0) return Math.floor(net * 1e3 + 1e-9) / 1e3;
     return Math.floor(net * factor * 1e3 + 1e-9) / 1e3;
   }
+  function erpGoldRetailSlabRBillableWeightGm(netWt, wastagePct) {
+    const net = Number(netWt) || 0;
+    if (net <= 0) return 0;
+    const w = Math.max(0, Number(wastagePct) || 0) / 100;
+    if (w <= 0) return Math.floor(net * 1e3 + 1e-9) / 1e3;
+    return Math.floor(net * (1 + w) * 1e3 + 1e-9) / 1e3;
+  }
+  function erpGoldRetailSlabRMetalPartInr(netWt, wastagePct, ratePerG, pcs = 1) {
+    const billWt = erpGoldRetailSlabRBillableWeightGm(netWt, wastagePct);
+    const rate = Number(ratePerG) || 0;
+    const q = Math.max(1, Number(pcs) || 1);
+    if (billWt <= 0 || rate <= 0) return 0;
+    return Math.round(billWt * rate * q * 100) / 100;
+  }
   function erpGoldMetalPartInr(netWt, purityPct2, wastagePct, ratePerG, pcs = 1) {
     const net = Number(netWt) || 0;
     if (net <= 0) return 0;
@@ -571,6 +585,11 @@ var KcExhibitionBillingModule = (() => {
     if (!row) return 0;
     return Number(row.display_rate ?? row.sell_rate ?? 0) / 10;
   }
+  function catalogGoldSlabRRatePerGram(live, item, settings) {
+    const liveRate = goldRateForItem(live, item);
+    const offset = Math.max(0, Number(settings.gold_rate_offset_per_g) || 0);
+    return Math.max(0, liveRate - offset);
+  }
   function goldRateForItem(live, item) {
     const g24 = liveGold24PerGram(live);
     const g22Row = rateRow2(live, "gold_22k");
@@ -696,7 +715,8 @@ var KcExhibitionBillingModule = (() => {
       item,
       kind === "slab_w" || kind === "slab_f" ? wastageDiscPts : 0
     ) : 0;
-    const billWt = isGold ? erpGoldBillableWeightGm(netWt, purity, goldWastageForBill) : kind === "slab_f" && wastageDiscForBillWt > 0 ? billableWithSlabWastage(item, wastageDiscForBillWt) : metalBillableWeight(item);
+    const isSlabRGoldRetail = isGold && kind === "slab_r";
+    const billWt = isGold ? isSlabRGoldRetail ? erpGoldRetailSlabRBillableWeightGm(netWt, goldWastageForBill) : erpGoldBillableWeightGm(netWt, purity, goldWastageForBill) : kind === "slab_f" && wastageDiscForBillWt > 0 ? billableWithSlabWastage(item, wastageDiscForBillWt) : metalBillableWeight(item);
     const fineRate = resolveFineMetalRatePerG(item, rates, effectiveSlab);
     if (fineRate <= 0 || netWt <= 0 || billWt <= 0) {
       return calculateBreakdown(item, rates, gst, wholesale ?? void 0, pricingOptions);
@@ -712,12 +732,18 @@ var KcExhibitionBillingModule = (() => {
     const pcs = linePieceCount(item);
     if (isGold) {
       wastagePctVal = goldWastageForBill;
-      metalPart = erpGoldMetalPartInr(netWt, purity, wastagePctVal, metalRate, pcs);
+      if (isSlabRGoldRetail) {
+        metalPart = erpGoldRetailSlabRMetalPartInr(netWt, wastagePctVal, metalRate, pcs);
+        const pureMetal = Math.round(netWt * metalRate * pcs * 100) / 100;
+        wastageAmount = Math.max(0, Math.round((metalPart - pureMetal) * 100) / 100);
+      } else {
+        metalPart = erpGoldMetalPartInr(netWt, purity, wastagePctVal, metalRate, pcs);
+        const pureMetal = erpGoldMetalPartInr(netWt, purity, 0, metalRate, pcs);
+        wastageAmount = Math.max(0, Math.round((metalPart - pureMetal) * 100) / 100);
+      }
       const mcRaw = Math.round(mcPart(item, 0));
       mc = mcDisc > 0 ? Math.round(mcRaw * (1 - mcDisc / 100)) : mcRaw;
       if (mcDisc > 0 && mcRaw > mc) mcBeforeDiscount = mcRaw;
-      const pureMetal = erpGoldMetalPartInr(netWt, purity, 0, metalRate, pcs);
-      wastageAmount = Math.max(0, Math.round((metalPart - pureMetal) * 100) / 100);
       stone2 = Math.round(stonePart(item)) * pcs;
     } else {
       metalPart = metalRate * billWt * pcs;
@@ -1429,7 +1455,13 @@ var KcExhibitionBillingModule = (() => {
     const disc = manualMcDiscountPerUnit(line, slab);
     return disc > 0 ? Math.max(0, base - disc) : base;
   }
-  function resolveManualRowRatePerG(line, slab, silverPerG, goldPerG, wholesaleSilver, wholesaleGold) {
+  function manualLineAsItemForGoldRate(line) {
+    return {
+      metal_type: line.metal_type || "gold",
+      purity: line.purity ?? 916
+    };
+  }
+  function resolveManualRowRatePerG(line, slab, silverPerG, goldPerG, wholesaleSilver, wholesaleGold, displayRates, slabSettings) {
     const locked = Number(line.ratePerGram);
     if (line.rateLocked && Number.isFinite(locked) && locked > 0) return locked;
     const metal = String(line.metal_type || "silver").toLowerCase();
@@ -1437,6 +1469,13 @@ var KcExhibitionBillingModule = (() => {
       if (erpSlabUsesWholesaleMetal(slab)) {
         const wh = Number(wholesaleGold ?? goldPerG) || 0;
         return wh > 0 ? wh : goldPerG > 0 ? goldPerG : 0;
+      }
+      if (displayRates && slabSettings) {
+        const kind = erpSlabToKind(slab);
+        const tier = tierSettingsForSlab(slabSettings, kind, line.metal_type);
+        const item = manualLineAsItemForGoldRate(line);
+        const r = catalogGoldSlabRRatePerGram(displayRates, item, tier);
+        if (r > 0) return r;
       }
       return goldPerG > 0 ? goldPerG : 0;
     }
@@ -1454,15 +1493,24 @@ var KcExhibitionBillingModule = (() => {
     if (silverPerG <= lineRate) return 0;
     return Math.round((silverPerG - lineRate) * billedWt);
   }
-  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0, wholesaleSilver, wholesaleGold, gstPct = GST_PCT, slabSettings) {
+  function computeManualAsLineBreakdown(line, slab, silverPerG = 0, goldPerG = 0, wholesaleSilver, wholesaleGold, gstPct = GST_PCT, slabSettings, displayRates) {
     const netWt = erpLineNetWeightGm(line, slab) || 0;
     if (netWt <= 0) {
       return { metal: 0, mc: 0, stone: 0, cgst: 0, sgst: 0, taxable: 0, total: 0 };
     }
     const wastPct = Number(line.wastage_pct ?? 0) || 0;
     const metalMult = metalSlabPctMultiplier(line, slab);
+    const metalKey = String(line.metal_type || "silver").toLowerCase();
+    const isGold = metalKey.startsWith("gold");
+    const wholesaleMetalSlab = erpSlabUsesWholesaleMetal(slab);
+    const useMetalSlabMult = wholesaleMetalSlab && metalMult != null && metalMult > 0 && !isGold;
     let billedWt = netWt;
-    if (metalMult != null && metalMult > 0) {
+    if (isGold && wholesaleMetalSlab) {
+      const purityVal = purityPct(manualLineAsItemForGoldRate(line));
+      billedWt = erpGoldBillableWeightGm(netWt, purityVal, wastPct);
+    } else if (isGold && slab === "R") {
+      if (wastPct > 0) billedWt = netWt * (1 + wastPct / 100);
+    } else if (useMetalSlabMult) {
       billedWt = netWt * metalMult;
     } else if (wastPct > 0) {
       billedWt = netWt * (1 + wastPct / 100);
@@ -1473,10 +1521,20 @@ var KcExhibitionBillingModule = (() => {
       silverPerG,
       goldPerG,
       wholesaleSilver,
-      wholesaleGold
+      wholesaleGold,
+      displayRates,
+      slabSettings
     );
     const pcs = Math.max(1, Number(line.qty) || 1);
-    const metalCost = rate > 0 ? billedWt * rate * pcs : 0;
+    let metalCost = 0;
+    if (rate > 0) {
+      if (isGold && wholesaleMetalSlab) {
+        const purityVal = purityPct(manualLineAsItemForGoldRate(line));
+        metalCost = erpGoldMetalPartInr(netWt, purityVal, wastPct, rate, pcs);
+      } else {
+        metalCost = billedWt * rate * pcs;
+      }
+    }
     const catalogMc = erpCatalogMcPerUnit(line);
     const perGm = isMcPerGmBillingType(line.mc_type);
     const baseMcRate = perGm ? Number(line.mc_rate ?? catalogMc) || 0 : catalogMc;
@@ -1840,7 +1898,8 @@ var KcExhibitionBillingModule = (() => {
         wholesaleSilver,
         wholesaleGold,
         gstPct,
-        slabSettings
+        slabSettings,
+        displayRates
       );
     }
     if (isPiecePricedBillLine(line)) {

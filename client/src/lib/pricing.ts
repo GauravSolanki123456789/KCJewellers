@@ -228,6 +228,32 @@ export function erpGoldBillableWeightGm(
   return Math.floor(net * factor * 1000 + 1e-9) / 1000
 }
 
+/** Slab R retail gold — wastage adds to net weight (not purity+fine-metal factor). */
+export function erpGoldRetailSlabRBillableWeightGm(
+  netWt: number,
+  wastagePct: number,
+): number {
+  const net = Number(netWt) || 0
+  if (net <= 0) return 0
+  const w = Math.max(0, Number(wastagePct) || 0) / 100
+  if (w <= 0) return Math.floor(net * 1000 + 1e-9) / 1000
+  return Math.floor(net * (1 + w) * 1000 + 1e-9) / 1000
+}
+
+/** Slab R retail gold metal ₹ — billable wt × karat rate (18K/22K/24K ₹/g). */
+export function erpGoldRetailSlabRMetalPartInr(
+  netWt: number,
+  wastagePct: number,
+  ratePerG: number,
+  pcs = 1,
+): number {
+  const billWt = erpGoldRetailSlabRBillableWeightGm(netWt, wastagePct)
+  const rate = Number(ratePerG) || 0
+  const q = Math.max(1, Number(pcs) || 1)
+  if (billWt <= 0 || rate <= 0) return 0
+  return Math.round(billWt * rate * q * 100) / 100
+}
+
 /** ERP gold metal ₹ (before MC / stone) — full wt×(purity+wastage), metal rounded to 2 dp. */
 export function erpGoldMetalPartInr(
   netWt: number,

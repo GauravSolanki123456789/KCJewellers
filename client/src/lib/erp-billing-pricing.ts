@@ -551,6 +551,7 @@ export function computeLineBreakdown(
       wholesaleGold,
       gstPct,
       slabSettings,
+      displayRates,
     )
   }
 
