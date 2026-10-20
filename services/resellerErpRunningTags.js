@@ -176,10 +176,20 @@ async function jainavSoldGmForRunningTag(query, resellerUserId, barcode) {
 }
 
 async function sumRunningTagIntakeGm(query, resellerUserId, barcode, mode) {
+    /** Shadow lane: Jainav-matched PV intake. Book: in-hand + GST-matched PV intake (status sold). */
     const statusSql =
         mode === 'shadow'
             ? `status = 'shadow_sold'`
-            : `status IN ('in_stock', 'reserved')`;
+            : `(
+                status IN ('in_stock', 'reserved')
+                OR (
+                    status = 'sold'
+                    AND (
+                        COALESCE(payload_json->>'running_tag_barcode', '') <> ''
+                        OR lower(trim(barcode)) LIKE lower($2) || '~%'
+                    )
+                )
+            )`;
     const rows = await query(
         `SELECT COALESCE(SUM(avg_weight), 0) AS gm
          FROM reseller_erp_stock_pieces
