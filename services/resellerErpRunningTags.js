@@ -296,48 +296,79 @@ async function findCompletedSaleForBarcode(query, resellerUserId, barcode) {
 
 const RUNNING_TAG_WEIGHT_MATCH_EPS_GM = 0.05;
 
+const BILL_LINE_WEIGHT_SQL = `COALESCE(
+    NULLIF(line->>'originalWeightGm', '')::numeric,
+    NULLIF(line->>'weightGm', '')::numeric,
+    0
+)`;
+
+const RUNNING_TAG_LINE_BARCODE_MATCH = `(
+    lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
+    OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
+)`;
+
 /**
- * When PV Excel uses a running-tag barcode, pick the Jainav bill line that matches weight (if any),
- * else fall back to official / any shadow sale on that tag.
+ * GST / completed sale line on a running tag with matching net weight (±0.05 g).
+ */
+async function findOfficialRunningTagSaleLine(query, resellerUserId, runningTagBarcode, weightGm) {
+    const bc = String(runningTagBarcode || '').trim();
+    const targetWt = roundGm(weightGm);
+    if (!bc || targetWt <= 0) return null;
+    const rows = await query(
+        `SELECT b.id, b.bill_number, 'official' AS source
+         FROM reseller_erp_bills b,
+              jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
+         WHERE b.reseller_user_id = $1
+           AND b.bill_type = 'sale'
+           AND lower(COALESCE(b.status, '')) IN ('completed', 'paid', 'final', 'issued')
+           AND ${RUNNING_TAG_LINE_BARCODE_MATCH}
+           AND ABS(${BILL_LINE_WEIGHT_SQL} - $3::numeric) <= $4::numeric
+         ORDER BY b.created_at DESC
+         LIMIT 1`,
+        [resellerUserId, bc, targetWt, RUNNING_TAG_WEIGHT_MATCH_EPS_GM],
+    );
+    return rows[0] || null;
+}
+
+/**
+ * Jainav / shadow sale line on a running tag with matching net weight (±0.05 g).
+ */
+async function findShadowRunningTagSaleLine(query, resellerUserId, runningTagBarcode, weightGm) {
+    const bc = String(runningTagBarcode || '').trim();
+    const targetWt = roundGm(weightGm);
+    if (!bc || targetWt <= 0) return null;
+    const rows = await query(
+        `SELECT b.id, b.bill_number, 'jainav' AS source
+         FROM reseller_erp_shadow_bills b,
+              jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
+         WHERE b.reseller_user_id = $1
+           AND b.bill_type = 'sale'
+           AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void')
+           AND ${RUNNING_TAG_LINE_BARCODE_MATCH}
+           AND ABS(${BILL_LINE_WEIGHT_SQL} - $3::numeric) <= $4::numeric
+         ORDER BY b.created_at DESC
+         LIMIT 1`,
+        [resellerUserId, bc, targetWt, RUNNING_TAG_WEIGHT_MATCH_EPS_GM],
+    );
+    return rows[0] || null;
+}
+
+/**
+ * PV Excel running-tag row: mark sold only when bill line uses that tag barcode AND same weight.
+ * Never match by weight alone on a different stock barcode (PY-xxxxx).
  */
 async function findSaleForRunningTagUpload(query, resellerUserId, runningTagBarcode, weightGm) {
     const bc = String(runningTagBarcode || '').trim();
     if (!bc) return null;
-    const targetWt = roundGm(weightGm);
-    const lineWtSql = `COALESCE(
-        NULLIF(line->>'originalWeightGm', '')::numeric,
-        NULLIF(line->>'weightGm', '')::numeric,
-        0
-    )`;
+    const official = await findOfficialRunningTagSaleLine(query, resellerUserId, bc, weightGm);
+    if (official) return official;
     try {
-        const shadowRows = await query(
-            `SELECT b.id, b.bill_number, 'jainav' AS source, ${lineWtSql} AS line_gm
-             FROM reseller_erp_shadow_bills b,
-                  jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
-             WHERE b.reseller_user_id = $1
-               AND b.bill_type = 'sale'
-               AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void')
-               AND (
-                    lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
-                    OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
-               )
-             ORDER BY ABS(${lineWtSql} - $3::numeric) ASC, b.created_at DESC
-             LIMIT 12`,
-            [resellerUserId, bc, targetWt],
-        );
-        if (shadowRows.length) {
-            const exact = shadowRows.find(
-                (r) => Math.abs(roundGm(r.line_gm) - targetWt) <= RUNNING_TAG_WEIGHT_MATCH_EPS_GM,
-            );
-            const pick = exact || (targetWt > 0 ? null : shadowRows[0]);
-            if (pick) {
-                return { id: pick.id, bill_number: pick.bill_number, source: 'jainav' };
-            }
-        }
+        const shadow = await findShadowRunningTagSaleLine(query, resellerUserId, bc, weightGm);
+        if (shadow) return shadow;
     } catch {
         /* shadow optional */
     }
-    return findAnySaleForBarcode(query, resellerUserId, bc);
+    return null;
 }
 
 /** Any official sale (incl. draft) or Jainav/shadow bill that used this barcode — for marking uploaded stock sold. */

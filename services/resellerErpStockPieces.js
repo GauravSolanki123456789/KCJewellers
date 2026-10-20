@@ -1595,9 +1595,12 @@ function registerStockPieceRoutes(app, deps) {
 
             const markUploadedPieceSold = async (pieceId, originalBarcode, pieceWeightGm, isRunningTagRow) => {
                 if (!pieceId) return;
+                const rtBc = String(originalBarcode || '').trim().toLowerCase();
+                const runningTagRow =
+                    isRunningTagRow && rtBc && runningTagSet.has(rtBc);
                 let sale = null;
                 try {
-                    sale = isRunningTagRow
+                    sale = runningTagRow
                         ? await findSaleForRunningTagUpload(
                               query,
                               req.user.id,
