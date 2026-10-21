@@ -414,12 +414,14 @@ function marlechaFlatMrpRow(line: ErpBillLine, mrpItemNames?: Set<string> | null
 function lineTotalNetGm(line: ErpBillLine): number {
   const per = lineNetGm(line)
   if (per <= 0) return 0
+  if (line.invoiceWeightIsAggregate) return Math.round(per * 100) / 100
   return Math.round(per * lineQty(line) * 100) / 100
 }
 
 function lineTotalGrossGm(line: ErpBillLine): number {
   const per = lineGrossGm(line)
   if (per <= 0) return 0
+  if (line.invoiceWeightIsAggregate) return Math.round(per * 100) / 100
   return Math.round(per * lineQty(line) * 100) / 100
 }
 

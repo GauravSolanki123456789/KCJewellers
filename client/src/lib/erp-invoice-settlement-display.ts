@@ -92,7 +92,9 @@ function backCalcDisplayRatePerGram(line: ErpBillLine, finalAmt: number): number
   }
   const raw = rawPhysicalNetGm(line)
   if (raw <= 0) return line.ratePerGram ?? null
-  return Math.round((finalAmt / raw) * 100) / 100
+  const billWt = line.invoiceWeightIsAggregate ? raw : raw * qty
+  if (billWt <= 0) return line.ratePerGram ?? null
+  return Math.round((finalAmt / billWt) * 100) / 100
 }
 
 export function settlementOptsFromBill(bill: ErpBill): SettlementDiscountOpts {

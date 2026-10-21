@@ -120,7 +120,7 @@ function buildPdfColumns(
     { key: 'stone', label: 'Stone', w: '4%' },
     { key: 'metal', label: 'Metal', w: '5%' },
     { key: 'fixed', label: 'Fixed', w: '4%' },
-    { key: 'amt', label: 'Amount', w: '7%' },
+    { key: 'amt', label: 'Amount', w: '9%' },
   ]
 
   const visible = candidates.filter((col) => {
@@ -143,10 +143,29 @@ function buildPdfColumns(
 
   const total = visible.reduce((s, c) => s + parseFloat(c.w), 0)
   if (total <= 0) return visible
-  return visible.map((col) => {
+  let out = visible.map((col) => {
     const pct = (parseFloat(col.w) / total) * 100
     return { ...col, w: `${pct.toFixed(1)}%` }
   })
+  const amtIdx = out.findIndex((c) => c.key === 'amt')
+  if (amtIdx >= 0) {
+    const minAmt = 9
+    const cur = parseFloat(out[amtIdx]!.w)
+    if (cur < minAmt) {
+      const steal = minAmt - cur
+      out[amtIdx] = { ...out[amtIdx]!, w: `${minAmt.toFixed(1)}%` }
+      const others = out.filter((_, i) => i !== amtIdx)
+      const oSum = others.reduce((s, c) => s + parseFloat(c.w), 0)
+      if (oSum > steal) {
+        out = out.map((col, i) => {
+          if (i === amtIdx) return col
+          const shrink = (parseFloat(col.w) / oSum) * steal
+          return { ...col, w: `${Math.max(2.5, parseFloat(col.w) - shrink).toFixed(1)}%` }
+        })
+      }
+    }
+  }
+  return out
 }
 
 /** Estimate line table: show SKU/metal/MC type in caps; keep currency lines as-is. */
@@ -294,10 +313,17 @@ function buildStyles(p: KcPdfPalette) {
     },
     bodyCellAmt: {
       paddingVertical: 3,
-      paddingHorizontal: 2,
-      fontSize: 7,
+      paddingHorizontal: 1,
+      fontSize: 6.5,
       color: p.accent,
       fontWeight: 'bold',
+      textAlign: 'right',
+    },
+    bodyCellAmtWrap: {
+      paddingVertical: 3,
+      paddingHorizontal: 1,
+      justifyContent: 'center',
+      alignItems: 'flex-end',
     },
     summaryWrap: {
       marginTop: 8,
@@ -639,7 +665,7 @@ export function ErpQuotePdfDocument({
                   <View
                     key={c.key}
                     style={[
-                      styles.bodyCellWrap,
+                      c.key === 'amt' ? styles.bodyCellAmtWrap : styles.bodyCellWrap,
                       { width: c.w },
                       ...(!isInvoice ? [styles.estimateGridCell] : []),
                     ]}
@@ -652,7 +678,6 @@ export function ErpQuotePdfDocument({
                           : !isInvoice
                             ? [{ fontSize: 7 }]
                             : []),
-                        ...(c.key === 'amt' && !isInvoice ? [{ fontSize: 8 }] : []),
                         ...(centered ? [{ textAlign: 'center' as const }] : []),
                       ]}
                     >

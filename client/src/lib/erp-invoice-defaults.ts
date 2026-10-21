@@ -78,6 +78,7 @@ export function groupMarlechaInvoiceLines(
         existing.weightGm = (Number(existing.weightGm) || 0) + netGm
         existing.gross_weight = (Number(existing.gross_weight) || 0) + grossGm
         existing.originalWeightGm = existing.weightGm
+        existing.invoiceWeightIsAggregate = true
       }
       existing.lineTotalInr = (Number(existing.lineTotalInr) || 0) + (Number(line.lineTotalInr) || 0)
     } else {
@@ -92,6 +93,7 @@ export function groupMarlechaInvoiceLines(
         gross_weight: mrp ? null : grossGm,
         lineTotalInr: line.lineTotalInr ?? 0,
         mrpMode: mrp || undefined,
+        invoiceWeightIsAggregate: mrp ? undefined : false,
       })
     }
   }

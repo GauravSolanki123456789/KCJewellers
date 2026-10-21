@@ -173,6 +173,8 @@ export type ErpBillLine = {
   availability?: string | null
   /** Invoice line label e.g. SILVER JEWELLERY */
   invoice_item_name?: string | null
+  /** Marlecha grouped row — weightGm/gross_weight already sum all pieces (do not × qty). */
+  invoiceWeightIsAggregate?: boolean
   /** HSN code for tax invoice */
   hsn_code?: string | null
   /** Manual billing row (A/S/B/G shortcut — no barcode) */
