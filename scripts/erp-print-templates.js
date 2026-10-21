@@ -117,9 +117,9 @@ function migrateLabelTvsLp46PrnRules(pf) {
             metalTypes: Array.isArray(rule.metalTypes)
                 ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
                 : [],
-            requireAny: rule.requireAny || [],
-            requireAll: rule.requireAll || [],
-            requireNone: rule.requireNone || [],
+            requireAny: normalizeLabelRuleFieldList(rule.requireAny),
+            requireAll: normalizeLabelRuleFieldList(rule.requireAll),
+            requireNone: normalizeLabelRuleFieldList(rule.requireNone),
             template: normalizePrnTemplate(
                 rule.template || pf.labelTvsLp46PrnTemplate || pf.labelPrnTemplate || DEFAULT_LABEL_PRN,
             ),
@@ -214,6 +214,7 @@ PRINT 1,1
 
 const LABEL_RULE_FIELD_KEYS = [
     'gross_weight',
+    'net_weight',
     'bag_wt',
     'stone_charges',
     'stone_wt',
@@ -232,6 +233,17 @@ function newRuleId() {
     return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function normalizeLabelRuleFieldKey(field) {
+    const f = String(field || '').trim();
+    if (f === 'avg_weight' || f === 'weight_gm') return 'net_weight';
+    return f;
+}
+
+function normalizeLabelRuleFieldList(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map((f) => normalizeLabelRuleFieldKey(f)).filter(Boolean);
+}
+
 function buildDefaultLabelPrnRules(fallbackTemplate) {
     const silverFallback = normalizePrnTemplate(fallbackTemplate || DEFAULT_LABEL_PRN_SILVER);
     return [
@@ -243,7 +255,7 @@ function buildDefaultLabelPrnRules(fallbackTemplate) {
             metalTypes: [],
             requireAny: ['fixed_price'],
             requireAll: [],
-            requireNone: ['gross_weight', 'avg_weight'],
+            requireNone: ['gross_weight', 'net_weight'],
             template: DEFAULT_LABEL_PRN_MRP,
         },
         {
@@ -313,6 +325,16 @@ function pieceFieldHasValue(piece, field) {
         const tag = piece.rfid_tag ?? piece.tag_no;
         return tag != null && String(tag).trim().length > 0;
     }
+    if (field === 'net_weight') {
+        const keys = ['net_weight', 'avg_weight', 'weight_gm'];
+        for (const k of keys) {
+            const v = piece[k];
+            if (v == null || v === '') continue;
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) return true;
+        }
+        return false;
+    }
     const v = piece[field];
     if (v == null || v === '') return false;
     if (typeof v === 'number') return Number.isFinite(v) && v !== 0;
@@ -350,15 +372,9 @@ function migrateLabelPrnRules(printFormats) {
             metalTypes: Array.isArray(rule.metalTypes)
                 ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
                 : [],
-            requireAny: Array.isArray(rule.requireAny)
-                ? rule.requireAny.map((f) => String(f).trim()).filter(Boolean)
-                : [],
-            requireAll: Array.isArray(rule.requireAll)
-                ? rule.requireAll.map((f) => String(f).trim()).filter(Boolean)
-                : [],
-            requireNone: Array.isArray(rule.requireNone)
-                ? rule.requireNone.map((f) => String(f).trim()).filter(Boolean)
-                : [],
+            requireAny: normalizeLabelRuleFieldList(rule.requireAny),
+            requireAll: normalizeLabelRuleFieldList(rule.requireAll),
+            requireNone: normalizeLabelRuleFieldList(rule.requireNone),
             template: normalizePrnTemplate(rule.template || pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
         }))
         .map((rule) => {
@@ -400,15 +416,9 @@ function migrateLabelZebraPrnRules(printFormats) {
             metalTypes: Array.isArray(rule.metalTypes)
                 ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
                 : [],
-            requireAny: Array.isArray(rule.requireAny)
-                ? rule.requireAny.map((f) => String(f).trim()).filter(Boolean)
-                : [],
-            requireAll: Array.isArray(rule.requireAll)
-                ? rule.requireAll.map((f) => String(f).trim()).filter(Boolean)
-                : [],
-            requireNone: Array.isArray(rule.requireNone)
-                ? rule.requireNone.map((f) => String(f).trim()).filter(Boolean)
-                : [],
+            requireAny: normalizeLabelRuleFieldList(rule.requireAny),
+            requireAll: normalizeLabelRuleFieldList(rule.requireAll),
+            requireNone: normalizeLabelRuleFieldList(rule.requireNone),
             template: normalizeLabelTemplate(
                 rule.template || pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL,
                 'zpl',
@@ -806,6 +816,23 @@ function stripBareSetLines(tspl) {
         .join('\n');
 }
 
+/** Omit TSPL TEXT lines that only print an empty RFID value (after {{rfid_tag}} substitution). */
+function stripEmptyRfidLabelLines(tspl) {
+    return String(tspl || '')
+        .split('\n')
+        .filter((line) => {
+            const t = line.trim();
+            if (!/^TEXT\b/i.test(t)) return true;
+            const m = t.match(/,"([^"]*)"\s*$/);
+            if (!m) return true;
+            const labelText = m[1];
+            if (/^RFID:\s*$/i.test(labelText)) return false;
+            if (/^RFID:\{\{rfid_tag\}\}$/i.test(labelText)) return false;
+            return true;
+        })
+        .join('\n');
+}
+
 function formatTsplLineEndings(tspl, windowsPrinterName) {
     if (isZplLabelTemplate(tspl)) {
         const body = preserveZplTemplate(tspl);
@@ -838,7 +865,10 @@ function renderTemplate(template, vars, opts) {
         const replacement = key === 'lines_table' ? String(val ?? '') : tsplSafe(val);
         out = out.split(`{{${key}}}`).join(replacement);
     }
-    if (!zpl) out = fixTsplQrcodeCommands(stripBareSetLines(out));
+    if (!zpl) {
+        out = stripEmptyRfidLabelLines(out);
+        out = fixTsplQrcodeCommands(stripBareSetLines(out));
+    }
     return out;
 }
 

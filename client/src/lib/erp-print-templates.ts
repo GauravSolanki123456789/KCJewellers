@@ -298,6 +298,7 @@ export const LABEL_TEMPLATE_VARS = [
 
 export const LABEL_RULE_FIELD_KEYS = [
   'gross_weight',
+  'net_weight',
   'bag_wt',
   'stone_charges',
   'stone_wt',
@@ -444,9 +445,9 @@ export function migrateLabelPrnRules(pf: ErpPrintFormatsSettings | null | undefi
       metalTypes: Array.isArray(rule.metalTypes)
         ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
         : [],
-      requireAny: (rule.requireAny || []) as LabelRuleFieldKey[],
-      requireAll: (rule.requireAll || []) as LabelRuleFieldKey[],
-      requireNone: (rule.requireNone || []) as LabelRuleFieldKey[],
+      requireAny: normalizeLabelRuleFieldList(rule.requireAny),
+      requireAll: normalizeLabelRuleFieldList(rule.requireAll),
+      requireNone: normalizeLabelRuleFieldList(rule.requireNone),
       template: normalizePrnTemplate(rule.template || pf?.labelPrnTemplate || DEFAULT_LABEL_PRN),
     }))
     .map((rule) => {
@@ -756,6 +757,36 @@ function stripBareSetLines(tspl: string): string {
     .join('\n')
 }
 
+/** Omit TSPL TEXT lines that only print an empty RFID value (mirrors server renderTemplate). */
+function stripEmptyRfidLabelLines(tspl: string): string {
+  return String(tspl || '')
+    .split('\n')
+    .filter((line) => {
+      const t = line.trim()
+      if (!/^TEXT\b/i.test(t)) return true
+      const m = t.match(/,"([^"]*)"\s*$/)
+      if (!m) return true
+      const labelText = m[1]
+      if (/^RFID:\s*$/i.test(labelText)) return false
+      if (/^RFID:\{\{rfid_tag\}\}$/i.test(labelText)) return false
+      return true
+    })
+    .join('\n')
+}
+
+function normalizeLabelRuleFieldKey(field: string): LabelRuleFieldKey | string {
+  const f = String(field || '').trim()
+  if (f === 'avg_weight' || f === 'weight_gm') return 'net_weight'
+  return f
+}
+
+function normalizeLabelRuleFieldList(list: unknown): LabelRuleFieldKey[] {
+  if (!Array.isArray(list)) return []
+  return list
+    .map((f) => normalizeLabelRuleFieldKey(String(f)))
+    .filter(Boolean) as LabelRuleFieldKey[]
+}
+
 export function formatRawLabelForPrint(
   raw: string,
   windowsPrinterName?: string | null,
@@ -769,7 +800,9 @@ export function formatRawLabelForPrint(
     }
     return out
   }
-  const body = fixTsplQrcodeCommands(stripBareSetLines(normalizePrnTemplate(raw)))
+  const body = fixTsplQrcodeCommands(
+    stripBareSetLines(stripEmptyRfidLabelLines(normalizePrnTemplate(raw))),
+  )
   return `${body.split('\n').join('\r\n')}\r\n`
 }
 
@@ -803,6 +836,7 @@ export function buildDefaultLabelZebraPrnRules(fallbackTemplate?: string): Label
 
 export const LABEL_RULE_FIELD_LABELS: Record<LabelRuleFieldKey, string> = {
   gross_weight: 'Gross weight',
+  net_weight: 'Net weight',
   bag_wt: 'Bag weight',
   stone_charges: 'Stone charges',
   stone_wt: 'Stone weight',

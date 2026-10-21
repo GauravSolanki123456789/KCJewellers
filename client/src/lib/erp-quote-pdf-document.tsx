@@ -315,7 +315,7 @@ function buildStyles(p: KcPdfPalette) {
       paddingVertical: 3,
       paddingHorizontal: 1,
       fontSize: 6.5,
-      color: p.accent,
+      color: p.textPrimary,
       fontWeight: 'bold',
       textAlign: 'right',
     },
