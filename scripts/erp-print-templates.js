@@ -710,9 +710,38 @@ function preservePrnTemplate(raw) {
     return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
+/** Merge `"{{\nbarcode}}"` → `"{{barcode}}"` after bad PRN repair split placeholders. */
+function fixSplitTemplatePlaceholders(raw) {
+    return String(raw || '')
+        .replace(/"\{\{\s*\n\s*([\w.]+)\s*\}\}"/g, '"{{$1}}"')
+        .replace(/,\s*"\{\{\s*\n\s*([\w.]+)\s*\}\}"/g, ',"{{$1}}"')
+        .replace(/\{\{\s*\n\s*([\w.]+)\s*\}\}/g, '{{$1}}');
+}
+
+function shieldTemplatePlaceholders(raw) {
+    const tokens = [];
+    const out = String(raw || '').replace(/\{\{([\w.]+)\}\}/g, (_m, key) => {
+        const id = tokens.length;
+        tokens.push(`{{${key}}}`);
+        return `\u0000KCPL${id}\u0000`;
+    });
+    return { out, tokens };
+}
+
+function unshieldTemplatePlaceholders(raw, tokens) {
+    let out = String(raw || '');
+    for (let id = 0; id < tokens.length; id += 1) {
+        out = out.split(`\u0000KCPL${id}\u0000`).join(tokens[id]);
+    }
+    return out;
+}
+
 function repairCorruptedPrnTemplate(raw) {
-    let s = preservePrnTemplate(raw).trim();
+    let s = fixSplitTemplatePlaceholders(preservePrnTemplate(raw)).trim();
     if (!s) return DEFAULT_LABEL_PRN;
+
+    const shield = shieldTemplatePlaceholders(s);
+    s = shield.out;
 
     s = s.replace(/SET PEEL OFFSET/gi, 'SET PEEL OFF\nSET');
     s = s.replace(/SET CUTTER OFFSET/gi, 'SET CUTTER OFF\nSET');
@@ -747,8 +776,15 @@ function repairCorruptedPrnTemplate(raw) {
     ];
     for (const cmd of cmds) {
         const esc = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+        if (cmd === 'BARCODE') {
+            s = s.replace(/(?<!\n)(BARCODE)\s+(?=\d)/gi, '\n$1 ');
+            continue;
+        }
         s = s.replace(new RegExp(`(?<!\\n)(${esc})`, 'gi'), '\n$1');
     }
+
+    s = unshieldTemplatePlaceholders(s, shield.tokens);
+    s = fixSplitTemplatePlaceholders(s);
 
     return s
         .split('\n')
@@ -759,11 +795,11 @@ function repairCorruptedPrnTemplate(raw) {
 
 /** Restore TSPL line breaks when sanitize middleware collapsed multi-line PRN (OFF+SET → OFFSET bug). */
 function normalizePrnTemplate(raw) {
-    const preserved = preservePrnTemplate(raw);
+    const preserved = fixSplitTemplatePlaceholders(preservePrnTemplate(raw));
     if (!preserved.trim()) return DEFAULT_LABEL_PRN;
     if (isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved);
     if (/mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(preserved) || (preserved.length > 80 && !preserved.includes('\n'))) {
-        return repairCorruptedPrnTemplate(preserved);
+        return fixSplitTemplatePlaceholders(repairCorruptedPrnTemplate(preserved));
     }
     return preserved;
 }

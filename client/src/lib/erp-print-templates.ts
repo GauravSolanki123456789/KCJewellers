@@ -622,9 +622,38 @@ export function resolveEstimateTemplateForBill(
     : pf.estimateTemplateSilver || DEFAULT_ESTIMATE_TEMPLATE_SILVER
 }
 
+/** Merge `"{{\nbarcode}}"` → `"{{barcode}}"` after bad PRN repair split placeholders. */
+export function fixSplitTemplatePlaceholders(raw: string | null | undefined): string {
+  return String(raw || '')
+    .replace(/"\{\{\s*\n\s*([\w.]+)\s*\}\}"/g, '"{{$1}}"')
+    .replace(/,\s*"\{\{\s*\n\s*([\w.]+)\s*\}\}"/g, ',"{{$1}}"')
+    .replace(/\{\{\s*\n\s*([\w.]+)\s*\}\}/g, '{{$1}}')
+}
+
+function shieldTemplatePlaceholders(raw: string): { out: string; tokens: string[] } {
+  const tokens: string[] = []
+  const out = String(raw || '').replace(/\{\{([\w.]+)\}\}/g, (_m, key: string) => {
+    const id = tokens.length
+    tokens.push(`{{${key}}}`)
+    return `\u0000KCPL${id}\u0000`
+  })
+  return { out, tokens }
+}
+
+function unshieldTemplatePlaceholders(raw: string, tokens: string[]): string {
+  let out = String(raw || '')
+  for (let id = 0; id < tokens.length; id += 1) {
+    out = out.split(`\u0000KCPL${id}\u0000`).join(tokens[id])
+  }
+  return out
+}
+
 function repairCorruptedPrnTemplate(raw: string): string {
-  let s = preservePrnTemplate(raw).trim()
+  let s = fixSplitTemplatePlaceholders(preservePrnTemplate(raw)).trim()
   if (!s) return DEFAULT_LABEL_PRN
+
+  const shield = shieldTemplatePlaceholders(s)
+  s = shield.out
 
   s = s.replace(/SET PEEL OFFSET/gi, 'SET PEEL OFF\nSET')
   s = s.replace(/SET CUTTER OFFSET/gi, 'SET CUTTER OFF\nSET')
@@ -658,8 +687,15 @@ function repairCorruptedPrnTemplate(raw: string): string {
   ]
   for (const cmd of cmds) {
     const esc = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+')
+    if (cmd === 'BARCODE') {
+      s = s.replace(/(?<!\n)(BARCODE)\s+(?=\d)/gi, '\n$1 ')
+      continue
+    }
     s = s.replace(new RegExp(`(?<!\\n)(${esc})`, 'gi'), '\n$1')
   }
+
+  s = unshieldTemplatePlaceholders(s, shield.tokens)
+  s = fixSplitTemplatePlaceholders(s)
 
   return s
     .split('\n')
@@ -670,11 +706,11 @@ function repairCorruptedPrnTemplate(raw: string): string {
 
 /** Restore TSPL line breaks when server sanitize collapsed multi-line PRN. */
 export function normalizePrnTemplate(raw: string | null | undefined): string {
-  const preserved = preservePrnTemplate(raw)
+  const preserved = fixSplitTemplatePlaceholders(preservePrnTemplate(raw))
   if (!preserved.trim()) return DEFAULT_LABEL_PRN
   if (isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved)
   if (isPrnTemplateLikelyCorrupted(preserved)) {
-    return repairCorruptedPrnTemplate(preserved)
+    return fixSplitTemplatePlaceholders(repairCorruptedPrnTemplate(preserved))
   }
   return preserved
 }
