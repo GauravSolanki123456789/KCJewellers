@@ -11,9 +11,11 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RawPrintPs1 = Join-Path $ScriptDir 'windows-raw-print.ps1'
 
 function Write-CorsHeaders($Response) {
-    $Response.Headers.Add('Access-Control-Allow-Origin', '*')
-    $Response.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    $Response.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
+    $h = $Response.Headers
+    $h['Access-Control-Allow-Origin'] = '*'
+    $h['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    $h['Access-Control-Allow-Headers'] = 'Content-Type, Access-Control-Request-Private-Network'
+    $h['Access-Control-Allow-Private-Network'] = 'true'
 }
 
 function Send-JsonResponse($Context, [int]$StatusCode, $Object) {

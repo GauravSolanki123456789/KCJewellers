@@ -11,9 +11,12 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RawPrintPs1 = Join-Path $ScriptDir 'windows-raw-print.ps1'
 
 function Write-CorsHeaders($Response) {
-    $Response.Headers.Add('Access-Control-Allow-Origin', '*')
-    $Response.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    $Response.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
+    # Required when https://kcjewellers.co.in calls http://127.0.0.1 (Chrome Private Network Access).
+    $h = $Response.Headers
+    $h['Access-Control-Allow-Origin'] = '*'
+    $h['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    $h['Access-Control-Allow-Headers'] = 'Content-Type, Access-Control-Request-Private-Network'
+    $h['Access-Control-Allow-Private-Network'] = 'true'
 }
 
 function Send-JsonResponse($Context, [int]$StatusCode, $Object) {
@@ -59,7 +62,7 @@ function Resolve-TvsLp46PrinterName([string]$Requested) {
     $names = Get-InstalledPrinterNames
     if ($names -contains $Requested) { return $Requested }
     foreach ($n in $names) {
-        if ($n -match 'LP\s*46|LP46|TVS.*NEO|NEO.*TPS|TVS\s*Electronics') { return $n }
+        if ($n -match 'LP\s*46|LP46|TVS.*NEO|NEO.*TPS|TVS\s*Electronics|SNBC|TVSE') { return $n }
     }
     return $Requested
 }
@@ -79,7 +82,7 @@ function Resolve-LabelPrinterName([string]$Requested) {
     if ($Requested -match 'Zebra|ZDesigner|GC420|EPL|ZPL') {
         return Resolve-ZebraPrinterName $Requested
     }
-    if ($Requested -match 'LP\s*46|LP46|TVS.*NEO|NEO.*TPS|TVS') {
+    if ($Requested -match 'LP\s*46|LP46|TVS.*NEO|NEO.*TPS|TVS|SNBC|TVSE') {
         return Resolve-TvsLp46PrinterName $Requested
     }
     return Resolve-TscPrinterName $Requested
@@ -419,8 +422,9 @@ Write-Host ' KC ERP Print Service'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Labels: TSC / Zebra GC420t · Receipts: EPSON TM-m30III Receipt · Tally export'
-Write-Host ' Run CHECK-TSC-Printer.bat if labels fail.'
+Write-Host ' Labels: TSC / TVS LP46 / Zebra GC420t · Receipts: EPSON TM-m30III Receipt · Tally export'
+Write-Host ' If ERP shows amber but this window is open: Chrome → lock icon → Allow Local network for this site.'
+Write-Host ' Run CHECK-TSC-Printer.bat if TSC labels fail.'
 Write-Host ' Press Ctrl+C to stop.'
 Write-Host ''
 

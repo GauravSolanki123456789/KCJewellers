@@ -23,7 +23,12 @@ import {
   sendTsplOverSerial,
   webSerialSupported,
 } from '@/lib/erp-serial-device'
-import { checkLocalPrintAgent, printViaLocalAgent, resolveWindowsPrinterName } from '@/lib/erp-local-print'
+import {
+  getLocalPrintAgentInfo,
+  localPrintAgentUnreachableMessage,
+  printViaLocalAgent,
+  resolveWindowsPrinterName,
+} from '@/lib/erp-local-print'
 import { printErpTestReceipt, printErpTestReceiptBillsBanao } from '@/lib/erp-billing-print'
 import { kcPoshRfidHealthUrl, kcPoshRfidInventoryUrl } from '@/lib/api-base'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
@@ -308,8 +313,9 @@ export function ErpHardwareWorkspace() {
     setTestMsg(null)
     try {
       if (profile.connection === 'usb') {
-        if (!(await checkLocalPrintAgent())) {
-          setTestMsg('Copy erp-print-service folder to Desktop, run START-KC-Label-Print.bat, then try Test print again.')
+        const agentInfo = await getLocalPrintAgentInfo()
+        if (!agentInfo.ok) {
+          setTestMsg(localPrintAgentUnreachableMessage(agentInfo))
           return
         }
         const res = await axios.post<{ tspl?: string; error?: string }>(

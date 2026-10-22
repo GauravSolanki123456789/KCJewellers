@@ -29,9 +29,33 @@ function Resolve-TscPrinterName([string]$Requested) {
     return $Requested
 }
 
+function Resolve-ZebraPrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    foreach ($n in $names) {
+        if ($n -match 'Zebra|ZDesigner|GC420|EPL|ZPL') { return $n }
+    }
+    return $Requested
+}
+
+function Resolve-TvsLp46PrinterName([string]$Requested) {
+    $names = Get-InstalledPrinterNames
+    if ($names -contains $Requested) { return $Requested }
+    foreach ($n in $names) {
+        if ($n -match 'LP\s*46|LP46|TVS.*NEO|NEO.*TPS|SNBC|TVSE|TVS\s*Electronics') { return $n }
+    }
+    return $Requested
+}
+
 function Resolve-PrinterName([string]$Requested) {
     $names = Get-InstalledPrinterNames
     if ($names -contains $Requested) { return $Requested }
+    if ($Requested -match 'Zebra|ZDesigner|GC420|EPL|ZPL') {
+        return Resolve-ZebraPrinterName $Requested
+    }
+    if ($Requested -match 'LP\s*46|LP46|TVS.*NEO|NEO.*TPS|TVS|SNBC|TVSE') {
+        return Resolve-TvsLp46PrinterName $Requested
+    }
     $epson = Resolve-ReceiptPrinterName $Requested
     if ($names -contains $epson) { return $epson }
     return Resolve-TscPrinterName $Requested

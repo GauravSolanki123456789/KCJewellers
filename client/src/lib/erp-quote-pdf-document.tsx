@@ -642,6 +642,7 @@ export function ErpQuotePdfDocument({
           {lines.map((line, i) => (
             <View
               key={`row-${i}`}
+              wrap={false}
               style={[
                 !isInvoice ? styles.bodyRowGrid : styles.bodyRow,
                 i % 2 === 1 ? styles.bodyRowAlt : {},

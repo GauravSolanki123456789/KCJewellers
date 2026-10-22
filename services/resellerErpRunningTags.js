@@ -130,6 +130,11 @@ async function saleWeightOnRunningTagSql() {
             ), 0)`;
 }
 
+const RUNNING_TAG_LINE_BARCODE_SQL = `(
+    lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
+    OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
+)`;
+
 async function gstSoldGmForRunningTag(query, resellerUserId, barcode) {
     const soldRows = await query(
         `SELECT ${await saleWeightOnRunningTagSql()} AS gm
@@ -138,13 +143,31 @@ async function gstSoldGmForRunningTag(query, resellerUserId, barcode) {
          WHERE b.reseller_user_id = $1
            AND b.bill_type IN ('sale', 'sales_return')
            AND lower(COALESCE(b.status, '')) IN ('completed', 'paid', 'final', 'issued')
-           AND (
-                lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
-                OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
-           )`,
+           AND ${RUNNING_TAG_LINE_BARCODE_SQL}`,
         [resellerUserId, barcode],
     );
     return roundGm(soldRows[0]?.gm);
+}
+
+/** Open approval (GAI) — S Enter lines on this tag barcode reduce metal until returned or billed. */
+async function approvalOutGmForRunningTag(query, resellerUserId, barcode) {
+    const rows = await query(
+        `SELECT COALESCE(SUM(
+            COALESCE(
+                NULLIF(line->>'originalWeightGm', '')::numeric,
+                NULLIF(line->>'weightGm', '')::numeric,
+                0
+            )
+        ), 0) AS gm
+         FROM reseller_erp_bills b,
+              jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
+         WHERE b.reseller_user_id = $1
+           AND b.bill_type = 'approval'
+           AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void', 'billed')
+           AND ${RUNNING_TAG_LINE_BARCODE_SQL}`,
+        [resellerUserId, barcode],
+    );
+    return roundGm(rows[0]?.gm);
 }
 
 const RUNNING_TAG_PIECE_MATCH = `(
@@ -212,14 +235,15 @@ async function recomputeRunningTagBalances(query, resellerUserId, opts = {}) {
         const barcode = String(tag.barcode || '').trim();
         if (!barcode) continue;
         const gstSoldGm = await gstSoldGmForRunningTag(query, resellerUserId, barcode);
+        const approvalOutGm = await approvalOutGmForRunningTag(query, resellerUserId, barcode);
         const intakeBookGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'book');
         const intakeShadowGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'shadow');
         const jainavSoldGm = jainavBooks
             ? await jainavSoldGmForRunningTag(query, resellerUserId, barcode)
             : 0;
-        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm);
+        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm - approvalOutGm);
         const jainavBalanceGm = roundGm(
-            intakeBookGm + intakeShadowGm - gstSoldGm - jainavSoldGm,
+            intakeBookGm + intakeShadowGm - gstSoldGm - jainavSoldGm - approvalOutGm,
         );
         const storedGm = normalBalanceGm;
         const displayGm = jainavBooks ? jainavBalanceGm : normalBalanceGm;
@@ -313,10 +337,7 @@ const BILL_LINE_WEIGHT_SQL = `COALESCE(
     0
 )`;
 
-const RUNNING_TAG_LINE_BARCODE_MATCH = `(
-    lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
-    OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
-)`;
+const RUNNING_TAG_LINE_BARCODE_MATCH = RUNNING_TAG_LINE_BARCODE_SQL;
 
 /**
  * GST / completed sale line on a running tag with matching net weight (±0.05 g).
@@ -391,12 +412,9 @@ async function findAnySaleForBarcode(query, resellerUserId, barcode) {
          FROM reseller_erp_bills b,
               jsonb_array_elements(COALESCE(b.lines_json, '[]'::jsonb)) AS line
          WHERE b.reseller_user_id = $1
-           AND b.bill_type = 'sale'
-           AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void')
-           AND (
-                lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
-                OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
-           )
+           AND b.bill_type IN ('sale', 'sales_return')
+           AND lower(COALESCE(b.status, '')) IN ('completed', 'paid', 'final', 'issued')
+           AND ${RUNNING_TAG_LINE_BARCODE_SQL}
          ORDER BY b.created_at DESC
          LIMIT 1`,
         [resellerUserId, bc],
@@ -433,13 +451,8 @@ function registerResellerErpRunningTagRoutes(app, deps) {
 
     app.get('/api/reseller/erp/running-tags', checkAuth, erpGate, async (req, res) => {
         try {
-            const refresh = String(req.query.refresh || '') === '1';
             const includeAllSales = req.session?.shadowUnlocked === true;
-            const tags = refresh
-                ? await recomputeRunningTagBalances(query, req.user.id, { includeAllSales })
-                : (includeAllSales
-                    ? await recomputeRunningTagBalances(query, req.user.id, { includeAllSales: true })
-                    : await listRunningTags(query, req.user.id));
+            const tags = await recomputeRunningTagBalances(query, req.user.id, { includeAllSales });
             const byKind = { jewellery: null, articles: null };
             for (const t of tags) {
                 if (t && KINDS.includes(t.kind)) byKind[t.kind] = t;

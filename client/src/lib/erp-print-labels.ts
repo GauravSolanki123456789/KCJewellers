@@ -6,7 +6,7 @@ import {
   normalizeComPort,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
-import { checkLocalPrintAgent } from '@/lib/erp-local-print'
+import { getLocalPrintAgentInfo, localPrintAgentUnreachableMessage } from '@/lib/erp-local-print'
 import {
   isLabelPrinterConnected,
   printClientTsplLabels,
@@ -105,10 +105,11 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
   if (clientTspl.length > 0 || res.data.clientPrintRequired) {
     const conn = res.data.printerProfile?.connection || printerProfile?.connection
     if (conn === 'usb') {
-      if (!(await checkLocalPrintAgent())) {
+      const agentInfo = await getLocalPrintAgentInfo()
+      if (!agentInfo.ok) {
         return {
           ok: false,
-          message: 'Start erp-print-service on this PC (START-KC-Label-Print.bat), then try again.',
+          message: localPrintAgentUnreachableMessage(agentInfo),
         }
       }
     } else if (conn === 'serial') {

@@ -1,5 +1,5 @@
 import axios from '@/lib/axios'
-import { LOCAL_PRINT_AGENT_URL, getLocalPrintAgentInfo } from '@/lib/erp-local-print'
+import { fetchLocalPrintAgent, getLocalPrintAgentInfo } from '@/lib/erp-local-print'
 
 export type TallyExportJob = {
   ref: string
@@ -28,11 +28,10 @@ async function postXmlViaLocalAgent(
   xml: string,
   ledgerCfg?: { companyName: string; salesLedger?: string; purchaseLedger?: string; cashLedger?: string; bankLedger?: string },
 ): Promise<void> {
-  const r = await fetch(`${LOCAL_PRINT_AGENT_URL}/tally-import`, {
+  const r = await fetchLocalPrintAgent('/tally-import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tallyUrl, xml, ledgerCfg }),
-    signal: AbortSignal.timeout(60000),
   })
   let data: { ok?: boolean; error?: string; tallyError?: string } = {}
   try {

@@ -11,7 +11,7 @@ import {
   serialSettingsLabel,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
-import { checkLocalPrintAgent } from '@/lib/erp-local-print'
+import { getLocalPrintAgentInfo } from '@/lib/erp-local-print'
 import {
   connectLabelPrinter,
   disconnectLabelPrinter,
@@ -37,9 +37,14 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
   const isUsb = profile?.connection === 'usb'
 
   const refreshUsbAgent = useCallback(async () => {
-    const ok = await checkLocalPrintAgent()
-    setConnected(ok)
-    if (ok) setError(null)
+    const info = await getLocalPrintAgentInfo()
+    setConnected(info.ok)
+    if (info.ok) setError(null)
+    else if (info.unreachableReason === 'blocked') {
+      setError(
+        'Chrome blocked loopback access. Use the lock icon → Site settings → allow Local/Loopback network, then Refresh.',
+      )
+    } else setError(null)
   }, [])
 
   useEffect(() => {
@@ -160,9 +165,15 @@ export function ErpLabelPrinterBar({ printerProfileId, onConnectionChange }: Pro
                 <strong>Listening on http://127.0.0.1:17888/</strong>
               </li>
               <li>
-                No Node.js or Python needed. Printer port in Windows must be <strong>USB001</strong>
+                If the bat window already says <strong>Listening on 17888</strong> but ERP stays amber: in Chrome,
+                click the <strong>lock icon</strong> → Site settings → set <strong>Local network</strong> /{' '}
+                <strong>Loopback</strong> to <strong>Allow</strong> for this site, then Refresh
               </li>
-              <li>Tap Refresh until green, then Generate barcodes</li>
+              <li>
+                Re-copy the latest <code className="rounded bg-black/5 px-1">erp-print-service</code> folder from the
+                project after updates (USB005 for TVS LP46 is fine — match the name in Hardware)
+              </li>
+              <li>Tap Refresh until green, then print tags</li>
             </ol>
           </div>
         ) : null}

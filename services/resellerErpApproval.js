@@ -22,6 +22,7 @@ const {
     requireJainavUnlockedAdmin,
     operatorCanSaveSalesBill,
 } = require('./resellerErpOperators');
+const { recomputeRunningTagBalances } = require('./resellerErpRunningTags');
 
 const DEFAULT_APPROVAL_NARRATIONS = [
     'ITEM SENT FOR REPAIR AND POLISH',
@@ -347,6 +348,11 @@ function registerApprovalIssueRoutes(app, { query, pool, checkAuth, requireJson,
                     );
                     throw stockErr;
                 }
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after approval issue:', rt.message);
+                }
                 res.json({ success: true, bill });
             } catch (e) {
                 console.error('erp approval issue:', e);
@@ -408,6 +414,11 @@ function registerApprovalIssueRoutes(app, { query, pool, checkAuth, requireJson,
                 );
                 if (!updated.length) {
                     return res.status(409).json({ error: 'Approval could not be returned' });
+                }
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after approval return:', rt.message);
                 }
                 res.json({ success: true, bill: mapBill(updated[0]) });
             } catch (e) {
@@ -477,6 +488,11 @@ function registerApprovalIssueRoutes(app, { query, pool, checkAuth, requireJson,
                          WHERE id = $1 AND reseller_user_id = $2 AND bill_type = 'approval'`,
                         [id, req.user.id],
                     );
+                    try {
+                        await recomputeRunningTagBalances(query, req.user.id);
+                    } catch (rt) {
+                        console.warn('erp running tags after jainav approval bill:', rt.message);
+                    }
                     return res.json({
                         success: true,
                         shadow: true,
@@ -516,6 +532,11 @@ function registerApprovalIssueRoutes(app, { query, pool, checkAuth, requireJson,
                     await createCollectedCashLedgerEntry(query, req.user.id, bill);
                 } catch (le) {
                     console.warn('erp approval bill ledger cash:', le.message);
+                }
+                try {
+                    await recomputeRunningTagBalances(query, req.user.id);
+                } catch (rt) {
+                    console.warn('erp running tags after approval bill:', rt.message);
                 }
                 res.json({ success: true, bill });
             } catch (e) {

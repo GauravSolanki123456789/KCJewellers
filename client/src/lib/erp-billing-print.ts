@@ -2,10 +2,10 @@
 
 import axios from '@/lib/axios'
 import {
-  LOCAL_PRINT_AGENT_URL,
-  checkLocalPrintAgent,
+  fetchLocalPrintAgent,
   getLocalPrintAgentInfo,
   listLocalPrinters,
+  localPrintAgentUnreachableMessage,
 } from '@/lib/erp-local-print'
 import { migrateHardwareSettings, type ErpHardwareSettings } from '@/lib/erp-hardware'
 
@@ -87,7 +87,7 @@ export async function printReceiptViaLocalAgent(
   let lastError = 'Could not print on thermal printer.'
   for (const path of endpoints) {
     try {
-      const r = await fetch(`${LOCAL_PRINT_AGENT_URL}${path}`, {
+      const r = await fetchLocalPrintAgent(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
@@ -146,11 +146,9 @@ async function printThermalViaLocalAgent(
   successLabel: string,
   kind: ErpThermalPrinterKind,
 ): Promise<string> {
-  const agentOk = await checkLocalPrintAgent()
-  if (!agentOk) {
-    throw new Error(
-      'Local print agent is not running on this PC. Start START-KC-Label-Print.bat from erp-print-service on the Desktop, then try again.',
-    )
+  const agentInfo = await getLocalPrintAgentInfo()
+  if (!agentInfo.ok) {
+    throw new Error(localPrintAgentUnreachableMessage(agentInfo))
   }
 
   const prep = await axios.post<ThermalPrepareResponse>(endpoint, {
@@ -189,11 +187,9 @@ export function printErpBillThermal(billId: number): Promise<string> {
 }
 
 async function printTestReceipt(kind: ErpThermalPrinterKind): Promise<string> {
-  const agentOk = await checkLocalPrintAgent()
-  if (!agentOk) {
-    throw new Error(
-      'Local print agent is not running. Start START-KC-Label-Print.bat on this PC first.',
-    )
+  const agentInfo = await getLocalPrintAgentInfo()
+  if (!agentInfo.ok) {
+    throw new Error(localPrintAgentUnreachableMessage(agentInfo))
   }
 
   const prep = await axios.post<ThermalPrepareResponse>('/api/reseller/erp/print/test-receipt', {
