@@ -97,6 +97,8 @@ type DaybookData = {
     total_debit_metal_gm?: number
     total_credit_metal_gm?: number
     closing_balance_metal_gm?: number
+    opening_balance_inr?: number
+    opening_balance_metal_gm?: number
     transaction_count: number
   }
   transactions: DaybookTransaction[]
@@ -445,6 +447,7 @@ function emptyExpenseForm() {
 
 export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean }) {
   const { enabled: metalLedgerShop } = useJewelleryLedgerMetalEnabled()
+  const daybookMetalView = laneMode || metalLedgerShop
   const { canDeleteRecords } = useErpOperator()
   const [tab, setTab] = useState<LedgerTab>('entries')
   const [draftReady, setDraftReady] = useState(false)
@@ -1090,7 +1093,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
   }
 
-  const exportDaybook = async (format: 'csv' | 'pdf') => {
+  const exportDaybook = async (format: 'csv' | 'pdf', layout: 'detail' | 'summary' = 'detail') => {
     if (!dayBook) return
     setBusy(true)
     try {
@@ -1106,13 +1109,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         const path = laneMode
           ? '/api/reseller/erp/shadow/daybook/export'
           : '/api/reseller/erp/ledger/daybook/export'
-        const params: Record<string, string> = { date: dayBookDate }
+        const params: Record<string, string> = { date: dayBookDate, layout }
         if (dayBookUnassignedOnly) params.unassigned_only = '1'
         const res = await axios.get(path, { params, responseType: 'blob' })
         const url = URL.createObjectURL(res.data)
         const a = document.createElement('a')
         a.href = url
-        a.download = `daybook-${dayBookDate}${laneMode ? '-lane' : ''}.csv`
+        a.download = `daybook-${dayBookDate}${laneMode ? '-lane' : ''}-${layout}.csv`
         a.click()
         URL.revokeObjectURL(url)
       }
@@ -2658,10 +2661,19 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 type="button"
                 className={`${erpBtnGhost} inline-flex min-h-[40px] items-center gap-1.5 text-xs`}
                 disabled={busy || !dayBookRows.length}
-                onClick={() => void exportDaybook('csv')}
+                onClick={() => void exportDaybook('csv', 'detail')}
               >
                 <FileSpreadsheet className="size-4" />
-                Excel (CSV)
+                Excel · detail
+              </button>
+              <button
+                type="button"
+                className={`${erpBtnGhost} inline-flex min-h-[40px] items-center gap-1.5 text-xs`}
+                disabled={busy || !dayBookRows.length}
+                onClick={() => void exportDaybook('csv', 'summary')}
+              >
+                <FileSpreadsheet className="size-4" />
+                Excel · summary
               </button>
               <button
                 type="button"
@@ -2692,13 +2704,29 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               Unassigned only
             </label>
           </div>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className={`grid gap-2 ${daybookMetalView ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
+            {daybookMetalView ? (
+              <>
+                <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
+                  <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Opening ₹</p>
+                  <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                    {formatErpInr(dayBook?.summary.opening_balance_inr ?? 0)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
+                  <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Opening metal</p>
+                  <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                    {formatMetalGm(dayBook?.summary.opening_balance_metal_gm ?? 0) || '0.000 g'}
+                  </p>
+                </div>
+              </>
+            ) : null}
             <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Debit</p>
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                 {formatLedgerBalanceCell(dayBookLedger.debit, dayBookLedger.debitMetal, {
-                  laneLedger: laneMode,
-                  splitMetalColumn: laneMode,
+                  laneLedger: daybookMetalView,
+                  splitMetalColumn: daybookMetalView,
                 })}
               </p>
             </div>
@@ -2706,17 +2734,17 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">Credit</p>
               <p className="font-bold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                 {formatLedgerBalanceCell(dayBookLedger.credit, dayBookLedger.creditMetal, {
-                  laneLedger: laneMode,
-                  splitMetalColumn: laneMode,
+                  laneLedger: daybookMetalView,
+                  splitMetalColumn: daybookMetalView,
                 })}
               </p>
             </div>
             <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3 py-2">
-              <p className="text-[10px] font-bold uppercase text-emerald-800/70">Balance</p>
+              <p className="text-[10px] font-bold uppercase text-emerald-800/70">Closing balance</p>
               <p className="font-bold tabular-nums text-emerald-900">
                 {formatLedgerBalanceCell(dayBookLedger.balance, dayBookLedger.balanceMetal, {
-                  laneLedger: laneMode,
-                  splitMetalColumn: laneMode,
+                  laneLedger: daybookMetalView,
+                  splitMetalColumn: daybookMetalView,
                 })}
               </p>
             </div>
@@ -2733,13 +2761,16 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                   <th className="hidden px-3 py-2.5 text-right sm:table-cell">Debit</th>
                   <th className="hidden px-3 py-2.5 text-right sm:table-cell">Credit</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
+                  {daybookMetalView ? (
+                    <th className="hidden px-3 py-2.5 text-right md:table-cell">Metal bal.</th>
+                  ) : null}
                   <th className="px-3 py-2.5 w-20" />
                 </tr>
               </thead>
               <tbody>
                 {dayBookRows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    <td colSpan={daybookMetalView ? 10 : 9} className="px-3 py-8 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
                       No entries on this date.
                     </td>
                   </tr>
@@ -2768,7 +2799,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                             shadow_bill_id: row.shadow_bill_id,
                             kind: row.kind,
                           },
-                          { laneLedger: laneMode, splitMetalColumn: laneMode },
+                          { laneLedger: daybookMetalView, splitMetalColumn: daybookMetalView },
                         )}
                       </td>
                       <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] sm:table-cell">
@@ -2782,10 +2813,15 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                         {formatLedgerBalanceCell(row.balance_inr, row.balance_metal_gm, {
-                          laneLedger: laneMode,
-                          splitMetalColumn: laneMode,
+                          laneLedger: daybookMetalView,
+                          splitMetalColumn: daybookMetalView,
                         })}
                       </td>
+                      {daybookMetalView ? (
+                        <td className="hidden whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)] md:table-cell">
+                          {formatMetalGm(row.balance_metal_gm) || '—'}
+                        </td>
+                      ) : null}
                       <td className="px-2 py-2">
                         <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
                           {laneMode && row.source === 'shadow_bill' && row.shadow_bill_id ? (

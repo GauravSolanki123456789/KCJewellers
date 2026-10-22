@@ -1727,13 +1727,15 @@ function registerShadowRoutes(app, deps) {
             const { buildDaybook, daybookToCsv } = require('./resellerErpCustomerAccount');
             const date = parseDateOrNull(req.query.date);
             const unassignedOnly = String(req.query.unassigned_only || '') === '1';
+            const layout = String(req.query.layout || 'detail').toLowerCase();
             const daybook = await buildDaybook(query, req.user.id, {
                 date,
                 laneView: true,
                 unassignedOnly,
+                layout,
             });
             const csv = daybookToCsv(daybook);
-            const fname = `daybook-lane-${daybook.date}.csv`;
+            const fname = `daybook-lane-${daybook.date}-${layout === 'summary' || layout === 'consolidated' ? 'summary' : 'detail'}.csv`;
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
             res.send('\ufeff' + csv);

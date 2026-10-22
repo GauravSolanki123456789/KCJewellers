@@ -5,6 +5,7 @@ import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
 import type { WholesaleUserFields } from '@/lib/customer-tier'
+import { ErpImportSelectCheckbox } from '@/components/reseller/erp/ErpImportSelectCheckbox'
 import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEditor'
 import { ErpStockExcelBuilder } from '@/components/reseller/erp/ErpStockExcelBuilder'
 import { ErpManualAddProduct } from '@/components/reseller/erp/ErpManualAddProduct'
@@ -104,7 +105,6 @@ export function ErpProductsWorkspace() {
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
   const [dupScanBusy, setDupScanBusy] = useState(false)
   const [selectedPieceIds, setSelectedPieceIds] = useState<number[]>([])
-  const [selectionSyncTick, setSelectionSyncTick] = useState(0)
   const [printRepeatByPcs, setPrintRepeatByPcs] = useState(false)
 
   const inStockSelectableIdsForImport = useCallback(
@@ -140,7 +140,6 @@ export function ErpProductsWorkspace() {
       setSelectedPieceIds((prev) =>
         checked ? [...new Set([...prev, ...ids])] : prev.filter((id) => !ids.includes(id)),
       )
-      setSelectionSyncTick((t) => t + 1)
     },
     [inStockSelectableIdsForImport],
   )
@@ -717,17 +716,12 @@ export function ErpProductsWorkspace() {
                     key={imp.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
                   >
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4 shrink-0 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
-                        checked={selectState === 'all'}
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <ErpImportSelectCheckbox
+                        state={selectState}
                         disabled={selectableCount === 0}
-                        ref={(el) => {
-                          if (el) el.indeterminate = selectState === 'some'
-                        }}
-                        onChange={(e) => toggleImportSelection(imp.id, e.target.checked)}
-                        aria-label={`Select in-stock pieces from ${imp.source_filename}`}
+                        ariaLabel={`Select in-stock pieces from ${imp.source_filename}`}
+                        onToggle={(checked) => toggleImportSelection(imp.id, checked)}
                       />
                       <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
@@ -738,7 +732,7 @@ export function ErpProductsWorkspace() {
                         <span suppressHydrationWarning>{formatErpDateTime(imp.created_at)}</span>
                       </p>
                       </div>
-                    </label>
+                    </div>
                     {canDeleteRecords ? (
                     <button
                       type="button"
@@ -796,7 +790,6 @@ export function ErpProductsWorkspace() {
           printRepeatByPcs={printRepeatByPcs}
           onSelectedIdsChange={setSelectedPieceIds}
           syncSelectedIds={selectedPieceIds}
-          syncSelectedTick={selectionSyncTick}
         />
       </div>
     )

@@ -36,6 +36,23 @@ const {
 } = require('./erpLedgerMetal');
 const { getCustomerBalancesBeforeLedgerEntry } = require('./resellerErpCustomerAccount');
 
+async function loadJewelleryLedgerMetalEnabled(query, userId) {
+    try {
+        const rows = await query(`SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`, [userId]);
+        let settings = rows[0]?.settings ?? {};
+        if (typeof settings === 'string') {
+            try {
+                settings = JSON.parse(settings);
+            } catch {
+                settings = {};
+            }
+        }
+        return settings.jewelleryLedgerMetalEnabled === true;
+    } catch {
+        return false;
+    }
+}
+
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
     return s.length > max ? s.slice(0, max) : s;
@@ -1022,6 +1039,120 @@ function registerResellerErpLedgerRoutes(app, deps) {
     });
 
     app.post(
+        '/api/reseller/erp/ledger/entries/:id/convert-inr-to-metal',
+        checkAuth,
+        erpGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                if (!(await loadJewelleryLedgerMetalEnabled(query, req.user.id))) {
+                    return res.status(403).json({
+                        error: 'Turn on Ledger in metal under Print formats → Templates',
+                    });
+                }
+                const id = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+                const rate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+                if (!rate || rate <= 0) return res.status(400).json({ error: 'Enter metal rate (₹/g)' });
+                const existing = await query(
+                    `SELECT * FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                if (!existing.length) return res.status(404).json({ error: 'Entry not found' });
+                const row = existing[0];
+                const inr = Math.abs(Number(row.amount_inr) || 0);
+                if (inr < 0.01) return res.status(400).json({ error: 'This entry has no ₹ amount to convert' });
+                const existingGm = parseMetalGm(row.metal_gm);
+                if (existingGm != null && Math.abs(existingGm) >= 0.0005) {
+                    return res.status(400).json({ error: 'Entry already has metal weight' });
+                }
+                const gm = roundMetalGm(inr / rate);
+                const et = String(row.entry_type || '');
+                let signedGm = gm;
+                if (['payment_out', 'purchase', 'expense', 'salary'].includes(et)) signedGm = -gm;
+                else if (et === 'adjustment' && Number(row.amount_inr) < 0) signedGm = -gm;
+                let narration = trimStr(row.narration, 2000);
+                const bit = `Converted ₹${inr.toFixed(2)} @ ₹${rate}/g → ${Math.abs(gm).toFixed(3)} g`;
+                narration = narration ? `${narration} · ${bit}` : bit;
+                const updated = await query(
+                    `UPDATE reseller_erp_ledger_entries SET
+                        amount_inr = 0,
+                        metal_gm = $1,
+                        payment_mode = CASE WHEN LOWER(COALESCE(payment_mode, '')) IN ('cash','upi','neft','imps','cheque','card','gpay','bank','mixed') THEN 'metal' ELSE payment_mode END,
+                        narration = $2,
+                        updated_at = NOW()
+                     WHERE id = $3 AND reseller_user_id = $4
+                     RETURNING *`,
+                    [signedGm, narration, id, req.user.id],
+                );
+                res.json({ success: true, entry: mapLedgerEntry(updated[0]), metal_gm: Math.abs(gm), rate_per_g: rate });
+            } catch (e) {
+                console.error('convert-inr-to-metal:', e);
+                res.status(500).json({ error: e.message || 'Failed to convert to metal' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/bills/:id/convert-inr-to-metal',
+        checkAuth,
+        erpGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                if (!(await loadJewelleryLedgerMetalEnabled(query, req.user.id))) {
+                    return res.status(403).json({
+                        error: 'Turn on Ledger in metal under Print formats → Templates',
+                    });
+                }
+                const billId = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(billId)) return res.status(400).json({ error: 'Invalid bill id' });
+                const rate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+                if (!rate || rate <= 0) return res.status(400).json({ error: 'Enter metal rate (₹/g)' });
+                const bills = await query(
+                    `SELECT id, bill_number, total_inr, customer_id, bill_type, session_json
+                     FROM reseller_erp_bills
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [billId, req.user.id],
+                );
+                if (!bills.length) return res.status(404).json({ error: 'Bill not found' });
+                const bill = bills[0];
+                const inr = Math.abs(Number(bill.total_inr) || 0);
+                if (inr < 0.01) return res.status(400).json({ error: 'Bill has no amount' });
+                const gm = roundMetalGm(inr / rate);
+                let session = bill.session_json;
+                if (typeof session === 'string') {
+                    try {
+                        session = JSON.parse(session);
+                    } catch {
+                        session = {};
+                    }
+                }
+                session = session && typeof session === 'object' ? session : {};
+                session.metalLedgerConverted = true;
+                session.metalLedgerRatePerG = rate;
+                session.metalLedgerWeightGm = gm;
+                session.rupee_only_debit = false;
+                await query(
+                    `UPDATE reseller_erp_bills SET session_json = $1::jsonb, updated_at = NOW()
+                     WHERE id = $2 AND reseller_user_id = $3`,
+                    [JSON.stringify(session), billId, req.user.id],
+                );
+                res.json({
+                    success: true,
+                    bill_id: billId,
+                    metal_gm: gm,
+                    rate_per_g: rate,
+                    bill_number: bill.bill_number,
+                });
+            } catch (e) {
+                console.error('bill convert-inr-to-metal:', e);
+                res.status(500).json({ error: e.message || 'Failed to convert sale to metal' });
+            }
+        },
+    );
+
+    app.post(
         '/api/reseller/erp/ledger/entries/:id/apply-metal-rate',
         checkAuth,
         erpGate,
@@ -1513,13 +1644,15 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const date = parseDateOrNull(req.query.date);
             const laneView = String(req.query.lane_view || '') === '1';
             const unassignedOnly = String(req.query.unassigned_only || '') === '1';
+            const layout = String(req.query.layout || 'detail').toLowerCase();
             const daybook = await buildDaybook(query, req.user.id, {
                 date,
                 laneView,
                 unassignedOnly,
+                layout,
             });
             const csv = daybookToCsv(daybook);
-            const fname = `daybook-${daybook.date}${laneView ? '-lane' : ''}.csv`;
+            const fname = `daybook-${daybook.date}${laneView ? '-lane' : ''}-${layout === 'summary' || layout === 'consolidated' ? 'summary' : 'detail'}.csv`;
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
             res.send('\ufeff' + csv);

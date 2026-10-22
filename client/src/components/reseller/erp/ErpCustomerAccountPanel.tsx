@@ -36,6 +36,7 @@ export type CustomerAccountTx = {
   debit_metal_gm?: number
   credit_metal_gm?: number
   shadow_bill_id?: number
+  bill_id?: number
   ledger_entry_id?: number
   metal_ledger_mode?: boolean
   virtual_metal_inr?: boolean
@@ -249,6 +250,47 @@ export function ErpCustomerAccountPanel({
     if (!selected) return
     void loadAccount(selected)
   }, [selected, filterFrom, filterTo, onDate, loadAccount])
+
+  const convertInrToMetal = async (opts: { ledgerEntryId?: number; billId?: number; inrAmount: number }) => {
+    const { ledgerEntryId, billId, inrAmount } = opts
+    if (inrAmount < 0.01) return
+    const rateStr = await appPrompt(
+      `Convert ₹${inrAmount.toFixed(2)} to metal — enter rate (₹/g):`,
+      '230',
+    )
+    if (rateStr == null || !rateStr.trim()) return
+    const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
+    if (!Number.isFinite(rate) || rate <= 0) {
+      appAlert('Enter a valid rate.', 'error')
+      return
+    }
+    const previewGm = (inrAmount / rate).toFixed(4)
+    if (
+      !(await appConfirm(
+        `₹${inrAmount.toFixed(2)} ÷ ₹${rate}/g = ${previewGm} g. Convert this line to metal on the ledger?`,
+      ))
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      if (ledgerEntryId) {
+        await axios.post(`/api/reseller/erp/ledger/entries/${ledgerEntryId}/convert-inr-to-metal`, {
+          metal_rate_per_g: rate,
+        })
+      } else if (billId) {
+        await axios.post(`/api/reseller/erp/bills/${billId}/convert-inr-to-metal`, {
+          metal_rate_per_g: rate,
+        })
+      }
+      appAlert(`Converted to ${previewGm} g at ₹${rate}/g.`, 'success')
+      if (selected) await loadAccount(selected)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const applyMetalRateToEntry = async (ledgerEntryId: number) => {
     const rateStr = await appPrompt('Metal rate (₹/g) to apply against ₹ balance:', '230')
@@ -516,6 +558,24 @@ export function ErpCustomerAccountPanel({
                     ) : null}
                     {metalView ? (
                       <td className="px-2 py-2">
+                        {metalLedgerEnabled &&
+                        t.ledger_entry_id &&
+                        (t.credit > 0 || t.debit > 0) &&
+                        (!t.weight_gm || t.weight_gm <= 0) ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="mb-1 whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[9px] font-semibold text-emerald-900"
+                            onClick={() =>
+                              void convertInrToMetal({
+                                ledgerEntryId: t.ledger_entry_id,
+                                inrAmount: t.credit > 0 ? t.credit : t.debit,
+                              })
+                            }
+                          >
+                            Convert ₹→metal
+                          </button>
+                        ) : null}
                         {t.ledger_entry_id &&
                         t.weight_gm &&
                         t.weight_gm > 0 &&
@@ -528,6 +588,22 @@ export function ErpCustomerAccountPanel({
                             onClick={() => void applyMetalRateToEntry(t.ledger_entry_id!)}
                           >
                             Apply ₹ rate
+                          </button>
+                        ) : null}
+                        {metalLedgerEnabled &&
+                        t.kind === 'sale' &&
+                        t.bill_id &&
+                        t.debit > 0 &&
+                        (t.debit_metal_gm ?? 0) <= 0 ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="mb-1 whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[9px] font-semibold text-emerald-900"
+                            onClick={() =>
+                              void convertInrToMetal({ billId: t.bill_id, inrAmount: t.debit })
+                            }
+                          >
+                            Convert ₹→metal
                           </button>
                         ) : null}
                         {t.kind === 'sale' && t.shadow_bill_id ? (

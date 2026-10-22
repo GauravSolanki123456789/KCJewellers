@@ -178,9 +178,9 @@ function ledgerEntryLedgerAmounts(entryType, amountInr) {
     return { debit_inr, credit_inr };
 }
 
-function applyDaybookLedgerColumns(rows) {
-    let running = 0;
-    let runningMetal = 0;
+function applyDaybookLedgerColumns(rows, opts = {}) {
+    let running = Number(opts.openingInr) || 0;
+    let runningMetal = Number(opts.openingMetalGm) || 0;
     let totalDebit = 0;
     let totalCredit = 0;
     let totalDebitMetal = 0;
@@ -685,18 +685,35 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         if (kind === 'debit') description = `(V NO: ${s.bill_number}) DEBIT NOTE -`;
         const ledgerScope = String((session && session.ledgerScope) || 'official').toLowerCase();
         const lane = ledgerScope === 'lane' ? 'jainav' : 'gst';
+        const convertedGm =
+            session && session.metalLedgerConverted === true
+                ? roundMetalGm(Number(session.metalLedgerWeightGm) || 0)
+                : 0;
+        const rateNote =
+            session && session.metalLedgerRatePerG
+                ? ` @ ₹${Number(session.metalLedgerRatePerG)}/g`
+                : '';
+        if (convertedGm > 0 && !isCredit) {
+            description += ` (metal ${convertedGm.toFixed(3)} g${rateNote})`;
+        }
         rows.push({
             date: normDate(s.bill_date),
             sort_id: s.id,
+            bill_id: s.id,
             kind,
             ref: s.bill_number,
             description,
-            debit: isCredit ? 0 : amt,
+            debit: isCredit || convertedGm > 0 ? 0 : amt,
             credit: isCredit ? amt : 0,
             lane,
-            rupee_only_debit: lane === 'gst',
-            weight_gm: weightGm > 0 ? Math.round(weightGm * 1000) / 1000 : 0,
-            debit_metal_gm: 0,
+            rupee_only_debit: convertedGm > 0 ? false : lane === 'gst',
+            weight_gm:
+                convertedGm > 0
+                    ? convertedGm
+                    : weightGm > 0
+                      ? Math.round(weightGm * 1000) / 1000
+                      : 0,
+            debit_metal_gm: convertedGm > 0 && !isCredit ? convertedGm : 0,
             credit_metal_gm: 0,
         });
     }
@@ -861,6 +878,65 @@ function billCashflows(billType, totalInr) {
     return isCredit
         ? { received_inr: amt, paid_out_inr: 0 }
         : { received_inr: 0, paid_out_inr: amt };
+}
+
+async function ledgerOpeningBeforeDay(query, resellerUserId, day, laneView) {
+    const scope = laneView ? 'lane' : 'official';
+    const rows = await query(
+        `SELECT entry_type, amount_inr, metal_gm
+         FROM reseller_erp_ledger_entries
+         WHERE reseller_user_id = $1 AND entry_date < $2::date
+           AND is_suspense = false AND ledger_scope = $3`,
+        [resellerUserId, day, scope],
+    );
+    let inr = 0;
+    let metal = 0;
+    for (const e of rows) {
+        const amt = Number(e.amount_inr) || 0;
+        const type = String(e.entry_type || '');
+        if (['payment_in', 'bill_advance', 'suspense_in'].includes(type)) inr -= amt;
+        else if (['payment_out', 'purchase', 'expense', 'salary'].includes(type)) inr += amt;
+        else if (type === 'adjustment') inr -= amt;
+        metal += Number(e.metal_gm) || 0;
+    }
+    return {
+        opening_inr: Math.round(inr * 100) / 100,
+        opening_metal_gm: roundMetalGm(metal),
+    };
+}
+
+function consolidateDaybookTransactions(transactions) {
+    const map = new Map();
+    for (const t of transactions) {
+        const key = `${String(t.customer_name || '—').trim()}|${String(t.kind || '').trim()}|${String(t.payment_mode || '—').trim()}`;
+        const cur = map.get(key) || {
+            ...t,
+            row_key: `sum:${key}`,
+            debit_inr: 0,
+            credit_inr: 0,
+            debit_metal_gm: 0,
+            credit_metal_gm: 0,
+            weight_gm: 0,
+            reference: '',
+            _refs: [],
+        };
+        cur.debit_inr += Number(t.debit_inr) || 0;
+        cur.credit_inr += Number(t.credit_inr) || 0;
+        cur.debit_metal_gm += Number(t.debit_metal_gm) || 0;
+        cur.credit_metal_gm += Number(t.credit_metal_gm) || 0;
+        cur.weight_gm += Number(t.weight_gm) || 0;
+        if (t.reference) cur._refs.push(String(t.reference));
+        map.set(key, cur);
+    }
+    return [...map.values()].map((g) => ({
+        ...g,
+        debit_inr: Math.round(g.debit_inr * 100) / 100,
+        credit_inr: Math.round(g.credit_inr * 100) / 100,
+        debit_metal_gm: roundMetalGm(g.debit_metal_gm),
+        credit_metal_gm: roundMetalGm(g.credit_metal_gm),
+        weight_gm: roundMetalGm(g.weight_gm),
+        reference: [...new Set(g._refs)].join(', '),
+    }));
 }
 
 async function buildDaybook(query, resellerUserId, opts) {
@@ -1044,15 +1120,28 @@ async function buildDaybook(query, resellerUserId, opts) {
         paid += Number(r.paid_out_inr) || 0;
     }
 
-    const ledgerCols = applyDaybookLedgerColumns(rows);
+    const opening = await ledgerOpeningBeforeDay(query, resellerUserId, day, laneView);
+    const ledgerCols = applyDaybookLedgerColumns(rows, {
+        openingInr: opening.opening_inr,
+        openingMetalGm: opening.opening_metal_gm,
+    });
+
+    let exportTransactions = ledgerCols.transactions;
+    const layout = String(opts.layout || 'detail').toLowerCase();
+    if (layout === 'summary' || layout === 'consolidated') {
+        exportTransactions = consolidateDaybookTransactions(ledgerCols.transactions);
+    }
 
     return {
         date: day,
         lane_view: laneView,
+        layout,
         summary: {
             received_inr: Math.round(received * 100) / 100,
             paid_out_inr: Math.round(paid * 100) / 100,
             net_inr: Math.round((received - paid) * 100) / 100,
+            opening_balance_inr: opening.opening_inr,
+            opening_balance_metal_gm: opening.opening_metal_gm,
             total_debit_inr: ledgerCols.total_debit_inr,
             total_credit_inr: ledgerCols.total_credit_inr,
             closing_balance_inr: ledgerCols.closing_balance_inr,
@@ -1062,22 +1151,28 @@ async function buildDaybook(query, resellerUserId, opts) {
             transaction_count: ledgerCols.transactions.length,
         },
         transactions: ledgerCols.transactions,
+        export_transactions: exportTransactions,
     };
 }
 
 function daybookToCsv(daybook) {
     const lines = [];
     const push = (row) => lines.push(row.map(accountCsvEscape).join(','));
+    const layout = daybook.layout || 'detail';
     push(['Day book', daybook.date]);
+    push(['Report layout', layout]);
+    push(['Opening balance ₹', daybook.summary.opening_balance_inr ?? '']);
+    push(['Opening metal (g)', daybook.summary.opening_balance_metal_gm ?? '']);
     push(['Total debit', daybook.summary.total_debit_inr ?? '']);
     push(['Total credit', daybook.summary.total_credit_inr ?? '']);
-    push(['Closing balance', daybook.summary.closing_balance_inr ?? '']);
+    push(['Closing balance ₹', daybook.summary.closing_balance_inr ?? '']);
     push(['Metal debit (g)', daybook.summary.total_debit_metal_gm ?? '']);
     push(['Metal credit (g)', daybook.summary.total_credit_metal_gm ?? '']);
-    push(['Metal balance (g)', daybook.summary.closing_balance_metal_gm ?? '']);
+    push(['Closing metal (g)', daybook.summary.closing_balance_metal_gm ?? '']);
     lines.push('');
     push(['DATE', 'TYPE', 'CUSTOMER / PARTY', 'MODE', 'REFERENCE', 'DEBIT ₹', 'CREDIT ₹', 'METAL (g)', 'BALANCE ₹', 'METAL BAL (g)']);
-    for (const t of daybook.transactions) {
+    const rows = daybook.export_transactions || daybook.transactions;
+    for (const t of rows) {
         push([
             fmtLedgerDate(t.entry_date),
             t.kind,

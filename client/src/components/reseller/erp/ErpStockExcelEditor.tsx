@@ -146,7 +146,6 @@ export function ErpStockExcelEditor({
   printRepeatByPcs = false,
   onSelectedIdsChange,
   syncSelectedIds,
-  syncSelectedTick = 0,
 }: {
   batchId: string
   pieces: ErpStockPiece[]
@@ -158,7 +157,6 @@ export function ErpStockExcelEditor({
   onSelectedIdsChange?: (ids: number[]) => void
   /** When parent bulk-selects (e.g. by Excel upload), apply to row checkboxes. */
   syncSelectedIds?: number[]
-  syncSelectedTick?: number
 }) {
   const { canDeleteRecords } = useErpOperator()
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
@@ -186,6 +184,8 @@ export function ErpStockExcelEditor({
   const [bulkValue, setBulkValue] = useState('')
   const [nextTempId, setNextTempId] = useState(-1)
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
+  const skipSelectionNotifyRef = useRef(false)
+  const lastExternalSelectionRef = useRef('')
 
   type DesignDefaults = {
     product_name?: string | null
@@ -263,13 +263,23 @@ export function ErpStockExcelEditor({
   }, [])
 
   useEffect(() => {
-    onSelectedIdsChange?.(Array.from(selected))
-  }, [selected, onSelectedIdsChange])
+    if (syncSelectedIds == null) return
+    const key = [...syncSelectedIds].sort((a, b) => a - b).join(',')
+    if (key === lastExternalSelectionRef.current) return
+    lastExternalSelectionRef.current = key
+    skipSelectionNotifyRef.current = true
+    setSelected(new Set(syncSelectedIds))
+  }, [syncSelectedIds])
 
   useEffect(() => {
-    if (!syncSelectedTick) return
-    setSelected(new Set(syncSelectedIds ?? []))
-  }, [syncSelectedTick, syncSelectedIds])
+    if (skipSelectionNotifyRef.current) {
+      skipSelectionNotifyRef.current = false
+      return
+    }
+    const ids = Array.from(selected)
+    lastExternalSelectionRef.current = [...ids].sort((a, b) => a - b).join(',')
+    onSelectedIdsChange?.(ids)
+  }, [selected, onSelectedIdsChange])
 
   const assignBoxes = useMemo(() => {
     const f = floors.find((x) => x.id === assignFloorId)
