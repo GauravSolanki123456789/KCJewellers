@@ -145,6 +145,8 @@ export function ErpStockExcelEditor({
   rfidEnabled = false,
   printRepeatByPcs = false,
   onSelectedIdsChange,
+  syncSelectedIds,
+  syncSelectedTick = 0,
 }: {
   batchId: string
   pieces: ErpStockPiece[]
@@ -154,6 +156,9 @@ export function ErpStockExcelEditor({
   rfidEnabled?: boolean
   printRepeatByPcs?: boolean
   onSelectedIdsChange?: (ids: number[]) => void
+  /** When parent bulk-selects (e.g. by Excel upload), apply to row checkboxes. */
+  syncSelectedIds?: number[]
+  syncSelectedTick?: number
 }) {
   const { canDeleteRecords } = useErpOperator()
   const [drafts, setDrafts] = useState<StockRowDraft[]>([])
@@ -262,8 +267,9 @@ export function ErpStockExcelEditor({
   }, [selected, onSelectedIdsChange])
 
   useEffect(() => {
-    onSelectedIdsChange?.(Array.from(selected))
-  }, [selected, onSelectedIdsChange])
+    if (!syncSelectedTick) return
+    setSelected(new Set(syncSelectedIds ?? []))
+  }, [syncSelectedTick, syncSelectedIds])
 
   const assignBoxes = useMemo(() => {
     const f = floors.find((x) => x.id === assignFloorId)

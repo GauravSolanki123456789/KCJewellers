@@ -69,6 +69,8 @@ function rankCustomersForQuery(list: ErpCustomer[], q: string): ErpCustomer[] {
 
 type Props = {
   laneMode?: boolean
+  /** Shop setting: show metal balance, rate-cut, and convert actions on cash book too. */
+  metalLedgerEnabled?: boolean
   from: string
   to: string
   resetToken?: number
@@ -78,12 +80,14 @@ type Props = {
 
 export function ErpCustomerAccountPanel({
   laneMode = false,
+  metalLedgerEnabled = false,
   from,
   to,
   resetToken = 0,
   focusCustomerId = null,
   onCustomerSelected,
 }: Props) {
+  const metalView = laneMode || metalLedgerEnabled
   const auth = useAuth()
   const shopName = useMemo(() => {
     const name = auth.user && (auth.user as WholesaleUserFields).business_name
@@ -408,7 +412,7 @@ export function ErpCustomerAccountPanel({
 
       {account ? (
         <>
-          <div className={`grid grid-cols-2 gap-2 ${laneMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+          <div className={`grid grid-cols-2 gap-2 ${metalView ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             {[
               { l: 'Total billed', v: formatErpInr(account.summary.total_billed_inr) },
               { l: 'Total paid', v: formatErpInr(account.summary.total_paid_inr) },
@@ -417,7 +421,7 @@ export function ErpCustomerAccountPanel({
                 v: formatErpInr(account.summary.balance_due_inr),
                 accent: account.summary.balance_due_inr > 0,
               },
-              ...(laneMode
+              ...(metalView
                 ? [
                     {
                       l: 'Metal balance',
@@ -443,7 +447,7 @@ export function ErpCustomerAccountPanel({
               </div>
             ))}
           </div>
-          {laneMode && Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005 ? (
+          {metalView && Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005 ? (
             <div className="flex flex-wrap gap-2">
               {account.summary.metal_balance_gm != null && account.summary.metal_balance_gm < -0.0005 ? (
                 <button
@@ -479,8 +483,8 @@ export function ErpCustomerAccountPanel({
                   <th className="px-3 py-2.5 text-right">Debit</th>
                   <th className="px-3 py-2.5 text-right">Credit</th>
                   <th className="px-3 py-2.5 text-right">Balance</th>
-                  {laneMode ? <th className="px-3 py-2.5 text-right">Metal balance</th> : null}
-                  {laneMode ? <th className="px-3 py-2.5"> </th> : null}
+                  {metalView ? <th className="px-3 py-2.5 text-right">Metal balance</th> : null}
+                  {metalView ? <th className="px-3 py-2.5"> </th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -494,23 +498,23 @@ export function ErpCustomerAccountPanel({
                       {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerDebitCell(t, { laneLedger: laneMode, splitMetalColumn: laneMode })}
+                      {formatLedgerDebitCell(t, { laneLedger: metalView, splitMetalColumn: metalView })}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
-                      {formatLedgerVirtualMetalCredit(t, { laneLedger: laneMode, splitMetalColumn: laneMode })}
+                      {formatLedgerVirtualMetalCredit(t, { laneLedger: metalView, splitMetalColumn: metalView })}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                       {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, {
-                        laneLedger: laneMode,
-                        splitMetalColumn: laneMode,
+                        laneLedger: metalView,
+                        splitMetalColumn: metalView,
                       })}
                     </td>
-                    {laneMode ? (
+                    {metalView ? (
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
                         {formatMetalBalanceCell(t.balance_metal_gm)}
                       </td>
                     ) : null}
-                    {laneMode ? (
+                    {metalView ? (
                       <td className="px-2 py-2">
                         {t.ledger_entry_id &&
                         t.weight_gm &&

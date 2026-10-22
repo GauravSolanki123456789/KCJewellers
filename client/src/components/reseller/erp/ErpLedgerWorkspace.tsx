@@ -37,6 +37,7 @@ import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import { exportDaybookToTallyLocal } from '@/lib/erp-tally-export'
 import { downloadDaybookPdf, type DaybookExportData } from '@/lib/erp-ledger-statement-pdf'
+import { useJewelleryLedgerMetalEnabled } from '@/hooks/useJewelleryLedgerMetalEnabled'
 import {
   formatLedgerMoneyOrMetal,
   formatLedgerVirtualMetalCredit,
@@ -443,6 +444,7 @@ function emptyExpenseForm() {
 }
 
 export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean }) {
+  const { enabled: metalLedgerShop } = useJewelleryLedgerMetalEnabled()
   const { canDeleteRecords } = useErpOperator()
   const [tab, setTab] = useState<LedgerTab>('entries')
   const [draftReady, setDraftReady] = useState(false)
@@ -1626,6 +1628,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       {tab === 'customer' ? (
         <ErpCustomerAccountPanel
           laneMode={laneMode}
+          metalLedgerEnabled={metalLedgerShop}
           from={from}
           to={to}
           resetToken={accountResetToken}

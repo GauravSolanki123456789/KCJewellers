@@ -214,7 +214,7 @@ function trimCatalogKey(v, max = 255) {
     return s || null;
 }
 
-const STOCK_BARCODE_PREFIX_SOURCES = new Set(['product_name', 'sku', 'style_code']);
+const STOCK_BARCODE_PREFIX_SOURCES = new Set(['product_name', 'sku', 'style_code', 'none']);
 
 function normalizeItemCodeBase(itemCode, productName) {
     const raw = String(productName || itemCode || 'ITEM')
@@ -227,10 +227,22 @@ function normalizeStockBarcodePrefixSetting(raw) {
     const v = String(raw || '').trim().toLowerCase();
     if (v === 'sku') return 'sku';
     if (v === 'style_code' || v === 'style' || v === 'stylecode') return 'style_code';
+    if (v === 'none' || v === 'digits' || v === 'numeric') return 'none';
     return 'product_name';
 }
 
-async function loadStockBarcodePrefixSource(query, resellerUserId) {
+function normalizeStockBarcodeDigitCount(raw) {
+    const n = parseInt(String(raw ?? ''), 10);
+    if (!Number.isFinite(n)) return 5;
+    return Math.min(12, Math.max(4, n));
+}
+
+function normalizeStockBarcodeRandom(raw) {
+    if (raw === false || raw === 0 || raw === '0' || String(raw).toLowerCase() === 'false') return false;
+    return true;
+}
+
+async function loadStockBarcodeSettings(query, resellerUserId) {
     try {
         const rows = await query(`SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`, [
             resellerUserId,
@@ -243,11 +255,22 @@ async function loadStockBarcodePrefixSource(query, resellerUserId) {
                 settings = {};
             }
         }
-        const v = settings?.stockBarcodePrefix;
-        return STOCK_BARCODE_PREFIX_SOURCES.has(v) ? v : 'product_name';
+        const prefixSource = STOCK_BARCODE_PREFIX_SOURCES.has(settings?.stockBarcodePrefix)
+            ? settings.stockBarcodePrefix
+            : 'product_name';
+        return {
+            prefixSource,
+            randomEnabled: normalizeStockBarcodeRandom(settings?.stockBarcodeRandomEnabled),
+            digitCount: normalizeStockBarcodeDigitCount(settings?.stockBarcodeDigitCount),
+        };
     } catch {
-        return 'product_name';
+        return { prefixSource: 'product_name', randomEnabled: true, digitCount: 5 };
     }
+}
+
+async function loadStockBarcodePrefixSource(query, resellerUserId) {
+    const s = await loadStockBarcodeSettings(query, resellerUserId);
+    return s.prefixSource;
 }
 
 function resolveStockBarcodeBase(piece, prefixSource) {
@@ -263,26 +286,82 @@ function resolveStockBarcodeBase(piece, prefixSource) {
     return normalizeItemCodeBase(null, raw);
 }
 
-function randomFiveDigitSuffix() {
-    return String(Math.floor(10000 + Math.random() * 90000));
+function randomDigitSuffix(digits) {
+    const d = Math.min(12, Math.max(4, digits || 5));
+    let out = '';
+    for (let i = 0; i < d; i++) out += String(Math.floor(Math.random() * 10));
+    return out;
 }
 
-async function generateUniqueStockBarcode(query, resellerUserId, piece, usedInBatch, prefixSource) {
-    const base = resolveStockBarcodeBase(piece, prefixSource);
-    for (let attempt = 0; attempt < 100; attempt++) {
-        const bc = `${base}-${randomFiveDigitSuffix()}`;
-        if (usedInBatch.has(bc)) continue;
-        const existing = await query(
-            `SELECT 1 FROM reseller_erp_stock_pieces
-             WHERE reseller_user_id = $1 AND barcode = $2 LIMIT 1`,
-            [resellerUserId, bc],
-        );
-        if (!existing.length) {
+function padSeq(n, digits) {
+    const d = Math.min(12, Math.max(4, digits || 5));
+    return String(n).padStart(d, '0').slice(-d);
+}
+
+async function loadExistingBarcodeSet(query, resellerUserId) {
+    const rows = await query(
+        `SELECT barcode FROM reseller_erp_stock_pieces WHERE reseller_user_id = $1`,
+        [resellerUserId],
+    );
+    return new Set(rows.map((r) => String(r.barcode || '').trim()).filter(Boolean));
+}
+
+function maxSeqFromBarcodes(barcodes, { prefixSource, base, digitCount }) {
+    let max = 0;
+    const d = digitCount;
+    if (prefixSource === 'none') {
+        const re = new RegExp(`^\\d{${d}}$`);
+        for (const bc of barcodes) {
+            if (!re.test(bc)) continue;
+            const n = parseInt(bc, 10);
+            if (Number.isFinite(n)) max = Math.max(max, n);
+        }
+        return max;
+    }
+    const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^${esc}-(\\d+)$`, 'i');
+    for (const bc of barcodes) {
+        const m = re.exec(bc);
+        if (!m) continue;
+        const n = parseInt(m[1], 10);
+        if (Number.isFinite(n)) max = Math.max(max, n);
+    }
+    return max;
+}
+
+async function generateUniqueStockBarcode(query, resellerUserId, piece, usedInBatch, barcodeSettings) {
+    const settings =
+        typeof barcodeSettings === 'string'
+            ? { prefixSource: barcodeSettings, randomEnabled: true, digitCount: 5 }
+            : barcodeSettings || { prefixSource: 'product_name', randomEnabled: true, digitCount: 5 };
+    const { prefixSource, randomEnabled, digitCount } = settings;
+    const base = prefixSource === 'none' ? null : resolveStockBarcodeBase(piece, prefixSource);
+    const dbSet = await loadExistingBarcodeSet(query, resellerUserId);
+    const taken = (bc) => usedInBatch.has(bc) || dbSet.has(bc);
+
+    if (randomEnabled) {
+        for (let attempt = 0; attempt < 150; attempt++) {
+            const suffix = randomDigitSuffix(prefixSource === 'none' ? digitCount : 5);
+            const bc = prefixSource === 'none' ? suffix : `${base}-${suffix}`;
+            if (taken(bc)) continue;
             usedInBatch.add(bc);
             return bc;
         }
+        throw new Error(`Could not generate unique random barcode`);
     }
-    throw new Error(`Could not generate unique barcode for ${base}`);
+
+    const allKnown = [...dbSet, ...usedInBatch];
+    let seq = maxSeqFromBarcodes(allKnown, { prefixSource, base, digitCount }) + 1;
+    for (let attempt = 0; attempt < 5000; attempt++) {
+        const suffix = padSeq(seq, prefixSource === 'none' ? digitCount : 5);
+        const bc = prefixSource === 'none' ? suffix : `${base}-${suffix}`;
+        if (!taken(bc)) {
+            usedInBatch.add(bc);
+            return bc;
+        }
+        seq += 1;
+    }
+    throw new Error(`Could not generate unique sequential barcode for ${base || 'digits'}`);
 }
 
 function parseMetalSlabFraction(raw) {
@@ -469,6 +548,7 @@ function mapPiece(row) {
     return {
         id: row.id,
         batch_id: row.batch_id,
+        import_batch_id: row.import_batch_id || null,
         barcode: displayBarcode,
         stock_barcode: row.barcode,
         running_tag_barcode: runningTagBarcode,
@@ -1500,7 +1580,7 @@ function registerStockPieceRoutes(app, deps) {
             const pieces = [];
             const usedBarcodes = new Set();
             const duplicateInFile = [];
-            const barcodePrefixSource = await loadStockBarcodePrefixSource(query, req.user.id);
+            const barcodeSettings = await loadStockBarcodeSettings(query, req.user.id);
             let runningTagSet = new Set();
             try {
                 runningTagSet = await loadRunningTagBarcodeSet(query, req.user.id);
@@ -1539,7 +1619,7 @@ function registerStockPieceRoutes(app, deps) {
                         req.user.id,
                         p,
                         usedBarcodes,
-                        barcodePrefixSource,
+                        barcodeSettings,
                     );
                     usedBarcodes.add(String(p.barcode).trim());
                 } else if (runningTagSet.has(String(p.barcode).trim().toLowerCase())) {
@@ -2095,7 +2175,7 @@ function registerStockPieceRoutes(app, deps) {
             );
             if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
 
-            const barcodePrefixSource = await loadStockBarcodePrefixSource(query, req.user.id);
+            const barcodeSettings = await loadStockBarcodeSettings(query, req.user.id);
             const itemCodes = new Set();
             for (const r of rows) {
                 const id = parseInt(String(r.id), 10);
@@ -2170,7 +2250,7 @@ function registerStockPieceRoutes(app, deps) {
                             req.user.id,
                             pieceRow,
                             new Set(),
-                            barcodePrefixSource,
+                            barcodeSettings,
                         );
                     }
                     if (!pieceRow.image_url) {

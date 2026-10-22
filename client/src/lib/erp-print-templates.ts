@@ -743,6 +743,20 @@ function labelHeightMmFromTspl(tspl: string): number | null {
   return Number.isFinite(h) ? h : null
 }
 
+function labelWidthMmFromTspl(tspl: string): number | null {
+  const m = String(tspl || '').match(/SIZE\s+([\d.]+)\s*mm\s*,/i)
+  if (!m) return null
+  const w = parseFloat(m[1])
+  return Number.isFinite(w) ? w : null
+}
+
+/** Approximate QR print size in TSPL dots (203 dpi ≈ 8 dots/mm). */
+function tsplQrSizeDots(cell: number): number {
+  const c = Math.max(1, Math.min(4, cell))
+  const modules = 21 + (c - 1) * 4
+  return modules * c
+}
+
 /** Payload for TSPL QRCODE — mirrors scripts/erp-print-templates.js */
 export function tsplQrContent(raw: string | null | undefined): string {
   let s = String(raw ?? '').trim().toUpperCase()
@@ -775,12 +789,23 @@ export function fixTsplQrcodeCommands(tspl: string): string {
       let cell = m ? parseInt(m[4], 10) || 2 : 2
       if (smallTag) {
         cell = Math.min(4, Math.max(1, cell))
+        if (data.length <= 20 && cell < 3) cell = 3
       } else {
         cell = Math.min(4, Math.max(2, cell))
       }
       if (!m) {
         x = 418
         y = 68
+      }
+      if (smallTag) {
+        const widthMm = labelWidthMmFromTspl(tspl)
+        const heightMm = labelHeightMmFromTspl(tspl)
+        const widthDots = widthMm ? Math.round(widthMm * 8) : 740
+        const heightDots = heightMm ? Math.round(heightMm * 8) : 120
+        const qrDots = tsplQrSizeDots(cell)
+        const margin = cell * 4
+        if (x + qrDots > widthDots - margin) x = Math.max(margin, widthDots - margin - qrDots)
+        if (y + qrDots > heightDots - margin) y = Math.max(margin, heightDots - margin - qrDots)
       }
       return `QRCODE ${x},${y},${ecc},${cell},A,${rot},M2,S7,"${data}"`
     })

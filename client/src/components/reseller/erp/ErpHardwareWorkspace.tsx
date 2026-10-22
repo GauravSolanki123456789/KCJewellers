@@ -35,8 +35,12 @@ import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import Image from 'next/image'
 import { Barcode, Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
 import {
+  DEFAULT_STOCK_BARCODE_DIGIT_COUNT,
   DEFAULT_STOCK_BARCODE_PREFIX,
+  DEFAULT_STOCK_BARCODE_RANDOM,
+  normalizeStockBarcodeDigitCount,
   normalizeStockBarcodePrefix,
+  normalizeStockBarcodeRandom,
   STOCK_BARCODE_PREFIX_OPTIONS,
   type StockBarcodePrefixSource,
 } from '@/lib/erp-stock-barcode-settings'
@@ -162,33 +166,57 @@ export function ErpHardwareWorkspace() {
   const [savedBarcodePrefix, setSavedBarcodePrefix] = useState<StockBarcodePrefixSource>(
     DEFAULT_STOCK_BARCODE_PREFIX,
   )
+  const [stockBarcodeRandomEnabled, setStockBarcodeRandomEnabled] = useState(DEFAULT_STOCK_BARCODE_RANDOM)
+  const [savedBarcodeRandomEnabled, setSavedBarcodeRandomEnabled] = useState(DEFAULT_STOCK_BARCODE_RANDOM)
+  const [stockBarcodeDigitCount, setStockBarcodeDigitCount] = useState(DEFAULT_STOCK_BARCODE_DIGIT_COUNT)
+  const [savedBarcodeDigitCount, setSavedBarcodeDigitCount] = useState(DEFAULT_STOCK_BARCODE_DIGIT_COUNT)
   const [barcodePrefixBusy, setBarcodePrefixBusy] = useState(false)
   const [barcodePrefixSavedFlash, setBarcodePrefixSavedFlash] = useState(false)
 
   useEffect(() => {
     void axios
-      .get<{ settings: { hardware?: ErpHardwareSettings; stockBarcodePrefix?: string } }>(
-        '/api/reseller/erp/settings',
-      )
+      .get<{
+        settings: {
+          hardware?: ErpHardwareSettings
+          stockBarcodePrefix?: string
+          stockBarcodeRandomEnabled?: boolean
+          stockBarcodeDigitCount?: number
+        }
+      }>('/api/reseller/erp/settings')
       .then((res) => {
         setHw(migrateHardwareSettings(res.data.settings?.hardware))
         const prefix = normalizeStockBarcodePrefix(res.data.settings?.stockBarcodePrefix)
         setStockBarcodePrefix(prefix)
         setSavedBarcodePrefix(prefix)
+        const randomOn = normalizeStockBarcodeRandom(res.data.settings?.stockBarcodeRandomEnabled)
+        setStockBarcodeRandomEnabled(randomOn)
+        setSavedBarcodeRandomEnabled(randomOn)
+        const digits = normalizeStockBarcodeDigitCount(res.data.settings?.stockBarcodeDigitCount)
+        setStockBarcodeDigitCount(digits)
+        setSavedBarcodeDigitCount(digits)
       })
       .catch(() => {})
   }, [])
 
-  const barcodePrefixDirty = stockBarcodePrefix !== savedBarcodePrefix
+  const barcodePrefixDirty =
+    stockBarcodePrefix !== savedBarcodePrefix ||
+    stockBarcodeRandomEnabled !== savedBarcodeRandomEnabled ||
+    stockBarcodeDigitCount !== savedBarcodeDigitCount
 
   const saveBarcodePrefix = async () => {
     setBarcodePrefixBusy(true)
     setBarcodePrefixSavedFlash(false)
     try {
       await axios.put('/api/reseller/erp/settings', {
-        settings: { stockBarcodePrefix },
+        settings: {
+          stockBarcodePrefix,
+          stockBarcodeRandomEnabled,
+          stockBarcodeDigitCount,
+        },
       })
       setSavedBarcodePrefix(stockBarcodePrefix)
+      setSavedBarcodeRandomEnabled(stockBarcodeRandomEnabled)
+      setSavedBarcodeDigitCount(stockBarcodeDigitCount)
       setBarcodePrefixSavedFlash(true)
     } catch {
       alert('Could not save barcode prefix')
@@ -202,9 +230,16 @@ export function ErpHardwareWorkspace() {
     setSaved(false)
     try {
       await axios.put('/api/reseller/erp/settings', {
-        settings: { hardware: hw, stockBarcodePrefix },
+        settings: {
+          hardware: hw,
+          stockBarcodePrefix,
+          stockBarcodeRandomEnabled,
+          stockBarcodeDigitCount,
+        },
       })
       setSavedBarcodePrefix(stockBarcodePrefix)
+      setSavedBarcodeRandomEnabled(stockBarcodeRandomEnabled)
+      setSavedBarcodeDigitCount(stockBarcodeDigitCount)
       setSaved(true)
     } catch {
       alert('Could not save hardware settings')
@@ -374,7 +409,7 @@ export function ErpHardwareWorkspace() {
             <span className="text-xs font-medium text-emerald-700">Saved</span>
           ) : null}
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {STOCK_BARCODE_PREFIX_OPTIONS.map((opt) => {
             const on = stockBarcodePrefix === opt.value
             return (
@@ -396,6 +431,43 @@ export function ErpHardwareWorkspace() {
             )
           })}
         </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/50 px-3 py-3">
+          <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Random barcodes</p>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={stockBarcodeRandomEnabled}
+            className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${
+              stockBarcodeRandomEnabled ? 'bg-emerald-700' : 'bg-[var(--color-slate-700,#d4cfc8)]'
+            }`}
+            onClick={() => {
+              setStockBarcodeRandomEnabled((v) => !v)
+              setBarcodePrefixSavedFlash(false)
+            }}
+          >
+            <span
+              className={`inline-block size-6 transform rounded-full bg-white shadow transition ${
+                stockBarcodeRandomEnabled ? 'translate-x-7' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+        {stockBarcodePrefix === 'none' || !stockBarcodeRandomEnabled ? (
+          <label className="mt-3 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
+            Number of digits
+            <input
+              type="number"
+              min={4}
+              max={12}
+              className={`${erpInputCls} mt-1 max-w-[8rem] tabular-nums`}
+              value={stockBarcodeDigitCount}
+              onChange={(e) => {
+                setStockBarcodeDigitCount(normalizeStockBarcodeDigitCount(e.target.value))
+                setBarcodePrefixSavedFlash(false)
+              }}
+            />
+          </label>
+        ) : null}
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <button
             type="button"

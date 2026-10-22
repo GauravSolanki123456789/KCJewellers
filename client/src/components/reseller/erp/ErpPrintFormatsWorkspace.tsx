@@ -109,6 +109,8 @@ function ShopHeaderPanel({
 
 export function ErpPrintFormatsWorkspace() {
   const [pf, setPf] = useState<ErpPrintFormatsSettings>(() => migratePrintFormats({}))
+  const [jewelleryLedgerMetalEnabled, setJewelleryLedgerMetalEnabled] = useState(false)
+  const [savedLedgerMetal, setSavedLedgerMetal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [tab, setTab] = useState<'label' | 'labelTvs' | 'labelZebra' | 'bill' | 'estimate'>('label')
@@ -128,8 +130,15 @@ export function ErpPrintFormatsWorkspace() {
 
   useEffect(() => {
     void axios
-      .get<{ settings: { printFormats?: ErpPrintFormatsSettings } }>('/api/reseller/erp/settings')
-      .then((res) => setPf(migratePrintFormats(res.data.settings?.printFormats)))
+      .get<{ settings: { printFormats?: ErpPrintFormatsSettings; jewelleryLedgerMetalEnabled?: boolean } }>(
+        '/api/reseller/erp/settings',
+      )
+      .then((res) => {
+        setPf(migratePrintFormats(res.data.settings?.printFormats))
+        const on = res.data.settings?.jewelleryLedgerMetalEnabled === true
+        setJewelleryLedgerMetalEnabled(on)
+        setSavedLedgerMetal(on)
+      })
       .catch(() => {})
   }, [])
 
@@ -154,8 +163,11 @@ export function ErpPrintFormatsWorkspace() {
         estimateTemplateGold: preserveBillTemplate(pf.estimateTemplateGold),
         estimateTemplateSilver: preserveBillTemplate(pf.estimateTemplateSilver),
       })
-      await axios.put('/api/reseller/erp/settings', { settings: { printFormats: payload } })
+      await axios.put('/api/reseller/erp/settings', {
+        settings: { printFormats: payload, jewelleryLedgerMetalEnabled },
+      })
       setPf(payload)
+      setSavedLedgerMetal(jewelleryLedgerMetalEnabled)
       setSaved(true)
     } catch {
       alert('Could not save print formats')
@@ -376,6 +388,32 @@ export function ErpPrintFormatsWorkspace() {
             Estimate (Epson)
           </button>
         </div>
+      </div>
+
+      <div className={erpCardCls}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Ledger in metal</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={jewelleryLedgerMetalEnabled}
+            className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${
+              jewelleryLedgerMetalEnabled ? 'bg-emerald-700' : 'bg-[var(--color-slate-700,#d4cfc8)]'
+            }`}
+            onClick={() => setJewelleryLedgerMetalEnabled((v) => !v)}
+          >
+            <span
+              className={`inline-block size-6 transform rounded-full bg-white shadow transition ${
+                jewelleryLedgerMetalEnabled ? 'translate-x-7' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+        {jewelleryLedgerMetalEnabled !== savedLedgerMetal ? (
+          <p className="mt-2 text-xs font-medium text-amber-800">Save templates to apply ledger setting.</p>
+        ) : null}
       </div>
 
       <div className={erpCardCls}>

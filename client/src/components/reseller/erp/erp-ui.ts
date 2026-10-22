@@ -65,6 +65,8 @@ export type ErpProductHit = {
 export type ErpStockPiece = {
   id: number
   batch_id?: string | null
+  /** Excel upload batch this piece came from (if any). */
+  import_batch_id?: string | null
   barcode: string
   sku?: string | null
   style_code?: string | null

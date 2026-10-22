@@ -393,18 +393,20 @@ async function nextReceiptNumber(query, resellerUserId, scope) {
     return `REC${seq}`;
 }
 
-async function nextMetalRef(query, resellerUserId, prefix) {
+async function nextMetalRef(query, resellerUserId, prefix, _ledgerScope = 'official') {
     const p = String(prefix || 'MT').toUpperCase();
+    /** Unique index is per reseller (not scope) — scan all scopes for the next free number. */
     const rows = await query(
         `SELECT reference_no FROM reseller_erp_ledger_entries
-         WHERE reseller_user_id = $1 AND ledger_scope = 'lane'
-           AND reference_no ILIKE $2
-         ORDER BY id DESC LIMIT 1`,
+         WHERE reseller_user_id = $1 AND reference_no ILIKE $2
+         ORDER BY id DESC LIMIT 200`,
         [resellerUserId, `${p}%`],
     );
-    const last = rows[0]?.reference_no;
-    const m = last ? new RegExp(`^${p}(\\d+)$`, 'i').exec(String(last)) : null;
-    const n = m ? parseInt(m[1], 10) + 1 : 1;
+    let n = 1;
+    for (const row of rows) {
+        const m = new RegExp(`^${p}(\\d+)$`, 'i').exec(String(row.reference_no || ''));
+        if (m) n = Math.max(n, parseInt(m[1], 10) + 1);
+    }
     return `${p}${String(n).padStart(4, '0')}`;
 }
 
@@ -928,7 +930,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                         : entryType === 'payment_out'
                           ? 'MI'
                           : 'MT';
-                referenceNo = await nextMetalRef(query, req.user.id, metalPrefix);
+                referenceNo = await nextMetalRef(query, req.user.id, metalPrefix, ledgerScope);
             }
             if (
                 resolvedMetalGm != null &&
@@ -1103,7 +1105,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 const gm = roundMetalGm(Math.abs(metalBal));
                 const inrOffset = Math.round(gm * rate * 100) / 100;
                 const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
-                const referenceNo = await nextMetalRef(query, req.user.id, 'MB');
+                const referenceNo = await nextMetalRef(query, req.user.id, 'MB', ledgerScope);
                 const narration = `Metal credit converted to ₹ balance ${gm.toFixed(3)} g @ ₹${rate}/g`;
                 const rows = await query(
                     `INSERT INTO reseller_erp_ledger_entries (

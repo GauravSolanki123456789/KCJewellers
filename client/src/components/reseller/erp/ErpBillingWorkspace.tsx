@@ -459,7 +459,8 @@ export function ErpBillingWorkspace() {
   const [narrationOptions, setNarrationOptions] = useState<string[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<ErpCustomer | null>(null)
   const [customerPickIdx, setCustomerPickIdx] = useState(-1)
-  const [duplicateHighlights, setDuplicateHighlights] = useState<Set<number>>(() => new Set())
+  /** Barcode (lowercase) highlighted after a duplicate scan — not row index (indices shift on delete). */
+  const [duplicateHighlightBarcode, setDuplicateHighlightBarcode] = useState<string | null>(null)
   const [duplicateScanMsg, setDuplicateScanMsg] = useState<string | null>(null)
   const [scanErrorMsg, setScanErrorMsg] = useState<string | null>(null)
   const [pdfShareOpen, setPdfShareOpen] = useState(false)
@@ -1319,19 +1320,30 @@ export function ErpBillingWorkspace() {
   }
 
   const clearDuplicateState = () => {
-    setDuplicateHighlights(new Set())
+    setDuplicateHighlightBarcode(null)
     setDuplicateScanMsg(null)
     setScanErrorMsg(null)
   }
 
-  const scrollToDuplicateRow = (idx: number) => {
-    setDuplicateHighlights((prev) => {
-      const next = new Set(prev)
-      next.add(idx)
-      return next
-    })
+  const scrollToDuplicateRow = (idx: number, barcode: string) => {
+    const key = barcode.trim().toLowerCase()
+    if (key) setDuplicateHighlightBarcode(key)
     const row = rowRefs.current[idx]
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const lineBarcodeKey = (line: ErpBillLine) => (line.barcode || line.code || '').trim().toLowerCase()
+
+  const removeLineAt = (idx: number) => {
+    setLines((p) => {
+      const removedKey = lineBarcodeKey(p[idx] || {})
+      const next = p.filter((_, i) => i !== idx)
+      setDuplicateHighlightBarcode((prev) => {
+        if (!prev || !removedKey || prev !== removedKey) return prev
+        return next.some((l) => lineBarcodeKey(l) === prev) ? prev : null
+      })
+      return next
+    })
   }
 
   const dismissScanBanner = () => {
@@ -1451,7 +1463,7 @@ export function ErpBillingWorkspace() {
       (l) => (l.barcode || '').trim().toLowerCase() === code.toLowerCase(),
     )
     if (dupIdx >= 0) {
-      scrollToDuplicateRow(dupIdx)
+      scrollToDuplicateRow(dupIdx, code)
       setDuplicateScanMsg(`This barcode is already in the list (${code}).`)
       setScanCode('')
       scanRef.current?.focus()
@@ -3481,7 +3493,10 @@ export function ErpBillingWorkspace() {
                           idx={idx}
                           lineKey={lineKey}
                           catalog={catalog}
-                          highlight={duplicateHighlights.has(idx)}
+                          highlight={
+                            !!duplicateHighlightBarcode &&
+                            lineBarcodeKey(line) === duplicateHighlightBarcode
+                          }
                           manualFocus={manualFocus}
                           rowRef={(el) => {
                             rowRefs.current[idx] = el
@@ -3580,7 +3595,7 @@ export function ErpBillingWorkspace() {
                             if (line.manualEntry) updateManualLine(idx, next)
                             else updateLine(idx, next)
                           }}
-                          onDelete={() => setLines((p) => p.filter((_, i) => i !== idx))}
+                          onDelete={() => removeLineAt(idx)}
                           rateSlab={rateSlab}
                           slabSettings={slabSettings}
                           gstInvoiceItems={gstInvoiceItems}
@@ -3596,7 +3611,10 @@ export function ErpBillingWorkspace() {
                         rowRefs.current[idx] = el
                       }}
                       className={`border-b border-[var(--color-slate-700,#e8e4df)]/50 transition-colors ${
-                        duplicateHighlights.has(idx) ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset' : ''
+                        duplicateHighlightBarcode &&
+                        lineBarcodeKey(line) === duplicateHighlightBarcode
+                          ? 'bg-amber-100 ring-2 ring-amber-400 ring-inset'
+                          : ''
                       } ${line.manualEntry ? 'bg-emerald-50/30' : ''}`}
                       onDoubleClick={() => {
                         if (line.manualEntry) updateLine(idx, { manualEntryOpen: true })
@@ -4113,7 +4131,7 @@ export function ErpBillingWorkspace() {
                         )
                       })}
                       <td className="px-2 py-2">
-                        <button type="button" className="text-rose-500" onClick={() => setLines((p) => p.filter((_, i) => i !== idx))}>
+                        <button type="button" className="text-rose-500" onClick={() => removeLineAt(idx)}>
                           <X className="size-4" />
                         </button>
                       </td>

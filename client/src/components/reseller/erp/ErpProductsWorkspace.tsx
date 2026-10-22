@@ -104,7 +104,46 @@ export function ErpProductsWorkspace() {
   const [deletingImportId, setDeletingImportId] = useState<string | null>(null)
   const [dupScanBusy, setDupScanBusy] = useState(false)
   const [selectedPieceIds, setSelectedPieceIds] = useState<number[]>([])
+  const [selectionSyncTick, setSelectionSyncTick] = useState(0)
   const [printRepeatByPcs, setPrintRepeatByPcs] = useState(false)
+
+  const inStockSelectableIdsForImport = useCallback(
+    (importId: string) =>
+      pieces
+        .filter(
+          (p) =>
+            p.import_batch_id != null &&
+            String(p.import_batch_id) === importId &&
+            p.status === 'in_stock' &&
+            !p.locked,
+        )
+        .map((p) => p.id),
+    [pieces],
+  )
+
+  const importCheckboxState = useCallback(
+    (importId: string): 'all' | 'some' | 'none' => {
+      const ids = inStockSelectableIdsForImport(importId)
+      if (!ids.length) return 'none'
+      const picked = ids.filter((id) => selectedPieceIds.includes(id))
+      if (picked.length === ids.length) return 'all'
+      if (picked.length > 0) return 'some'
+      return 'none'
+    },
+    [inStockSelectableIdsForImport, selectedPieceIds],
+  )
+
+  const toggleImportSelection = useCallback(
+    (importId: string, checked: boolean) => {
+      const ids = inStockSelectableIdsForImport(importId)
+      if (!ids.length) return
+      setSelectedPieceIds((prev) =>
+        checked ? [...new Set([...prev, ...ids])] : prev.filter((id) => !ids.includes(id)),
+      )
+      setSelectionSyncTick((t) => t + 1)
+    },
+    [inStockSelectableIdsForImport],
+  )
 
   useEffect(() => {
     try {
@@ -662,25 +701,44 @@ export function ErpProductsWorkspace() {
               <span className="inline-flex items-center gap-1">
                 Excel uploads ({imports.length || '…'})
               </span>
+              <span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-[var(--color-jewelry-black,#1a1814)]/45">
+                Tick an upload to select all in-stock pieces from that file in the grid below.
+              </span>
             </summary>
             <div className="mt-2 space-y-1.5">
               {importsLoading ? (
                 <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">Loading uploads…</p>
               ) : (
-                imports.map((imp) => (
+                imports.map((imp) => {
+                  const selectableCount = inStockSelectableIdsForImport(imp.id).length
+                  const selectState = importCheckboxState(imp.id)
+                  return (
                   <div
                     key={imp.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
                   >
-                    <div className="min-w-0">
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 shrink-0 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+                        checked={selectState === 'all'}
+                        disabled={selectableCount === 0}
+                        ref={(el) => {
+                          if (el) el.indeterminate = selectState === 'some'
+                        }}
+                        onChange={(e) => toggleImportSelection(imp.id, e.target.checked)}
+                        aria-label={`Select in-stock pieces from ${imp.source_filename}`}
+                      />
+                      <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
                         {imp.source_filename}
                       </p>
                       <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-                        {imp.live_count ?? imp.piece_count} piece(s) · uploaded{' '}
+                        {selectableCount} in stock · {imp.piece_count} uploaded ·{' '}
                         <span suppressHydrationWarning>{formatErpDateTime(imp.created_at)}</span>
                       </p>
-                    </div>
+                      </div>
+                    </label>
                     {canDeleteRecords ? (
                     <button
                       type="button"
@@ -697,7 +755,7 @@ export function ErpProductsWorkspace() {
                     </button>
                     ) : null}
                   </div>
-                ))
+                )})
               )}
             </div>
           </details>
@@ -737,6 +795,8 @@ export function ErpProductsWorkspace() {
           rfidEnabled={rfidEnabled}
           printRepeatByPcs={printRepeatByPcs}
           onSelectedIdsChange={setSelectedPieceIds}
+          syncSelectedIds={selectedPieceIds}
+          syncSelectedTick={selectionSyncTick}
         />
       </div>
     )
