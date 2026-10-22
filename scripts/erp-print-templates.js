@@ -811,7 +811,7 @@ function labelHeightMmFromTspl(tspl) {
     return Number.isFinite(h) ? h : null;
 }
 
-/** Normalize TSC QRCODE for 92.5×15 mm jewelry tags (demo: QR beside BMS, rotation 180). */
+/** Sanitize QRCODE payload; keep x/y from the template (do not force 418,68 on small tags). */
 function fixTsplQrcodeCommands(tspl) {
     const heightMm = labelHeightMmFromTspl(tspl);
     const smallTag = heightMm != null && heightMm <= 16;
@@ -833,11 +833,13 @@ function fixTsplQrcodeCommands(tspl) {
             const ecc = m ? String(m[3] || 'L').toUpperCase() : 'L';
             let cell = m ? parseInt(m[4], 10) || 2 : 2;
             if (smallTag) {
-                cell = Math.min(2, Math.max(1, cell));
-                x = 418;
-                y = 68;
+                cell = Math.min(4, Math.max(1, cell));
             } else {
                 cell = Math.min(4, Math.max(2, cell));
+            }
+            if (!m) {
+                x = 418;
+                y = 68;
             }
             return `QRCODE ${x},${y},${ecc},${cell},A,${rot},M2,S7,"${data}"`;
         })

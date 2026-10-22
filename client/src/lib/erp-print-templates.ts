@@ -752,7 +752,7 @@ export function tsplQrContent(raw: string | null | undefined): string {
   return s.slice(0, 120)
 }
 
-/** Match server fix — 92.5×15 mm jewelry tags (QR beside BMS, rotation 180). */
+/** Sanitize QRCODE payload; keep x/y from the template (do not force 418,68 on small tags). */
 export function fixTsplQrcodeCommands(tspl: string): string {
   const heightMm = labelHeightMmFromTspl(tspl)
   const smallTag = heightMm != null && heightMm <= 16
@@ -774,11 +774,13 @@ export function fixTsplQrcodeCommands(tspl: string): string {
       const ecc = m ? String(m[3] || 'L').toUpperCase() : 'L'
       let cell = m ? parseInt(m[4], 10) || 2 : 2
       if (smallTag) {
-        cell = Math.min(2, Math.max(1, cell))
-        x = 418
-        y = 68
+        cell = Math.min(4, Math.max(1, cell))
       } else {
         cell = Math.min(4, Math.max(2, cell))
+      }
+      if (!m) {
+        x = 418
+        y = 68
       }
       return `QRCODE ${x},${y},${ecc},${cell},A,${rot},M2,S7,"${data}"`
     })

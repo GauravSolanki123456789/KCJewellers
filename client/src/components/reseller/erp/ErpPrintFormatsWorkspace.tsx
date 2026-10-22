@@ -139,11 +139,11 @@ export function ErpPrintFormatsWorkspace() {
     try {
       const payload = migratePrintFormats({
         ...pf,
-        labelPrnTemplate: preservePrnTemplate(pf.labelPrnTemplate),
-        labelTvsLp46PrnTemplate: preservePrnTemplate(pf.labelTvsLp46PrnTemplate),
+        labelPrnTemplate: normalizePrnTemplate(pf.labelPrnTemplate),
+        labelTvsLp46PrnTemplate: normalizePrnTemplate(pf.labelTvsLp46PrnTemplate),
         labelPrnRules: (pf.labelPrnRules || []).map((rule) => ({
           ...rule,
-          template: preservePrnTemplate(rule.template),
+          template: normalizePrnTemplate(rule.template),
         })),
         labelZebraPrnTemplate: formatZplForEditor(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL),
         labelZebraPrnRules: (pf.labelZebraPrnRules || []).map((rule) => ({
@@ -543,11 +543,7 @@ export function ErpPrintFormatsWorkspace() {
               </div>
             ) : null}
             <textarea
-              className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed ${
-                labelZebra
-                  ? 'whitespace-pre overflow-x-auto [overflow-wrap:normal] [word-break:normal]'
-                  : 'whitespace-pre-wrap'
-              }`}
+              className={`${erpInputCls} min-h-[320px] font-mono text-[11px] leading-relaxed whitespace-pre overflow-x-auto [overflow-wrap:normal] [word-break:normal]`}
               value={
                 labelZebra
                   ? pf.labelZebraPrnTemplate || ''
@@ -565,14 +561,29 @@ export function ErpPrintFormatsWorkspace() {
                 )
               }
               onBlur={() => {
-                if (!labelZebra) return
-                setPf((p) => ({
-                  ...p,
-                  labelZebraPrnTemplate: formatZplForEditor(p.labelZebraPrnTemplate || ''),
-                }))
+                setPf((p) => {
+                  if (labelZebra) {
+                    return {
+                      ...p,
+                      labelZebraPrnTemplate: formatZplForEditor(p.labelZebraPrnTemplate || ''),
+                    }
+                  }
+                  if (labelTvs) {
+                    return {
+                      ...p,
+                      labelTvsLp46PrnTemplate: normalizePrnTemplate(
+                        p.labelTvsLp46PrnTemplate || DEFAULT_LABEL_PRN,
+                      ),
+                    }
+                  }
+                  return {
+                    ...p,
+                    labelPrnTemplate: normalizePrnTemplate(p.labelPrnTemplate || DEFAULT_LABEL_PRN),
+                  }
+                })
               }}
               spellCheck={false}
-              wrap={labelZebra ? 'off' : undefined}
+              wrap="off"
             />
           </div>
 
