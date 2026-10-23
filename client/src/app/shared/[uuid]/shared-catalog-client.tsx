@@ -35,10 +35,6 @@ import {
   filterSharedCatalogGroupsBySubcategory,
   SHARED_CATALOG_ALL_TAB,
 } from '@/lib/shared-catalog-categories'
-import {
-  sortSharedCatalogGroupedRows,
-  sortSharedCatalogPricingRows,
-} from '@/lib/shared-catalog-sort'
 import { normalizeKcThemeId } from '@/lib/kc-theme-ids'
 import DualJewelleryProductImage from '@/components/catalog/DualJewelleryProductImage'
 import BoxOptionToggle from '@/components/catalog/BoxOptionToggle'
@@ -344,13 +340,10 @@ export default function SharedCatalogClient({
       parseDiscountPercentage(payload.discountPercentage),
       slabPayload,
     )
-    return sortSharedCatalogPricingRows(built)
+    return built
   }, [payload, giftingGstEnabled, slabPayload])
 
-  const groupedRows = useMemo(
-    () => sortSharedCatalogGroupedRows(groupSharedCatalogPricingRows(rows)),
-    [rows],
-  )
+  const groupedRows = useMemo(() => groupSharedCatalogPricingRows(rows), [rows])
 
   const subcategoryTabs = useMemo(
     () => buildSharedCatalogSubcategoryTabs(rows),

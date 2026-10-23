@@ -1127,7 +1127,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
 
                 const openingSql = `
                     SELECT l.counter_id, c.name AS counter_name, l.purity_id, p.label AS purity_label,
-                           COALESCE(SUM(l.pure_gm), 0)::numeric AS pure_gm
+                           COALESCE(SUM(l.gross_gm), 0)::numeric AS pure_gm
                     FROM reseller_erp_metal_stock_lots l
                     LEFT JOIN reseller_erp_metal_routing_counters c ON c.id = l.counter_id
                     LEFT JOIN reseller_erp_metal_purities p ON p.id = l.purity_id
@@ -1143,7 +1143,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
 
                 const closingSql = `
                     SELECT l.counter_id, c.name AS counter_name, l.purity_id, p.label AS purity_label,
-                           COALESCE(SUM(l.pure_gm), 0)::numeric AS pure_gm
+                           COALESCE(SUM(l.gross_gm), 0)::numeric AS pure_gm
                     FROM reseller_erp_metal_stock_lots l
                     LEFT JOIN reseller_erp_metal_routing_counters c ON c.id = l.counter_id
                     LEFT JOIN reseller_erp_metal_purities p ON p.id = l.purity_id
@@ -1156,7 +1156,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
 
                 const receivedSql = `
                     SELECT l.counter_id, c.name AS counter_name, l.purity_id, p.label AS purity_label,
-                           COALESCE(SUM(l.pure_gm), 0)::numeric AS pure_gm
+                           COALESCE(SUM(l.gross_gm), 0)::numeric AS pure_gm
                     FROM reseller_erp_metal_stock_lots l
                     LEFT JOIN reseller_erp_metal_routing_counters c ON c.id = l.counter_id
                     LEFT JOIN reseller_erp_metal_purities p ON p.id = l.purity_id

@@ -1,7 +1,5 @@
 import type { SharedCatalogPublicProduct } from '@/lib/shared-catalog-api'
 import type { SharedCatalogGroupedRow, SharedCatalogPricingRow } from '@/lib/shared-catalog-pricing'
-import { compareSharedCatalogProducts } from '@/lib/shared-catalog-sort'
-
 export const SHARED_CATALOG_ALL_TAB = 'all'
 
 export type SharedCatalogSubcategoryTab = {
@@ -60,16 +58,9 @@ export function buildSharedCatalogSubcategoryTabs(
 
   return [...buckets.entries()]
     .sort((a, b) => {
-      const rowA = rows.find((r) => subcategoryKeyFromProduct(r.product) === a[0])
-      const rowB = rows.find((r) => subcategoryKeyFromProduct(r.product) === b[0])
-      if (rowA && rowB) {
-        const hier = compareSharedCatalogProducts(rowA.product, rowB.product)
-        if (hier !== 0) return hier
-      }
-      return (
-        a[1].sort - b[1].sort ||
-        a[1].label.localeCompare(b[1].label, undefined, { sensitivity: 'base' })
-      )
+      const sortDiff = a[1].sort - b[1].sort
+      if (sortDiff !== 0) return sortDiff
+      return a[1].label.localeCompare(b[1].label, undefined, { sensitivity: 'base' })
     })
     .map(([key, v]) => ({
       key,

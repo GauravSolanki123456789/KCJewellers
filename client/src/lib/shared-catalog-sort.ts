@@ -10,18 +10,20 @@ function metalSortIndex(product: SharedCatalogPublicProduct): number {
   return idx >= 0 ? idx : CATALOG_METAL_KEYS.length
 }
 
+function subcategorySortIndex(product: SharedCatalogPublicProduct): number {
+  const n = Number(product.subcategory_sort_order)
+  return Number.isFinite(n) ? n : 999999
+}
+
 function styleSortKey(product: SharedCatalogPublicProduct): string {
-  const style = String(product.style_name ?? '').trim()
-  const sub = String(product.subcategory_name ?? '').trim()
-  if (style && sub) return `${style} › ${sub}`
-  return style || sub || 'zzz'
+  return String(product.style_name ?? '').trim() || 'zzz'
 }
 
 function skuSortKey(product: SharedCatalogPublicProduct): string {
   return String(product.sku ?? product.barcode ?? product.name ?? '').trim()
 }
 
-/** Metal tab order → style → SKU (matches live catalogue hierarchy). */
+/** Metal → style (category) → subcategory sort_order → SKU (matches live catalogue). */
 export function compareSharedCatalogProducts(
   a: SharedCatalogPublicProduct,
   b: SharedCatalogPublicProduct,
@@ -30,6 +32,12 @@ export function compareSharedCatalogProducts(
   if (m !== 0) return m
   const st = styleSortKey(a).localeCompare(styleSortKey(b), undefined, { sensitivity: 'base' })
   if (st !== 0) return st
+  const sub = subcategorySortIndex(a) - subcategorySortIndex(b)
+  if (sub !== 0) return sub
+  const subNameA = String(a.subcategory_name ?? '').trim()
+  const subNameB = String(b.subcategory_name ?? '').trim()
+  const sn = subNameA.localeCompare(subNameB, undefined, { sensitivity: 'base' })
+  if (sn !== 0) return sn
   return skuSortKey(a).localeCompare(skuSortKey(b), undefined, { sensitivity: 'base' })
 }
 

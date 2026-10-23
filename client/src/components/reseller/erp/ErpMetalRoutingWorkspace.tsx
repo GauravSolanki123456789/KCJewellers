@@ -650,10 +650,6 @@ export function ErpMetalRoutingWorkspace() {
 
           <div className={`${erpCardCls} space-y-3`}>
             <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Active lots</p>
-            <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-              Tap a lot to transfer to another counter or split off grams (optional). Gross weight is what you
-              move/split; pure weight updates from purity %.
-            </p>
             {lots.length === 0 ? (
               <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No active lots for {metalType}.</p>
             ) : (
@@ -707,9 +703,6 @@ export function ErpMetalRoutingWorkspace() {
                               Transfer
                             </button>
                           </div>
-                          <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
-                            Leave grams blank to move the whole lot. Partial move keeps the rest on this lot.
-                          </p>
                         </div>
 
                         {canManage ? (
@@ -826,7 +819,7 @@ export function ErpMetalRoutingWorkspace() {
 
       {tab === 'reports' ? (
         <div className={`${erpCardCls} space-y-3`}>
-          <p className="font-semibold">Day / range report (pure grams)</p>
+          <p className="font-semibold">Day / range report (gross grams)</p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[10px] font-semibold uppercase text-black/50">
               From
