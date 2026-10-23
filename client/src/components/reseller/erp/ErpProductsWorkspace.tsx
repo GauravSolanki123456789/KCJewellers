@@ -700,9 +700,6 @@ export function ErpProductsWorkspace() {
               <span className="inline-flex items-center gap-1">
                 Excel uploads ({imports.length || '…'})
               </span>
-              <span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-[var(--color-jewelry-black,#1a1814)]/45">
-                Tick an upload to select all in-stock pieces from that file in the grid below.
-              </span>
             </summary>
             <div className="mt-2 space-y-1.5">
               {importsLoading ? (

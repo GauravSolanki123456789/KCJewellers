@@ -27,7 +27,7 @@ import {
   type ErpLedgerEntry,
 } from '@/components/reseller/erp/erp-ui'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
-import { appAlert, appConfirm } from '@/lib/app-notice'
+import { appAlert, appConfirm, appPrompt } from '@/lib/app-notice'
 import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-import-parser'
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { ErpLedgerReportsPanel } from '@/components/reseller/erp/ErpLedgerReportsPanel'
@@ -82,6 +82,7 @@ type DaybookTransaction = {
   metal_ledger_mode?: boolean
   virtual_metal_inr?: boolean
   virtual_metal_show_inr_credit?: boolean
+  rupee_only_debit?: boolean
 }
 
 type DaybookData = {
@@ -1036,6 +1037,84 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
   }
 
+  const daybookConvertInrToMetal = async (row: DaybookTransaction) => {
+    const inr =
+      (row.debit_inr && row.debit_inr > 0 ? row.debit_inr : 0) ||
+      (row.credit_inr && row.credit_inr > 0 ? row.credit_inr : 0) ||
+      row.amount_inr
+    if (inr < 0.01) return
+    const rateStr = await appPrompt(`Convert ₹${inr.toFixed(2)} to metal — rate (₹/g):`, '230')
+    if (rateStr == null || !rateStr.trim()) return
+    const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
+    if (!Number.isFinite(rate) || rate <= 0) {
+      appAlert('Enter a valid rate.', 'error')
+      return
+    }
+    const previewGm = (inr / rate).toFixed(4)
+    if (
+      !(await appConfirm(
+        `₹${inr.toFixed(2)} ÷ ₹${rate}/g = ${previewGm} g. Convert this line to metal on the ledger?`,
+      ))
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      if (row.ledger_entry_id) {
+        await axios.post(`/api/reseller/erp/ledger/entries/${row.ledger_entry_id}/convert-inr-to-metal`, {
+          metal_rate_per_g: rate,
+        })
+      } else if (row.bill_id) {
+        await axios.post(`/api/reseller/erp/bills/${row.bill_id}/convert-inr-to-metal`, {
+          metal_rate_per_g: rate,
+        })
+      } else {
+        appAlert('This row cannot be converted here.', 'error')
+        return
+      }
+      appAlert(`Converted to ${previewGm} g at ₹${rate}/g.`, 'success')
+      await loadDaybook()
+      setAccountResetToken((t) => t + 1)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const daybookRevertMetalToInr = async (row: DaybookTransaction) => {
+    try {
+      if (row.bill_id && row.debit_metal_gm && row.debit_metal_gm > 0) {
+        if (!(await appConfirm('Show this sale as full bill amount (₹) on the ledger again?'))) return
+        setBusy(true)
+        await axios.post(`/api/reseller/erp/bills/${row.bill_id}/convert-metal-to-inr`, {})
+        appAlert('Sale reverted to ₹ on the ledger.', 'success')
+      } else if (row.ledger_entry_id) {
+        const rateStr = await appPrompt('Metal rate (₹/g) for converting back to ₹:', '230')
+        if (rateStr == null || !rateStr.trim()) return
+        const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
+        if (!Number.isFinite(rate) || rate <= 0) {
+          appAlert('Enter a valid rate.', 'error')
+          return
+        }
+        setBusy(true)
+        await axios.post(`/api/reseller/erp/ledger/entries/${row.ledger_entry_id}/convert-metal-to-inr`, {
+          metal_rate_per_g: rate,
+        })
+        appAlert('Entry reverted to ₹ amount.', 'success')
+      } else {
+        appAlert('This row cannot be reverted here.', 'error')
+        return
+      }
+      await loadDaybook()
+      setAccountResetToken((t) => t + 1)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const convertShadowBillLedgerMode = async (shadowBillId: number, toMetal: boolean) => {
     const label = toMetal
       ? 'Show this sale as metal owed (g) + MC (₹) on the ledger?'
@@ -1101,6 +1180,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         const payload: DaybookExportData = {
           date: dayBook.date,
           lane_view: laneMode,
+          metal_view: !laneMode && metalLedgerShop,
           summary: dayBook.summary,
           transactions: dayBook.transactions,
         }
@@ -2795,6 +2875,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                             debit_metal_gm: row.debit_metal_gm,
                             weight_gm: row.weight_gm,
                             source: row.source,
+                            rupee_only_debit: row.rupee_only_debit,
                             metal_ledger_mode: row.metal_ledger_mode,
                             shadow_bill_id: row.shadow_bill_id,
                             kind: row.kind,
@@ -2824,6 +2905,39 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                       ) : null}
                       <td className="px-2 py-2">
                         <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
+                          {metalLedgerShop &&
+                          !laneMode &&
+                          (row.bill_id || row.ledger_entry_id) &&
+                          ((row.debit_inr ?? 0) >= 0.01 || (row.credit_inr ?? 0) >= 0.01) &&
+                          (row.debit_metal_gm ?? 0) <= 0 &&
+                          !(row.weight_gm && row.weight_gm > 0 && row.virtual_metal_inr) ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="rounded-lg border border-emerald-300 bg-emerald-50 px-1.5 py-1 text-[9px] font-semibold text-emerald-900"
+                              onClick={() => void daybookConvertInrToMetal(row)}
+                            >
+                              ₹→metal
+                            </button>
+                          ) : null}
+                          {metalLedgerShop &&
+                          !laneMode &&
+                          (row.bill_id || row.ledger_entry_id) &&
+                          ((row.debit_metal_gm ?? 0) > 0 ||
+                            (row.weight_gm &&
+                              row.weight_gm > 0 &&
+                              (row.debit_inr ?? 0) < 0.01 &&
+                              (row.credit_inr ?? 0) < 0.01 &&
+                              !row.virtual_metal_inr)) ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-1.5 py-1 text-[9px] font-semibold text-[#1a1814]"
+                              onClick={() => void daybookRevertMetalToInr(row)}
+                            >
+                              metal→₹
+                            </button>
+                          ) : null}
                           {laneMode && row.source === 'shadow_bill' && row.shadow_bill_id ? (
                             <button
                               type="button"

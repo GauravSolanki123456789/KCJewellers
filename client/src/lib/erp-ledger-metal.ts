@@ -78,6 +78,7 @@ export function formatLedgerRunningBalance(
 export function isRupeeOnlyGstSale(row: {
   lane?: string | null
   rupee_only_debit?: boolean | null
+  debit_metal_gm?: number | null
   metal_ledger_mode?: boolean | null
   source?: string | null
   shadow_bill_id?: number | null
@@ -88,6 +89,8 @@ export function isRupeeOnlyGstSale(row: {
   if (kind && kind !== 'sale' && kind !== 'debit') return false
   if (row.metal_ledger_mode) return false
   if (row.shadow_bill_id) return false
+  if (Number(row.debit_metal_gm) > 0.0005) return false
+  if (row.rupee_only_debit === false) return false
   if (String(row.lane || '').toLowerCase() === 'gst') return true
   if (row.source === 'bill') return true
   return false

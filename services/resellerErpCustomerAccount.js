@@ -880,6 +880,21 @@ function billCashflows(billType, totalInr) {
         : { received_inr: 0, paid_out_inr: amt };
 }
 
+/** Official bill: ₹ sale converted to metal on ledger (session_json flags). */
+function billSessionMetalConversion(session, billType) {
+    const s = session && typeof session === 'object' ? session : {};
+    const kind = String(billType || 'sale').toLowerCase();
+    const isCredit = kind === 'credit' || kind === 'sales_return';
+    const convertedGm =
+        s.metalLedgerConverted === true ? roundMetalGm(Number(s.metalLedgerWeightGm) || 0) : 0;
+    return {
+        convertedGm,
+        isCredit,
+        ratePerG: s.metalLedgerRatePerG != null ? Number(s.metalLedgerRatePerG) : null,
+        rupee_only_debit: convertedGm > 0 ? false : true,
+    };
+}
+
 async function ledgerOpeningBeforeDay(query, resellerUserId, day, laneView) {
     const scope = laneView ? 'lane' : 'official';
     const rows = await query(
@@ -969,6 +984,14 @@ async function buildDaybook(query, resellerUserId, opts) {
             const flows = billCashflows(kind, b.total_inr);
             const mode =
                 String(session.paymentMethod || session.payment_mode || session.payMode || '').trim() || '—';
+            const metalConv = billSessionMetalConversion(session, kind);
+            const billTotal = Number(b.total_inr) || 0;
+            const ledgerAmt =
+                metalConv.convertedGm > 0 && !metalConv.isCredit ? 0 : billTotal;
+            const pieceWt =
+                totalWeightGmFromLines(b.lines_json) ||
+                Number(session && session.returnWeightGm) ||
+                0;
             rows.push({
                 row_key: `bill:${b.id}`,
                 source: 'bill',
@@ -981,7 +1004,17 @@ async function buildDaybook(query, resellerUserId, opts) {
                 customer_name: b.customer_name || 'Walk-in',
                 payment_mode: mode,
                 reference: b.bill_number || '',
-                amount_inr: Number(b.total_inr) || 0,
+                amount_inr: ledgerAmt,
+                weight_gm:
+                    metalConv.convertedGm > 0
+                        ? metalConv.convertedGm
+                        : pieceWt > 0
+                          ? Math.round(pieceWt * 1000) / 1000
+                          : 0,
+                debit_metal_gm:
+                    metalConv.convertedGm > 0 && !metalConv.isCredit ? metalConv.convertedGm : 0,
+                credit_metal_gm: 0,
+                rupee_only_debit: metalConv.rupee_only_debit,
                 ...flows,
             });
         }

@@ -11,7 +11,7 @@ import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
 import { pieceSlabMetalFraction } from '@/lib/erp-piece-slab-pricing'
 import {
   formatMetalSlabPctForDisplay,
-  lineHasMetalSlabPctInput,
+  lineShowsPartialMetalSlabPctInPdf,
 } from '@/lib/erp-metal-slab-field'
 import {
   billingMcPdfCatalogColumn,
@@ -82,7 +82,7 @@ function buildPdfColumns(
   slabSettings?: ResellerSlabSettings | null,
   showPurityColumn = false,
 ): PdfCol[] {
-  const showSlabPct = lines.some((l) => lineHasMetalSlabPctInput(l, rateSlab))
+  const showSlabPct = lines.some((l) => lineShowsPartialMetalSlabPctInPdf(l, rateSlab))
 
   const rateUnfixAlways = new Set(['rate', 'mcValue', 'amt'])
   const hasMetalRate = lines.some((l) => {
@@ -107,7 +107,7 @@ function buildPdfColumns(
     { key: 'netOrig', label: 'Net Wt', w: '5%' },
     ...(showSlabPct ? [{ key: 'slabPct', label: 'Metal(%)', w: '4%' }] : []),
     { key: 'wast', label: 'W%', w: '3%' },
-    { key: 'wt', label: showSlabPct ? 'Pure Wt' : 'PureWt', w: '5%' },
+    ...(showSlabPct ? [{ key: 'wt', label: 'Pure Wt', w: '5%' }] : []),
     ...(showPurityColumn ? [{ key: 'purity', label: 'Purity', w: '5%' }] : []),
     { key: 'rate', label: 'Rate', w: '5%' },
     { key: 'mc', label: 'MC', w: '5%' },
@@ -406,8 +406,8 @@ function cell(
     case 'slabPct':
       return metalSlabPctDisplay(line, rateSlab) || '—'
     case 'wt':
-      if (lineHasMetalSlabPctInput(line, rateSlab)) return pdfPureWtDisplay(line, rateSlab)
-      return pdfBillWtGrossDisplay(line, rateSlab)
+      if (lineShowsPartialMetalSlabPctInPdf(line, rateSlab)) return pdfPureWtDisplay(line, rateSlab)
+      return '—'
     case 'purity':
       return formatErpPdfPurity(line.purity) || ''
     case 'wast':

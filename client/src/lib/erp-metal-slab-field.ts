@@ -84,6 +84,15 @@ export function lineHasMetalSlabPctInput(line: ErpBillLine, slab: ErpRateSlab): 
   return formatMetalSlabPctForDisplay(line, slab) !== ''
 }
 
+/** Estimate PDF: show Metal(%) + Pure Wt only when slab % is set and below ~100%. */
+export function lineShowsPartialMetalSlabPctInPdf(line: ErpBillLine, slab: ErpRateSlab): boolean {
+  if (!lineHasMetalSlabPctInput(line, slab)) return false
+  const ui = readMetalSlabPct(line, slab)
+  if (ui === '' || ui <= 0) return false
+  if (ui >= 99.999) return false
+  return true
+}
+
 export function patchMetalSlabPct(
   slab: ErpRateSlab,
   value: number | null,

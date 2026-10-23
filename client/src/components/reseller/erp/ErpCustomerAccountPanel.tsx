@@ -190,7 +190,7 @@ export function ErpCustomerAccountPanel({
           fromDate: onDate ? null : filterFrom || null,
           toDate: onDate ? null : filterTo || null,
           onDate: onDate || null,
-          laneLedger: laneMode,
+          laneLedger: metalView,
         })
         appAlert('PDF downloaded.', 'success')
       } else {
@@ -284,6 +284,42 @@ export function ErpCustomerAccountPanel({
         })
       }
       appAlert(`Converted to ${previewGm} g at ₹${rate}/g.`, 'success')
+      if (selected) await loadAccount(selected)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revertBillMetalToInr = async (billId: number) => {
+    if (!(await appConfirm('Show this sale as full bill amount (₹) on the ledger again?'))) return
+    setBusy(true)
+    try {
+      await axios.post(`/api/reseller/erp/bills/${billId}/convert-metal-to-inr`, {})
+      appAlert('Sale reverted to ₹ on the ledger.', 'success')
+      if (selected) await loadAccount(selected)
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revertEntryMetalToInr = async (ledgerEntryId: number) => {
+    const rateStr = await appPrompt('Metal rate (₹/g) for converting back to ₹:', '230')
+    if (rateStr == null || !rateStr.trim()) return
+    const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
+    if (!Number.isFinite(rate) || rate <= 0) {
+      appAlert('Enter a valid rate.', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      await axios.post(`/api/reseller/erp/ledger/entries/${ledgerEntryId}/convert-metal-to-inr`, {
+        metal_rate_per_g: rate,
+      })
+      appAlert('Entry reverted to ₹ amount.', 'success')
       if (selected) await loadAccount(selected)
     } catch (e) {
       appAlert(erpErr(e), 'error')
@@ -604,6 +640,36 @@ export function ErpCustomerAccountPanel({
                             }
                           >
                             Convert ₹→metal
+                          </button>
+                        ) : null}
+                        {metalLedgerEnabled &&
+                        t.kind === 'sale' &&
+                        t.bill_id &&
+                        (t.debit_metal_gm ?? 0) > 0 &&
+                        t.debit <= 0 ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="mb-1 whitespace-nowrap rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 text-[9px] font-semibold text-[#1a1814]"
+                            onClick={() => void revertBillMetalToInr(t.bill_id!)}
+                          >
+                            Convert metal→₹
+                          </button>
+                        ) : null}
+                        {metalLedgerEnabled &&
+                        t.ledger_entry_id &&
+                        t.weight_gm &&
+                        t.weight_gm > 0 &&
+                        t.debit <= 0 &&
+                        t.credit <= 0 &&
+                        !t.virtual_metal_inr ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className="mb-1 whitespace-nowrap rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 text-[9px] font-semibold text-[#1a1814]"
+                            onClick={() => void revertEntryMetalToInr(t.ledger_entry_id!)}
+                          >
+                            Convert metal→₹
                           </button>
                         ) : null}
                         {t.kind === 'sale' && t.shadow_bill_id ? (

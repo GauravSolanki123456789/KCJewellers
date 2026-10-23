@@ -22,7 +22,7 @@ export type CustomerAccountPdfMeta = {
   toDate?: string | null
   /** Single-day filter (ISO) */
   onDate?: string | null
-  /** Jainav / lane customer ledger shows metal in running balance; official is ₹ only. */
+  /** Lane ledger or shop “Ledger in metal”: split ₹ / metal columns in PDF. */
   laneLedger?: boolean
 }
 
@@ -175,6 +175,8 @@ export async function downloadCustomerAccountPdf(
 export type DaybookExportData = {
   date: string
   lane_view?: boolean
+  /** Shop “Ledger in metal” (official day book). */
+  metal_view?: boolean
   summary: {
     received_inr?: number
     paid_out_inr?: number
@@ -208,12 +210,75 @@ export type DaybookExportData = {
   }[]
 }
 
+function DaybookTableRows({ data }: { data: DaybookExportData }) {
+  const metalSplit = !!(data.lane_view || data.metal_view)
+  const dayFmt: LedgerCellFormatOpts = {
+    pdfSafe: true,
+    laneLedger: metalSplit,
+    splitMetalColumn: metalSplit,
+  }
+  return (
+    <>
+      <View style={styles.tableHeader}>
+        <Text style={styles.c1}>Date</Text>
+        <Text style={styles.c2}>Type</Text>
+        <Text style={styles.c3}>Party</Text>
+        <Text style={styles.c4}>Reference</Text>
+        <Text style={styles.c5}>Debit</Text>
+        <Text style={styles.c6}>Credit</Text>
+        <Text style={styles.c7}>Balance</Text>
+        {metalSplit ? <Text style={styles.c8}>Metal bal.</Text> : null}
+      </View>
+      {data.transactions.map((t, i) => (
+        <View key={`${t.reference}-${i}`} style={styles.tableRow}>
+          <Text style={styles.c1}>{t.entry_date}</Text>
+          <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
+          <Text style={styles.c3}>{t.customer_name}</Text>
+          <Text style={styles.c4}>{t.reference || '—'}</Text>
+          <Text style={styles.c5}>
+            {formatLedgerDebitCell(
+              {
+                debit_inr: t.debit_inr,
+                debit_metal_gm: t.debit_metal_gm,
+                weight_gm: t.weight_gm,
+                source: t.source,
+                rupee_only_debit: (t as { rupee_only_debit?: boolean }).rupee_only_debit,
+                metal_ledger_mode: t.metal_ledger_mode,
+                shadow_bill_id: t.shadow_bill_id,
+                kind: t.kind,
+              },
+              dayFmt,
+            )}
+          </Text>
+          <Text style={styles.c6}>
+            {formatLedgerVirtualMetalCredit(
+              {
+                credit: t.credit_inr,
+                credit_metal_gm: t.credit_metal_gm,
+                weight_gm: t.weight_gm,
+              },
+              dayFmt,
+            )}
+          </Text>
+          <Text style={styles.c7}>
+            {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, dayFmt)}
+          </Text>
+          {metalSplit ? <Text style={styles.c8}>{formatMetalBalanceCell(t.balance_metal_gm)}</Text> : null}
+        </View>
+      ))}
+    </>
+  )
+}
+
 function DaybookDocument({ data }: { data: DaybookExportData }) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.title}>Day book</Text>
-        <Text style={styles.sub}>{data.date}{data.lane_view ? ' (lane ledger)' : ''}</Text>
+        <Text style={styles.sub}>
+          {data.date}
+          {data.lane_view ? ' (lane ledger)' : data.metal_view ? ' (metal ledger)' : ''}
+        </Text>
         <View style={styles.row}>
           <Text style={styles.label}>Total debit</Text>
           <Text>{formatPdfInr(data.summary.total_debit_inr ?? 0)}</Text>
@@ -226,46 +291,7 @@ function DaybookDocument({ data }: { data: DaybookExportData }) {
           <Text style={styles.label}>Closing balance</Text>
           <Text>{formatPdfInr(data.summary.closing_balance_inr ?? 0)}</Text>
         </View>
-        <View style={styles.tableHeader}>
-          <Text style={styles.c1}>Date</Text>
-          <Text style={styles.c2}>Type</Text>
-          <Text style={styles.c3}>Party</Text>
-          <Text style={styles.c4}>Reference</Text>
-          <Text style={styles.c5}>Debit</Text>
-          <Text style={styles.c6}>Credit</Text>
-          <Text style={styles.c7}>Balance</Text>
-        </View>
-        {data.transactions.map((t, i) => (
-          <View key={`${t.reference}-${i}`} style={styles.tableRow}>
-            <Text style={styles.c1}>{t.entry_date}</Text>
-            <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
-            <Text style={styles.c3}>{t.customer_name}</Text>
-            <Text style={styles.c4}>{t.reference || '—'}</Text>
-            <Text style={styles.c5}>
-              {formatLedgerDebitCell({
-                debit_inr: t.debit_inr,
-                debit_metal_gm: t.debit_metal_gm,
-                weight_gm: t.weight_gm,
-                source: t.source,
-                metal_ledger_mode: t.metal_ledger_mode,
-                shadow_bill_id: t.shadow_bill_id,
-                kind: t.kind,
-              })}
-            </Text>
-            <Text style={styles.c6}>
-              {t.credit_inr
-                ? formatPdfInr(t.credit_inr)
-                : t.credit_metal_gm
-                  ? `${Number(t.credit_metal_gm).toFixed(3)} g`
-                  : '—'}
-            </Text>
-            <Text style={styles.c7}>
-              {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, {
-                laneLedger: !!data.lane_view,
-              })}
-            </Text>
-          </View>
-        ))}
+        <DaybookTableRows data={data} />
       </Page>
     </Document>
   )

@@ -1153,6 +1153,123 @@ function registerResellerErpLedgerRoutes(app, deps) {
     );
 
     app.post(
+        '/api/reseller/erp/bills/:id/convert-metal-to-inr',
+        checkAuth,
+        erpGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                if (!(await loadJewelleryLedgerMetalEnabled(query, req.user.id))) {
+                    return res.status(403).json({
+                        error: 'Turn on Ledger in metal under Print formats → Templates',
+                    });
+                }
+                const billId = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(billId)) return res.status(400).json({ error: 'Invalid bill id' });
+                const bills = await query(
+                    `SELECT id, bill_number, total_inr, session_json
+                     FROM reseller_erp_bills
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [billId, req.user.id],
+                );
+                if (!bills.length) return res.status(404).json({ error: 'Bill not found' });
+                const bill = bills[0];
+                let session = bill.session_json;
+                if (typeof session === 'string') {
+                    try {
+                        session = JSON.parse(session);
+                    } catch {
+                        session = {};
+                    }
+                }
+                session = session && typeof session === 'object' ? session : {};
+                if (session.metalLedgerConverted !== true) {
+                    return res.status(400).json({ error: 'This sale is not converted to metal on the ledger' });
+                }
+                delete session.metalLedgerConverted;
+                delete session.metalLedgerWeightGm;
+                delete session.metalLedgerRatePerG;
+                session.rupee_only_debit = true;
+                await query(
+                    `UPDATE reseller_erp_bills SET session_json = $1::jsonb, updated_at = NOW()
+                     WHERE id = $2 AND reseller_user_id = $3`,
+                    [JSON.stringify(session), billId, req.user.id],
+                );
+                res.json({
+                    success: true,
+                    bill_id: billId,
+                    bill_number: bill.bill_number,
+                    amount_inr: Number(bill.total_inr) || 0,
+                });
+            } catch (e) {
+                console.error('bill convert-metal-to-inr:', e);
+                res.status(500).json({ error: e.message || 'Failed to revert sale to ₹' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/ledger/entries/:id/convert-metal-to-inr',
+        checkAuth,
+        erpGate,
+        requireJson,
+        async (req, res) => {
+            try {
+                if (!(await loadJewelleryLedgerMetalEnabled(query, req.user.id))) {
+                    return res.status(403).json({
+                        error: 'Turn on Ledger in metal under Print formats → Templates',
+                    });
+                }
+                const id = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+                const existing = await query(
+                    `SELECT * FROM reseller_erp_ledger_entries WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                if (!existing.length) return res.status(404).json({ error: 'Entry not found' });
+                const row = existing[0];
+                const gmAbs = Math.abs(parseMetalGm(row.metal_gm) || 0);
+                if (gmAbs < 0.0005) {
+                    return res.status(400).json({ error: 'Entry has no metal weight to convert' });
+                }
+                const inrStored = Math.abs(Number(row.amount_inr) || 0);
+                if (inrStored >= 0.01) {
+                    return res.status(400).json({ error: 'Entry still has a ₹ amount — use Convert ₹→metal first or edit manually' });
+                }
+                let rate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+                if (!rate || rate <= 0) {
+                    const m = String(row.narration || '').match(/@\s*₹?\s*([\d,.]+)\s*\/?\s*g/i);
+                    if (m) rate = parseAmount(m[1]);
+                }
+                if (!rate || rate <= 0) {
+                    return res.status(400).json({ error: 'Enter metal rate (₹/g) used for this entry' });
+                }
+                const inr = Math.round(gmAbs * rate * 100) / 100;
+                let narration = String(row.narration || '').trim();
+                const bit = `Reverted ${gmAbs.toFixed(3)} g @ ₹${rate}/g → ₹${inr.toFixed(2)}`;
+                narration = narration ? `${narration} · ${bit}` : bit;
+                const updated = await query(
+                    `UPDATE reseller_erp_ledger_entries SET
+                        amount_inr = $1,
+                        metal_gm = NULL,
+                        metal_cleared_gm = NULL,
+                        virtual_metal_inr = false,
+                        payment_mode = CASE WHEN LOWER(COALESCE(payment_mode, '')) = 'metal' THEN 'cash' ELSE payment_mode END,
+                        narration = $2,
+                        updated_at = NOW()
+                     WHERE id = $3 AND reseller_user_id = $4
+                     RETURNING *`,
+                    [inr, narration, id, req.user.id],
+                );
+                res.json({ success: true, entry: mapLedgerEntry(updated[0]), amount_inr: inr, rate_per_g: rate });
+            } catch (e) {
+                console.error('convert-metal-to-inr:', e);
+                res.status(500).json({ error: e.message || 'Failed to convert metal back to ₹' });
+            }
+        },
+    );
+
+    app.post(
         '/api/reseller/erp/ledger/entries/:id/apply-metal-rate',
         checkAuth,
         erpGate,
