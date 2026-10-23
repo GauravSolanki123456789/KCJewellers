@@ -164,11 +164,34 @@ export async function splitMetalLot(
     counter_id?: number
     operator_id?: number
   }[],
-): Promise<{ parent_id: number; children: MetalStockLot[] }> {
-  const { data } = await axios.post<{ parent_id: number; children: MetalStockLot[] }>(
-    `${BASE}/lots/${lotId}/split`,
-    { parts },
-  )
+): Promise<{
+  parent_id: number
+  parent: MetalStockLot | null
+  children: MetalStockLot[]
+  remaining_gross_gm: number
+}> {
+  const { data } = await axios.post(`${BASE}/lots/${lotId}/split`, { parts })
+  return data
+}
+
+export async function updateMetalLot(
+  lotId: number,
+  body: { purity_id?: number; charge_pct?: number | null },
+): Promise<MetalStockLot> {
+  const { data } = await axios.patch<{ lot: MetalStockLot }>(`${BASE}/lots/${lotId}`, body)
+  return data.lot
+}
+
+export async function transferMetalLot(
+  lotId: number,
+  body: {
+    counter_id: number
+    gross_gm?: number
+    operator_id?: number
+    notes?: string
+  },
+): Promise<{ mode: 'full' | 'partial'; lot: MetalStockLot; transferred?: MetalStockLot }> {
+  const { data } = await axios.post(`${BASE}/lots/${lotId}/transfer`, body)
   return data
 }
 

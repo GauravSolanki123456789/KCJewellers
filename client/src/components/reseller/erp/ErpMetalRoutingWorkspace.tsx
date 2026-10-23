@@ -15,6 +15,8 @@ import {
   receiveMetalLot,
   setMetalRoutingManager,
   splitMetalLot,
+  transferMetalLot,
+  updateMetalLot,
   updateMetalCounter,
   type MetalPurity,
   type MetalRoutingBootstrap,
@@ -22,7 +24,7 @@ import {
   type MetalStockReportRow,
 } from '@/lib/erp-metal-routing'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { erpTodayIso } from '@/lib/erp-date-format'
+import { erpTodayIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { cn } from '@/lib/utils'
 import { GitBranch, Loader2, Plus, RefreshCw, Scale, Trash2 } from 'lucide-react'
@@ -32,6 +34,19 @@ type Tab = 'setup' | 'movements' | 'reports'
 function fmtGm(n: number): string {
   return `${Number(n).toFixed(3)} g`
 }
+
+function lotPurityLabel(lot: MetalStockLot): string {
+  if (lot.charge_pct != null && Number.isFinite(Number(lot.charge_pct))) {
+    return String(lot.charge_pct)
+  }
+  return lot.purity?.label ?? '—'
+}
+
+function formatLotSummary(lot: MetalStockLot): string {
+  return `#${lot.id} · Gross: ${Number(lot.gross_gm).toFixed(3)} g    Purity: ${lotPurityLabel(lot)}    Pure wt: ${Number(lot.pure_gm).toFixed(3)} g`
+}
+
+type SplitRow = { grossGm: string; counterId: number | '' }
 
 export function ErpMetalRoutingWorkspace() {
   const { operator } = useErpOperator()
@@ -58,9 +73,12 @@ export function ErpMetalRoutingWorkspace() {
   const [receiveNotes, setReceiveNotes] = useState('')
   const [moveDate, setMoveDate] = useState(erpTodayIso())
 
-  const [splitLotId, setSplitLotId] = useState<number | null>(null)
-  const [splitPartA, setSplitPartA] = useState('')
-  const [splitPartB, setSplitPartB] = useState('')
+  const [activeLotId, setActiveLotId] = useState<number | null>(null)
+  const [splitRows, setSplitRows] = useState<SplitRow[]>([{ grossGm: '', counterId: '' }])
+  const [transferCounterId, setTransferCounterId] = useState<number | ''>('')
+  const [transferGrossGm, setTransferGrossGm] = useState('')
+  const [editPurityId, setEditPurityId] = useState<number | ''>('')
+  const [editChargePct, setEditChargePct] = useState('')
 
   const [reportFrom, setReportFrom] = useState(erpTodayIso())
   const [reportTo, setReportTo] = useState(erpTodayIso())
@@ -131,9 +149,16 @@ export function ErpMetalRoutingWorkspace() {
   const canMoveMetal = canManage || role === 'counter'
 
   const selectedLot = useMemo(
-    () => lots.find((l) => l.id === splitLotId) ?? null,
-    [lots, splitLotId],
+    () => lots.find((l) => l.id === activeLotId) ?? null,
+    [lots, activeLotId],
   )
+
+  const splitTotalGross = useMemo(() => {
+    return splitRows.reduce((s, r) => {
+      const n = Number(String(r.grossGm).replace(/,/g, ''))
+      return s + (Number.isFinite(n) && n > 0 ? n : 0)
+    }, 0)
+  }, [splitRows])
 
   const addCounter = async () => {
     if (!newCounterName.trim()) return
@@ -201,24 +226,96 @@ export function ErpMetalRoutingWorkspace() {
     }
   }
 
+  const selectLot = (lotId: number) => {
+    setActiveLotId((prev) => (prev === lotId ? null : lotId))
+    setSplitRows([{ grossGm: '', counterId: '' }])
+    setTransferCounterId('')
+    setTransferGrossGm('')
+    const lot = lots.find((l) => l.id === lotId)
+    setEditPurityId(lot?.purity_id ?? '')
+    setEditChargePct(lot?.charge_pct != null ? String(lot.charge_pct) : '')
+  }
+
   const onSplit = async () => {
     if (!selectedLot) return
-    const a = Number(splitPartA)
-    const b = Number(splitPartB)
-    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) {
-      setErr('Enter two positive pure gram amounts')
+    const parts = splitRows
+      .map((r) => ({
+        gross_gm: Number(String(r.grossGm).replace(/,/g, '')),
+        counter_id: r.counterId ? Number(r.counterId) : undefined,
+      }))
+      .filter((p) => Number.isFinite(p.gross_gm) && p.gross_gm > 0)
+    if (!parts.length) {
+      setErr('Add at least one split line with gross grams')
+      return
+    }
+    const total = parts.reduce((s, p) => s + p.gross_gm, 0)
+    if (total > Number(selectedLot.gross_gm) + 0.001) {
+      setErr(
+        `Split total (${total.toFixed(3)} g) cannot exceed lot gross (${Number(selectedLot.gross_gm).toFixed(3)} g)`,
+      )
       return
     }
     setErr('')
     try {
-      await splitMetalLot(selectedLot.id, [{ pure_gm: a }, { pure_gm: b }])
-      setSplitLotId(null)
-      setSplitPartA('')
-      setSplitPartB('')
-      setMsg('Lot split')
+      const res = await splitMetalLot(selectedLot.id, parts)
+      setActiveLotId(res.parent?.id ?? null)
+      setSplitRows([{ grossGm: '', counterId: '' }])
+      setMsg(
+        res.remaining_gross_gm > 0.001
+          ? `Split done — ${res.remaining_gross_gm.toFixed(3)} g left on #${res.parent_id}`
+          : 'Lot fully split',
+      )
       await reloadLots()
     } catch (e: unknown) {
       setErr(extractErr(e) || 'Split failed')
+    }
+  }
+
+  const onTransfer = async () => {
+    if (!selectedLot || !transferCounterId) {
+      setErr('Choose a destination counter')
+      return
+    }
+    setErr('')
+    try {
+      const grossRaw = String(transferGrossGm).replace(/,/g, '').trim()
+      const body: { counter_id: number; gross_gm?: number } = {
+        counter_id: Number(transferCounterId),
+      }
+      if (grossRaw) {
+        const g = Number(grossRaw)
+        if (!Number.isFinite(g) || g <= 0) {
+          setErr('Enter valid grams to move, or leave blank for full lot')
+          return
+        }
+        body.gross_gm = g
+      }
+      const res = await transferMetalLot(selectedLot.id, body)
+      setTransferGrossGm('')
+      setMsg(
+        res.mode === 'full'
+          ? `Moved lot #${selectedLot.id} to counter`
+          : `Moved ${fmtGm(Number(res.transferred?.gross_gm ?? 0))} to counter — remainder on #${res.lot.id}`,
+      )
+      setActiveLotId(res.lot.id)
+      await reloadLots()
+    } catch (e: unknown) {
+      setErr(extractErr(e) || 'Transfer failed')
+    }
+  }
+
+  const onSaveLotPurity = async () => {
+    if (!selectedLot || !editPurityId) return
+    setErr('')
+    try {
+      await updateMetalLot(selectedLot.id, {
+        purity_id: Number(editPurityId),
+        charge_pct: editChargePct ? Number(editChargePct) : undefined,
+      })
+      setMsg('Purity updated (pure wt recalculated from gross)')
+      await reloadLots()
+    } catch (e: unknown) {
+      setErr(extractErr(e) || 'Could not update purity')
     }
   }
 
@@ -552,59 +649,177 @@ export function ErpMetalRoutingWorkspace() {
           </div>
 
           <div className={`${erpCardCls} space-y-3`}>
-            <p className="font-semibold">Active lots — split</p>
+            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Active lots</p>
+            <p className="text-xs leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+              Tap a lot to transfer to another counter or split off grams (optional). Gross weight is what you
+              move/split; pure weight updates from purity %.
+            </p>
             {lots.length === 0 ? (
-              <p className="text-sm text-black/55">No active lots for {metalType}.</p>
+              <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No active lots for {metalType}.</p>
             ) : (
-              <ul className="max-h-[320px] space-y-2 overflow-y-auto">
+              <ul className="max-h-[min(70vh,520px)] space-y-2 overflow-y-auto">
                 {lots.map((lot) => (
-                  <li key={lot.id}>
+                  <li key={lot.id} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
                     <button
                       type="button"
                       className={cn(
-                        'w-full rounded-xl border p-3 text-left text-sm',
-                        splitLotId === lot.id
-                          ? 'border-[var(--kc-accent,#c41e3a)] bg-rose-50/40'
-                          : 'border-[var(--color-slate-700,#e8e4df)] bg-white',
+                        'w-full p-3 text-left text-sm text-[var(--color-jewelry-black,#1a1814)]',
+                        activeLotId === lot.id && 'bg-[var(--color-slate-900,#f7f4ef)]/80',
                       )}
-                      onClick={() => setSplitLotId(lot.id)}
+                      onClick={() => selectLot(lot.id)}
                     >
-                      <span className="font-semibold">#{lot.id}</span> · {lot.purity?.label ?? '—'} ·{' '}
-                      {lot.counter?.name ?? '—'} · {fmtGm(lot.pure_gm)} pure
-                      <span className="block text-xs text-black/55">
-                        Gross {fmtGm(lot.gross_gm)} · {lot.move_date}
-                      </span>
+                      <p className="font-semibold leading-snug">{formatLotSummary(lot)}</p>
+                      <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                        {lot.counter?.name ?? 'No counter'} · {formatErpDateDdMmYyyy(lot.move_date)}
+                      </p>
                     </button>
+                    {activeLotId === lot.id ? (
+                      <div className="space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] p-3">
+                        <div className="space-y-2">
+                          <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                            Move to counter
+                          </p>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                            <select
+                              className={`${erpInputCls} min-h-[44px] flex-1`}
+                              value={transferCounterId}
+                              onChange={(e) =>
+                                setTransferCounterId(e.target.value ? Number(e.target.value) : '')
+                              }
+                            >
+                              <option value="">Destination counter…</option>
+                              {counters
+                                .filter((c) => c.id !== lot.counter_id)
+                                .map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                            </select>
+                            <input
+                              className={`${erpInputCls} min-h-[44px] w-full sm:w-36`}
+                              placeholder={`Gross g (max ${Number(lot.gross_gm).toFixed(3)})`}
+                              inputMode="decimal"
+                              value={transferGrossGm}
+                              onChange={(e) => setTransferGrossGm(e.target.value)}
+                            />
+                            <button type="button" className={erpBtnPrimary} onClick={() => void onTransfer()}>
+                              Transfer
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/45">
+                            Leave grams blank to move the whole lot. Partial move keeps the rest on this lot.
+                          </p>
+                        </div>
+
+                        {canManage ? (
+                          <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/50 p-3">
+                            <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                              Change purity (manager)
+                            </p>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                              <select
+                                className={`${erpInputCls} min-h-[44px] flex-1`}
+                                value={editPurityId}
+                                onChange={(e) => setEditPurityId(Number(e.target.value))}
+                              >
+                                {purities
+                                  .filter((p) => p.is_active && p.metal_type === lot.metal_type)
+                                  .map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.label}
+                                      {p.default_charge_pct != null ? ` (${p.default_charge_pct}%)` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                              <input
+                                className={`${erpInputCls} min-h-[44px] w-full sm:w-28`}
+                                placeholder="Charge %"
+                                inputMode="decimal"
+                                value={editChargePct}
+                                onChange={(e) => setEditChargePct(e.target.value)}
+                              />
+                              <button type="button" className={erpBtnGhost} onClick={() => void onSaveLotPurity()}>
+                                Update purity
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="space-y-2">
+                          <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
+                            Split (optional)
+                          </p>
+                          {splitRows.map((row, idx) => (
+                            <div key={idx} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                              <input
+                                className={`${erpInputCls} min-h-[44px] flex-1`}
+                                placeholder="Gross g for this part"
+                                inputMode="decimal"
+                                value={row.grossGm}
+                                onChange={(e) => {
+                                  const next = [...splitRows]
+                                  next[idx] = { ...next[idx], grossGm: e.target.value }
+                                  setSplitRows(next)
+                                }}
+                              />
+                              {canManage ? (
+                                <select
+                                  className={`${erpInputCls} min-h-[44px] sm:w-40`}
+                                  value={row.counterId}
+                                  onChange={(e) => {
+                                    const next = [...splitRows]
+                                    next[idx] = {
+                                      ...next[idx],
+                                      counterId: e.target.value ? Number(e.target.value) : '',
+                                    }
+                                    setSplitRows(next)
+                                  }}
+                                >
+                                  <option value="">Same counter</option>
+                                  {counters.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : null}
+                              {splitRows.length > 1 ? (
+                                <button
+                                  type="button"
+                                  className={erpBtnGhost}
+                                  onClick={() => setSplitRows(splitRows.filter((_, i) => i !== idx))}
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className={erpBtnGhost}
+                              onClick={() => setSplitRows([...splitRows, { grossGm: '', counterId: '' }])}
+                            >
+                              <Plus className="size-4" /> Add split line
+                            </button>
+                            <button type="button" className={erpBtnPrimary} onClick={() => void onSplit()}>
+                              Apply split
+                            </button>
+                          </div>
+                          <p className="text-[11px] tabular-nums text-[var(--color-jewelry-black,#1a1814)]/55">
+                            Split total: {splitTotalGross.toFixed(3)} g / max {Number(lot.gross_gm).toFixed(3)} g
+                            {splitTotalGross < Number(lot.gross_gm) - 0.001
+                              ? ` — ${(Number(lot.gross_gm) - splitTotalGross).toFixed(3)} g stays on #${lot.id}`
+                              : ''}
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             )}
-            {selectedLot ? (
-              <div className="space-y-2 border-t border-black/10 pt-3">
-                <p className="text-sm">
-                  Split lot #{selectedLot.id} ({fmtGm(selectedLot.pure_gm)} pure total)
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    className={erpInputCls}
-                    placeholder="Part A pure g"
-                    inputMode="decimal"
-                    value={splitPartA}
-                    onChange={(e) => setSplitPartA(e.target.value)}
-                  />
-                  <input
-                    className={erpInputCls}
-                    placeholder="Part B pure g"
-                    inputMode="decimal"
-                    value={splitPartB}
-                    onChange={(e) => setSplitPartB(e.target.value)}
-                  />
-                </div>
-                <button type="button" className={erpBtnPrimary} onClick={() => void onSplit()}>
-                  Split into 2 lots
-                </button>
-              </div>
-            ) : null}
           </div>
         </div>
       ) : null}
