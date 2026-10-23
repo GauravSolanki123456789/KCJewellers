@@ -33,25 +33,11 @@ const {
     metalGmFromLedgerRow,
     roundMetalGm,
     virtualMetalReceiptSettlement,
+    isFixedAssetMetalRow,
 } = require('./erpLedgerMetal');
 const { getCustomerBalancesBeforeLedgerEntry } = require('./resellerErpCustomerAccount');
 
-async function loadJewelleryLedgerMetalEnabled(query, userId) {
-    try {
-        const rows = await query(`SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1`, [userId]);
-        let settings = rows[0]?.settings ?? {};
-        if (typeof settings === 'string') {
-            try {
-                settings = JSON.parse(settings);
-            } catch {
-                settings = {};
-            }
-        }
-        return settings.jewelleryLedgerMetalEnabled === true;
-    } catch {
-        return false;
-    }
-}
+const { loadJewelleryLedgerMetalEnabled } = require('./erpJewelleryLedgerSettings');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -236,6 +222,8 @@ async function ensureLedgerSchema(pool) {
             ADD COLUMN IF NOT EXISTS metal_cleared_gm NUMERIC(14, 3);
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS virtual_metal_inr BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS fixed_asset_metal BOOLEAN NOT NULL DEFAULT false;
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer
@@ -838,7 +826,15 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 entryType = 'payment_out';
             } else if (metalKind === 'received' || metalKind === 'receipt') {
                 entryType = 'payment_in';
+            } else if (metalKind === 'fixed_asset_receive' || metalKind === 'fixed_asset') {
+                entryType = 'payment_in';
+            } else if (metalKind === 'fixed_asset_issue') {
+                entryType = 'payment_out';
             }
+            const fixedAssetMetal =
+                metalKind === 'fixed_asset_receive' ||
+                metalKind === 'fixed_asset' ||
+                metalKind === 'fixed_asset_issue';
             if (!LEDGER_ENTRY_TYPES.has(entryType)) {
                 return res.status(400).json({ error: 'Invalid entry type' });
             }
@@ -866,8 +862,15 @@ function registerResellerErpLedgerRoutes(app, deps) {
             ) {
                 amount = Math.round(Math.abs(metalGm) * metalRate * 100) / 100;
             }
-            if ((amount == null || amount <= 0) && !(metalGm != null && Math.abs(metalGm) >= 0.0005)) {
+            if (
+                !fixedAssetMetal &&
+                (amount == null || amount <= 0) &&
+                !(metalGm != null && Math.abs(metalGm) >= 0.0005)
+            ) {
                 return res.status(400).json({ error: 'Enter an amount (₹) or metal weight (g)' });
+            }
+            if (fixedAssetMetal) {
+                amount = 0;
             }
             let paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'other';
             const ledgerScopeRaw = trimStr(req.body.ledger_scope, 16).toLowerCase() || 'official';
@@ -912,6 +915,28 @@ function registerResellerErpLedgerRoutes(app, deps) {
             const noCustomerOk = new Set(['payment_out', 'purchase', 'expense', 'salary']);
             if (!isSuspense && !customerId && !noCustomerOk.has(entryType)) {
                 return res.status(400).json({ error: 'Select a customer or mark as suspense' });
+            }
+            if (fixedAssetMetal && metalKind === 'fixed_asset_issue' && customerId) {
+                const faRows = await query(
+                    `SELECT id, entry_type, metal_gm, narration, fixed_asset_metal
+                     FROM reseller_erp_ledger_entries
+                     WHERE reseller_user_id = $1 AND customer_id = $2 AND is_suspense = false
+                     ORDER BY entry_date, id`,
+                    [req.user.id, customerId],
+                );
+                let faBal = 0;
+                for (const r of faRows) {
+                    if (!isFixedAssetMetalRow(r)) continue;
+                    const g = Math.abs(parseMetalGm(r.metal_gm) || 0);
+                    if (String(r.entry_type) === 'payment_in') faBal += g;
+                    else if (String(r.entry_type) === 'payment_out') faBal -= g;
+                }
+                const issueGm = Math.abs(parseMetalGm(metalGm) || 0);
+                if (issueGm > faBal + 0.0005) {
+                    return res.status(400).json({
+                        error: `Fixed asset on hand is ${faBal.toFixed(3)} g — cannot issue ${issueGm.toFixed(3)} g`,
+                    });
+                }
             }
             let referenceNo = trimStr(req.body.reference_no, 120);
             let narration = trimStr(req.body.narration, 2000);
@@ -965,11 +990,19 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     narration = `MC against metal ${absGm} g${rateBit}`;
                 } else if (metalKind === 'apply' || metalKind === 'redeem' || entryType === 'adjustment') {
                     narration = `Metal applied ${absGm} g against bill${rateBit}`;
+                } else if (metalKind === 'fixed_asset_issue') {
+                    narration = `Fixed asset metal issued to customer ${absGm} g${rateBit}`;
+                } else if (metalKind === 'fixed_asset_receive' || metalKind === 'fixed_asset') {
+                    narration = `Metal received as fixed asset ${absGm} g${rateBit}`;
                 } else if (entryType === 'payment_out') {
                     narration = `Metal issued ${absGm} g${rateBit}`;
                 } else {
                     narration = `Metal received ${absGm} g${rateBit}`;
                 }
+            }
+            if (fixedAssetMetal) {
+                virtualMetalFlag = false;
+                metalClearedGm = null;
             }
             if (
                 entryType === 'payment_in' &&
@@ -1006,8 +1039,9 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
                     payment_mode, reference_no, bank_name, counterparty_name, narration, is_suspense,
-                    ledger_scope, employee_id, pv_id, weight_kg, metal_gm, metal_cleared_gm, virtual_metal_inr
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+                    ledger_scope, employee_id, pv_id, weight_kg, metal_gm, metal_cleared_gm, virtual_metal_inr,
+                    fixed_asset_metal
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -1029,6 +1063,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     resolvedMetalGm,
                     metalClearedGm,
                     virtualMetalFlag,
+                    fixedAssetMetal,
                 ],
             );
             res.json({ success: true, entry: mapLedgerEntry(rows[0]) });
@@ -1780,6 +1815,62 @@ function registerResellerErpLedgerRoutes(app, deps) {
         }
     });
 
+    app.get('/api/reseller/erp/ledger/reports/fixed-asset-metals', checkAuth, erpGate, async (req, res) => {
+        try {
+            const from = parseDateOrNull(req.query.from);
+            const to = parseDateOrNull(req.query.to);
+            const params = [req.user.id];
+            let sql = `SELECT e.id, e.entry_date, e.entry_type, e.reference_no, e.narration, e.metal_gm,
+                              c.id AS customer_id, c.name AS customer_name, c.mobile
+                       FROM reseller_erp_ledger_entries e
+                       LEFT JOIN reseller_erp_customers c ON c.id = e.customer_id
+                       WHERE e.reseller_user_id = $1 AND e.is_suspense = false
+                         AND (e.fixed_asset_metal = true OR e.narration ILIKE '%fixed asset%')`;
+            if (from) {
+                params.push(from);
+                sql += ` AND e.entry_date >= $${params.length}::date`;
+            }
+            if (to) {
+                params.push(to);
+                sql += ` AND e.entry_date <= $${params.length}::date`;
+            }
+            sql += ' ORDER BY e.entry_date DESC, e.id DESC LIMIT 5000';
+            const rows = await query(sql, params);
+            const byCustomer = new Map();
+            for (const r of rows) {
+                const cid = r.customer_id || 0;
+                const gm = Math.abs(parseMetalGm(r.metal_gm) || 0);
+                if (gm < 0.0005) continue;
+                const cur = byCustomer.get(cid) || {
+                    customer_id: r.customer_id,
+                    customer_name: r.customer_name || '—',
+                    mobile: r.mobile || '',
+                    on_hand_gm: 0,
+                    entries: [],
+                };
+                if (String(r.entry_type) === 'payment_in') cur.on_hand_gm += gm;
+                else if (String(r.entry_type) === 'payment_out') cur.on_hand_gm -= gm;
+                cur.entries.push({
+                    id: r.id,
+                    entry_date: r.entry_date,
+                    entry_type: r.entry_type,
+                    reference_no: r.reference_no,
+                    narration: r.narration,
+                    metal_gm: gm,
+                });
+                byCustomer.set(cid, cur);
+            }
+            const customers = [...byCustomer.values()].map((c) => ({
+                ...c,
+                on_hand_gm: roundMetalGm(c.on_hand_gm),
+            }));
+            res.json({ customers, entry_count: rows.length });
+        } catch (e) {
+            console.error('erp fixed asset metals report:', e);
+            res.status(500).json({ error: e.message || 'Failed to load fixed asset report' });
+        }
+    });
+
     app.get('/api/reseller/erp/ledger/reports/customer-balances', checkAuth, erpGate, async (req, res) => {
         try {
             const includeShadow = req.session?.shadowUnlocked === true;
@@ -1886,6 +1977,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
 }
 
 module.exports = {
+    loadJewelleryLedgerMetalEnabled,
     ensureLedgerSchema,
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,

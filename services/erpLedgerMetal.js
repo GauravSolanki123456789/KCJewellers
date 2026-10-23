@@ -119,7 +119,15 @@ function applyVirtualMetalInrCredit(runningInr, runningMetalGm, recvGm, ratePerG
 }
 
 /** Grams credited to metal running balance for this row. */
+function isFixedAssetMetalRow(row) {
+    if (!row || typeof row !== 'object') return false;
+    if (row.fixed_asset_metal === true) return true;
+    const nar = String(row.narration || '').toLowerCase();
+    return /fixed asset/i.test(nar);
+}
+
 function metalGmForRunningBalance(row) {
+    if (isFixedAssetMetalRow(row)) return 0;
     const nar = String(row?.narration || '');
     if (/metal credit converted to ₹ balance/i.test(nar)) {
         return metalGmFromLedgerRow(row);
@@ -165,6 +173,9 @@ function metalDebitCreditFromLedgerEntry(entryType, metalGm, narration) {
         }
         return { debit_metal_gm: gm, credit_metal_gm: 0 };
     }
+    if (type === 'purchase') {
+        return { debit_metal_gm: 0, credit_metal_gm: gm };
+    }
     if (type === 'adjustment') {
         if (/metal credit converted to ₹ balance/i.test(nar)) {
             return { debit_metal_gm: gm, credit_metal_gm: 0 };
@@ -197,6 +208,7 @@ function metalDebitFromSaleWeight(weightGm) {
 module.exports = {
     roundMetalGm,
     parseMetalGm,
+    isFixedAssetMetalRow,
     isVirtualMetalInrOffsetRow,
     metalRatePerGFromLedgerRow,
     sanitizeLedgerDescription,

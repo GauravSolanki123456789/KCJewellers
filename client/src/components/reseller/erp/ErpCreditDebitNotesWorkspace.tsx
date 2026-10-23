@@ -21,6 +21,7 @@ import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { downloadCreditDebitNotePdf } from '@/lib/erp-note-pdf'
 import { downloadCreditDebitNoteExcel } from '@/lib/erp-note-excel'
 import { appConfirm } from '@/lib/app-notice'
+import { useJewelleryLedgerMetalEnabled } from '@/hooks/useJewelleryLedgerMetalEnabled'
 import { FileSpreadsheet, FileText, Loader2, Trash2 } from 'lucide-react'
 
 type Kind = 'credit' | 'debit'
@@ -44,7 +45,9 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
   const [custResults, setCustResults] = useState<ErpCustomer[]>([])
   const [pickIdx, setPickIdx] = useState(-1)
   const [customer, setCustomer] = useState<ErpCustomer | null>(null)
+  const { enabled: metalLedgerOn } = useJewelleryLedgerMetalEnabled()
   const [amount, setAmount] = useState('')
+  const [weightGm, setWeightGm] = useState('')
   const [reason, setReason] = useState('')
   const [remarks, setRemarks] = useState('')
   const [against, setAgainst] = useState('')
@@ -110,16 +113,19 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
 
   const issue = async () => {
     const amt = Number(amount)
+    const wGm = Number(String(weightGm).replace(/[,g\s]/g, ''))
     if (!customer) {
       setMsg('Select a customer.')
       return
     }
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setMsg('Enter a valid amount.')
+    const hasAmt = Number.isFinite(amt) && amt > 0
+    const hasWt = Number.isFinite(wGm) && wGm > 0
+    if (!hasAmt && !hasWt) {
+      setMsg('Enter amount (₹) and/or weight (g).')
       return
     }
-    const taxable = Math.round((amt / 1.03) * 100) / 100
-    const gst = Math.round((amt - taxable) * 100) / 100
+    const taxable = hasAmt ? Math.round((amt / 1.03) * 100) / 100 : 0
+    const gst = hasAmt ? Math.round((amt - taxable) * 100) / 100 : 0
     setBusy(true)
     setMsg(null)
     try {
@@ -128,7 +134,7 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
         status: 'completed',
         customer_id: customer.id,
         customer_name: customer.name,
-        total_inr: amt,
+        total_inr: hasAmt ? amt : 0,
         bill_date: noteDate,
         notes: remarks,
         lines: [],
@@ -140,9 +146,18 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
           gstInr: gst,
           mobile: customer.mobile || '',
           invoiceItemName: invoiceItem || undefined,
+          ...(hasWt && metalLedgerOn
+            ? {
+                metalLedgerConverted: true,
+                metalLedgerWeightGm: wGm,
+                metalLedgerRatePerG: hasAmt && wGm > 0 ? amt / wGm : undefined,
+              }
+            : {}),
+          ...(hasWt && !metalLedgerOn ? { noteWeightGm: wGm } : {}),
         },
       })
       setAmount('')
+      setWeightGm('')
       setReason('')
       setRemarks('')
       setAgainst('')
@@ -232,6 +247,17 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Amount ₹</p>
             <input className={`${erpInputCls} mt-1`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">
+              Weight (g){metalLedgerOn ? ' — optional vs ₹' : ''}
+            </p>
+            <input
+              className={`${erpInputCls} mt-1 tabular-nums`}
+              inputMode="decimal"
+              value={weightGm}
+              onChange={(e) => setWeightGm(e.target.value.replace(/[^\d.]/g, ''))}
+            />
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Date</p>

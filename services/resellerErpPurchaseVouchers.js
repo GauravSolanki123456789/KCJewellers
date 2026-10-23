@@ -4,6 +4,8 @@
 
 const { randomUUID } = require('crypto');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
+const { loadJewelleryLedgerMetalEnabled } = require('./erpJewelleryLedgerSettings');
+const { roundMetalGm } = require('./erpLedgerMetal');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -431,10 +433,17 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
 
     app.post('/api/reseller/erp/purchase-vouchers', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
-            const amount = parseAmount(req.body.amount_inr);
+            const metalLedgerOn = await loadJewelleryLedgerMetalEnabled(query, req.user.id);
+            let amount = parseAmount(req.body.amount_inr);
             const weightKg = resolvePurchaseWeightKg(req.body);
-            if (amount == null || amount <= 0) return res.status(400).json({ error: 'Valid amount required' });
             if (weightKg == null || weightKg <= 0) return res.status(400).json({ error: 'Valid weight (grams) required' });
+            const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'neft';
+            const weightGm = roundMetalGm(weightKg * 1000);
+            if (metalLedgerOn && (paymentMode === 'metal' || amount == null || amount <= 0)) {
+                amount = amount != null && amount > 0 ? amount : 0;
+            } else if (amount == null || amount <= 0) {
+                return res.status(400).json({ error: 'Valid amount required' });
+            }
 
             const pvNumber =
                 trimStr(req.body.pv_number, 32).toUpperCase() ||
@@ -444,7 +453,6 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             const vendorBillRef = trimStr(req.body.vendor_bill_ref, 120);
             const metalType = trimStr(req.body.metal_type, 32);
             const narration = trimStr(req.body.narration, 2000);
-            const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'neft';
             const customerIdRaw = parseInt(String(req.body.customer_id || ''), 10);
             const customerId =
                 Number.isFinite(customerIdRaw) && customerIdRaw > 0 ? customerIdRaw : null;
@@ -466,23 +474,28 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             );
             const pv = pvRows[0];
 
+            const ledgerAmount =
+                metalLedgerOn && paymentMode === 'metal' ? 0 : amount;
+            const ledgerMetalGm =
+                metalLedgerOn && weightGm > 0 ? roundMetalGm(weightGm) : null;
             const ledgerRows = await query(
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, payment_mode,
                     reference_no, counterparty_name, narration, is_suspense, ledger_scope,
-                    pv_id, weight_kg, customer_id
-                 ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8,$9,$10)
+                    pv_id, weight_kg, metal_gm, customer_id
+                 ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8,$9,$10,$11)
                  RETURNING id`,
                 [
                     req.user.id,
                     entryDate,
-                    amount,
+                    ledgerAmount,
                     paymentMode,
                     pvNumber,
                     vendorName,
-                    narration || `Stock purchase ${pvNumber} · ${Math.round(weightKg * 1000 * 1000) / 1000} g`,
+                    narration || `Stock purchase ${pvNumber} · ${weightGm.toFixed(3)} g`,
                     pv.id,
                     weightKg,
+                    ledgerMetalGm,
                     customerId,
                 ],
             );

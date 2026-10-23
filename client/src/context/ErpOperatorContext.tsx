@@ -22,6 +22,7 @@ export type ErpOperator = {
   shadowAccess: boolean
   isActive?: boolean
   isStoreGreeter?: boolean
+  isMetalRoutingManager?: boolean
   /** When false, Scan & Bill hides Save bill (estimates still allowed). */
   canSaveBill?: boolean
 }

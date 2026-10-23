@@ -14,6 +14,7 @@ const ALL_MODULE_IDS = [
     'barcoding', 'tag-splitting', 'tag-editing', 'scanner', 'hardware', 'print-formats', 'estimate-narrations', 'approval-issue', 'erp-users',
     'running-tags',
     'customer-routing',
+    'metal-routing',
     'backup',
     'jainav', 'stock-reports', 'stock-check', 'jainav-ledger',
 ];
@@ -46,6 +47,9 @@ async function ensureOperatorsSchema(pool) {
 
         ALTER TABLE reseller_erp_operators
             ADD COLUMN IF NOT EXISTS can_save_bill BOOLEAN NOT NULL DEFAULT true;
+
+        ALTER TABLE reseller_erp_operators
+            ADD COLUMN IF NOT EXISTS is_metal_routing_manager BOOLEAN NOT NULL DEFAULT false;
     `);
 }
 
@@ -66,6 +70,7 @@ function mapOperator(row, { includeMeta = false } = {}) {
         shadowAccess: !!row.shadow_access,
         isActive: !!row.is_active,
         isStoreGreeter: !!row.is_store_greeter,
+        isMetalRoutingManager: !!row.is_metal_routing_manager,
         canSaveBill: row.can_save_bill !== false,
     };
     if (includeMeta) {

@@ -396,7 +396,14 @@ function emptyPaymentForm() {
     narration: '',
     is_suspense: false,
     currency: 'inr' as 'inr' | 'metal',
-    metal_kind: 'received' as 'received' | 'issued' | 'apply' | 'mc_adjust' | 'to_cash',
+    metal_kind: 'received' as
+      | 'received'
+      | 'fixed_asset_receive'
+      | 'issued'
+      | 'fixed_asset_issue'
+      | 'apply'
+      | 'mc_adjust'
+      | 'to_cash',
     metal_gm: '',
     metal_rate: '',
     metal_value_offset_inr: false,
@@ -1304,7 +1311,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const savePurchase = async () => {
     const amount = Number(String(pvForm.amount_inr).replace(/[,₹\s]/g, ''))
     const weightGm = Number(String(pvForm.weight_gm).replace(/[,₹\s]/g, ''))
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const amountOptional =
+      metalLedgerShop && (pvForm.payment_mode === 'metal' || !Number.isFinite(amount) || amount <= 0)
+    if (!amountOptional && (!Number.isFinite(amount) || amount <= 0)) {
       alert('Enter purchase amount')
       return
     }
@@ -1318,7 +1327,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         '/api/reseller/erp/purchase-vouchers',
         {
           ...pvForm,
-          amount_inr: amount,
+          amount_inr: amountOptional ? amount > 0 ? amount : 0 : amount,
           weight_gm: weightGm,
           customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
         },
@@ -1941,10 +1950,12 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     }
                   >
                     <option value="received">Metal received from customer</option>
+                    <option value="fixed_asset_receive">Metal received as fixed asset</option>
                     <option value="issued">Metal issued to customer</option>
                     <option value="apply">Apply existing metal to bill</option>
                     <option value="mc_adjust">Adjust MC against metal</option>
                     <option value="to_cash">Convert leftover metal to cash</option>
+                    <option value="fixed_asset_issue">Fixed asset metal issued to customer</option>
                   </select>
                 </label>
                 {form.metal_kind === 'mc_adjust' ? (
@@ -2316,7 +2327,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               <input className={`${erpInputCls} mt-1`} value={pvForm.vendor_bill_ref} onChange={(e) => setPvForm({ ...pvForm, vendor_bill_ref: e.target.value })} placeholder="Receipt no" />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Amount (₹)
+              Amount (₹){metalLedgerShop ? ' — optional if metal mode' : ''}
               <input className={`${erpInputCls} mt-1 tabular-nums`} inputMode="decimal" value={pvForm.amount_inr} onChange={(e) => setPvForm({ ...pvForm, amount_inr: e.target.value.replace(/[^\d.]/g, '') })} />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">

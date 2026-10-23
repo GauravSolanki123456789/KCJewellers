@@ -37,6 +37,7 @@ import { ErpJainavBillsWorkspace } from '@/components/reseller/erp/ErpJainavBill
 import { ErpJainavEstimatesWorkspace } from '@/components/reseller/erp/ErpJainavEstimatesWorkspace'
 import { ErpOfflineWorkspace } from '@/components/reseller/erp/ErpOfflineWorkspace'
 import { ErpCustomerRoutingWorkspace } from '@/components/reseller/erp/ErpCustomerRoutingWorkspace'
+import { ErpMetalRoutingWorkspace } from '@/components/reseller/erp/ErpMetalRoutingWorkspace'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { isJainavModule } from '@/lib/reseller-erp-modules'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
@@ -65,6 +66,8 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return <CustomersWorkspace />
     case 'customer-routing':
       return <ErpCustomerRoutingWorkspace />
+    case 'metal-routing':
+      return <ErpMetalRoutingWorkspace />
     case 'ledger':
       return <ErpLedgerWorkspace />
     case 'products':

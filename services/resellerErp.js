@@ -25,6 +25,7 @@ const {
     lookupGstinFromGstzen,
 } = require('./resellerErpGstzen');
 const { normalizeAddressField, resolveAddressFromBody } = require('./erpCustomerAddressFormat');
+const { normalizeCustomerCapsField, normalizeCustomerAddressCaps } = require('./erpCustomerCaps');
 const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
@@ -44,6 +45,7 @@ const {
 const { registerResellerErpBackupRoutes } = require('./resellerErpBackup');
 const { registerResellerErpOfflineRoutes } = require('./resellerErpOffline');
 const { registerResellerErpCustomerRoutingRoutes } = require('./resellerErpCustomerRouting');
+const { registerResellerErpMetalRoutingRoutes } = require('./resellerErpMetalRouting');
 const { registerResellerWhatsAppRoutes, registerWhatsAppWebhookRoutes } = require('./resellerWhatsApp');
 const { registerKarigarRoutes, ensureOrderJobForBill } = require('./resellerErpKarigar');
 const { registerDesignMasterRoutes, lookupDesignDefaults } = require('./resellerErpDesignMaster');
@@ -1026,6 +1028,7 @@ function registerResellerErpRoutes(app, deps) {
     registerResellerErpBackupRoutes(app, { query, checkAuth, erpGate });
     registerResellerErpOfflineRoutes(app, { query, checkAuth, requireJson, erpGate });
     registerResellerErpCustomerRoutingRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerResellerErpMetalRoutingRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerWhatsAppWebhookRoutes(app, { getPublicApiBaseUrl });
     registerResellerWhatsAppRoutes(app, { query, checkAuth, erpGate, getPublicApiBaseUrl });
     registerKarigarRoutes(app, {
@@ -1187,10 +1190,10 @@ function registerResellerErpRoutes(app, deps) {
 
     app.post('/api/reseller/erp/customers', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
-            const name = trimStr(req.body.name, 255);
+            const name = normalizeCustomerCapsField(trimStr(req.body.name, 255), 255);
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const shipping = parseCustomerShippingFields(req.body);
-            const billingAddress = resolveAddressFromBody(req.body);
+            const billingAddress = normalizeCustomerAddressCaps(resolveAddressFromBody(req.body));
             const rows = await query(
                 `INSERT INTO reseller_erp_customers (
                     reseller_user_id, name, mobile, email, gstin, pan, address, state,
@@ -1206,13 +1209,13 @@ function registerResellerErpRoutes(app, deps) {
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
                     billingAddress,
-                    trimStr(req.body.state, 64),
+                    normalizeCustomerCapsField(trimStr(req.body.state, 64), 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
                     normalizeCustomerRateSlab(req.body.rate_slab || req.body.slab),
                     shipping.has_shipping_address,
-                    shipping.shipping_address,
+                    normalizeCustomerAddressCaps(shipping.shipping_address),
                 ],
             );
             res.json({ success: true, customer: mapCustomer(rows[0]) });
@@ -1228,10 +1231,10 @@ function registerResellerErpRoutes(app, deps) {
             if (!Number.isFinite(id) || id <= 0) {
                 return res.status(400).json({ error: 'Invalid customer id' });
             }
-            const name = trimStr(req.body.name, 255);
+            const name = normalizeCustomerCapsField(trimStr(req.body.name, 255), 255);
             if (!name) return res.status(400).json({ error: 'Customer name is required' });
             const shipping = parseCustomerShippingFields(req.body);
-            const billingAddress = resolveAddressFromBody(req.body);
+            const billingAddress = normalizeCustomerAddressCaps(resolveAddressFromBody(req.body));
             const rows = await query(
                 `UPDATE reseller_erp_customers SET
                     name = $1, mobile = $2, email = $3, gstin = $4, pan = $5, address = $6, state = $7,
@@ -1246,13 +1249,13 @@ function registerResellerErpRoutes(app, deps) {
                     normalizeGstin(req.body.gstin),
                     normalizePan(req.body.pan),
                     billingAddress,
-                    trimStr(req.body.state, 64),
+                    normalizeCustomerCapsField(trimStr(req.body.state, 64), 64),
                     parseDateOrNull(req.body.birthdate),
                     parseDateOrNull(req.body.anniversary_date),
                     trimStr(req.body.notes, 2000),
                     normalizeCustomerRateSlab(req.body.rate_slab || req.body.slab),
                     shipping.has_shipping_address,
-                    shipping.shipping_address,
+                    normalizeCustomerAddressCaps(shipping.shipping_address),
                     id,
                     req.user.id,
                 ],

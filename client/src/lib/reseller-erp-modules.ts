@@ -28,6 +28,7 @@ import {
   UserCog,
   Users,
   Route,
+  Scale,
   Vault,
   Warehouse,
   WifiOff,
@@ -48,6 +49,7 @@ export type ResellerErpModuleId =
   | 'approval-issue'
   | 'customers'
   | 'customer-routing'
+  | 'metal-routing'
   | 'ledger'
   | 'products'
   | 'design-master'
@@ -160,6 +162,15 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     description: 'Scan tags, set qty, export photo Excel for the client',
     icon: ShoppingCart,
     group: 'sales',
+    kind: 'workspace',
+  },
+  {
+    id: 'metal-routing',
+    title: 'Metal routing',
+    short: 'Metal routing',
+    description: 'Receive & split gold/silver stock by counter (grams)',
+    icon: Scale,
+    group: 'inventory',
     kind: 'workspace',
   },
   {

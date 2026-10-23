@@ -26,7 +26,7 @@ import {
   previewCustomerBalancesPdf,
 } from '@/lib/erp-ledger-customer-balances-pdf'
 
-type ReportId = 'customer_balances'
+type ReportId = 'customer_balances' | 'fixed_asset_metals'
 
 type ReportMeta = {
   id: ReportId
@@ -40,6 +40,12 @@ const REPORTS: ReportMeta[] = [
     id: 'customer_balances',
     title: 'Customer balances',
     description: '',
+    icon: Users,
+  },
+  {
+    id: 'fixed_asset_metals',
+    title: 'Fixed asset metals',
+    description: 'Metal held as fixed asset (does not affect metal balance)',
     icon: Users,
   },
 ]
@@ -90,6 +96,18 @@ export function ErpLedgerReportsPanel({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [data, setData] = useState<BalancesReport | null>(null)
+  const [fixedAsset, setFixedAsset] = useState<
+    | {
+        customers: {
+          customer_id: number | null
+          customer_name: string
+          mobile: string
+          on_hand_gm: number
+          entries: { entry_date: string; reference_no: string; narration: string; metal_gm: number }[]
+        }[]
+      }
+    | null
+  >(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [detailBusy, setDetailBusy] = useState(false)
   const [detail, setDetail] = useState<CustomerAccountData | null>(null)
@@ -122,8 +140,33 @@ export function ErpLedgerReportsPanel({
     }
   }, [from, to, onDate, showAllCustomers])
 
+  const loadFixedAsset = useCallback(async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      const params: Record<string, string> = {}
+      if (onDate) params.on = onDate
+      else {
+        if (from) params.from = from
+        if (to) params.to = to
+      }
+      const res = await axios.get<{ customers: NonNullable<typeof fixedAsset>['customers'] }>(
+        '/api/reseller/erp/ledger/reports/fixed-asset-metals',
+        { params },
+      )
+      setFixedAsset({ customers: res.data.customers || [] })
+      setData(null)
+    } catch (e) {
+      setErr(erpErr(e))
+      setFixedAsset(null)
+    } finally {
+      setBusy(false)
+    }
+  }, [from, to, onDate])
+
   useEffect(() => {
     if (activeReport === 'customer_balances') void loadBalances()
+    if (activeReport === 'fixed_asset_metals') void loadFixedAsset()
     // Run once when the report is opened. Date filters apply via Run report.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeReport])
@@ -285,7 +328,14 @@ export function ErpLedgerReportsPanel({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void loadBalances()}>
+          <button
+            type="button"
+            className={erpBtnPrimary}
+            disabled={busy}
+            onClick={() =>
+              void (activeReport === 'fixed_asset_metals' ? loadFixedAsset() : loadBalances())
+            }
+          >
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
             Run report
           </button>
@@ -339,6 +389,45 @@ export function ErpLedgerReportsPanel({
         ) : null}
       </div>
 
+      {activeReport === 'fixed_asset_metals' ? (
+        <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
+          <table className="min-w-full text-left text-xs">
+            <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+              <tr>
+                <th className="px-3 py-2.5">Customer</th>
+                <th className="px-3 py-2.5">Mobile</th>
+                <th className="px-3 py-2.5 text-right">On hand (g)</th>
+                <th className="px-3 py-2.5">Recent entries</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!fixedAsset?.customers?.length && !busy ? (
+                <tr>
+                  <td colSpan={4} className="px-3 py-10 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                    Run the report to list fixed-asset metal by customer.
+                  </td>
+                </tr>
+              ) : (
+                fixedAsset?.customers.map((row) => (
+                  <tr key={row.customer_id ?? row.customer_name} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
+                    <td className="px-3 py-2.5 font-medium">{row.customer_name}</td>
+                    <td className="px-3 py-2.5">{row.mobile || '—'}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                      {formatMetalGm(row.on_hand_gm) || '0.000 g'}
+                    </td>
+                    <td className="max-w-[280px] truncate px-3 py-2.5 text-[var(--color-jewelry-black,#1a1814)]/70">
+                      {(row.entries || [])
+                        .slice(0, 2)
+                        .map((e) => `${formatErpDateDdMmYyyy(e.entry_date)} ${e.reference_no || ''}`)
+                        .join(' · ') || '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
         <table className="min-w-full text-left text-xs">
           <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -471,6 +560,7 @@ export function ErpLedgerReportsPanel({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }

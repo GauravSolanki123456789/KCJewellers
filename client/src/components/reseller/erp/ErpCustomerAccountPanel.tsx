@@ -627,16 +627,20 @@ export function ErpCustomerAccountPanel({
                           </button>
                         ) : null}
                         {metalLedgerEnabled &&
-                        t.kind === 'sale' &&
+                        (t.kind === 'sale' || t.kind === 'credit' || t.kind === 'sales_return') &&
                         t.bill_id &&
-                        t.debit > 0 &&
-                        (t.debit_metal_gm ?? 0) <= 0 ? (
+                        (t.debit > 0 || t.credit > 0) &&
+                        (t.debit_metal_gm ?? 0) <= 0 &&
+                        (t.credit_metal_gm ?? 0) <= 0 ? (
                           <button
                             type="button"
                             disabled={busy}
                             className="mb-1 whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[9px] font-semibold text-emerald-900"
                             onClick={() =>
-                              void convertInrToMetal({ billId: t.bill_id, inrAmount: t.debit })
+                              void convertInrToMetal({
+                                billId: t.bill_id,
+                                inrAmount: t.debit > 0 ? t.debit : t.credit,
+                              })
                             }
                           >
                             Convert ₹→metal

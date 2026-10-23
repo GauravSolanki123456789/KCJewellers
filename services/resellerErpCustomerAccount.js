@@ -4,7 +4,9 @@
 
 const { parseDateOrNull, normDateIso } = require('./erpDateNormalize');
 const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
+const { loadJewelleryLedgerMetalEnabled } = require('./erpJewelleryLedgerSettings');
 const {
+    isFixedAssetMetalRow,
     metalGmFromLedgerRow,
     metalGmForRunningBalance,
     metalDebitCreditFromLedgerEntry,
@@ -554,6 +556,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     }
     const includeShadow = !!opts.includeShadow;
 
+    const metalLedgerOn = await loadJewelleryLedgerMetalEnabled(query, resellerUserId);
     const customer = await loadCustomerRow(query, resellerUserId, customerId);
     if (!customer) throw Object.assign(new Error('Customer not found'), { status: 404 });
     await relinkOrphanedCustomerRecords(query, resellerUserId, customer);
@@ -693,7 +696,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             session && session.metalLedgerRatePerG
                 ? ` @ ₹${Number(session.metalLedgerRatePerG)}/g`
                 : '';
-        if (convertedGm > 0 && !isCredit) {
+        if (convertedGm > 0) {
             description += ` (metal ${convertedGm.toFixed(3)} g${rateNote})`;
         }
         rows.push({
@@ -704,7 +707,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             ref: s.bill_number,
             description,
             debit: isCredit || convertedGm > 0 ? 0 : amt,
-            credit: isCredit ? amt : 0,
+            credit: isCredit && convertedGm <= 0 ? amt : 0,
             lane,
             rupee_only_debit: convertedGm > 0 ? false : lane === 'gst',
             weight_gm:
@@ -714,7 +717,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
                       ? Math.round(weightGm * 1000) / 1000
                       : 0,
             debit_metal_gm: convertedGm > 0 && !isCredit ? convertedGm : 0,
-            credit_metal_gm: 0,
+            credit_metal_gm: convertedGm > 0 && isCredit ? convertedGm : 0,
         });
     }
 
@@ -729,7 +732,16 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         if (creditTypes.has(p.entry_type)) credit = Number(p.amount_inr) || 0;
         if (p.entry_type === 'payment_out') debit = Number(p.amount_inr) || 0;
         // Stock-in PV: party supplied goods, shop has not necessarily paid yet → credit.
-        if (p.entry_type === 'purchase') credit = Number(p.amount_inr) || 0;
+        if (p.entry_type === 'purchase') {
+            const pvMetal = metalGmFromLedgerRow(p);
+            if (metalLedgerOn && pvMetal > 0 && (Number(p.amount_inr) || 0) < 0.01) {
+                credit = 0;
+            } else if (metalLedgerOn && String(p.payment_mode || '').toLowerCase() === 'metal' && pvMetal > 0) {
+                credit = 0;
+            } else {
+                credit = Number(p.amount_inr) || 0;
+            }
+        }
         if (p.entry_type === 'expense' || p.entry_type === 'salary') debit = Number(p.amount_inr) || 0;
         if (p.entry_type === 'adjustment') {
             const amt = Number(p.amount_inr) || 0;
@@ -738,7 +750,10 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         }
         const metalGmDisplay = metalGmFromLedgerRow(p);
         const metalGmBal = metalGmForRunningBalance(p);
-        const metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGmBal, p.narration);
+        let metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGmBal, p.narration);
+        if (isFixedAssetMetalRow(p) && metalGmDisplay > 0) {
+            metalDc = metalDebitCreditFromLedgerEntry(p.entry_type, metalGmDisplay, p.narration);
+        }
         const isPay = creditTypes.has(p.entry_type) || p.entry_type === 'payment_out';
         let linkedBillRef = null;
         if (p.shadow_bill_id && shadowBillById[p.shadow_bill_id]) {
