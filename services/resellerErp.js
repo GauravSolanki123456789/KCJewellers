@@ -57,6 +57,10 @@ const {
     registerEstimateNarrationRoutes,
     assertEstimateNarrationIfRequired,
 } = require('./resellerErpEstimateNarrations');
+const {
+    registerNoteNarrationRoutes,
+    assertNoteNarrationIfRequired,
+} = require('./resellerErpNoteNarrations');
 const { registerApprovalIssueRoutes } = require('./resellerErpApproval');
 const {
     registerShadowRoutes,
@@ -1041,6 +1045,7 @@ function registerResellerErpRoutes(app, deps) {
         uploadsRoot,
     });
     registerEstimateNarrationRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerNoteNarrationRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerApprovalIssueRoutes(app, { query, pool, checkAuth, requireJson, erpGate, nextBillNumber, mapBill });
 
     app.get('/api/reseller/erp/status', checkAuth, async (req, res) => {
@@ -1630,6 +1635,13 @@ function registerResellerErpRoutes(app, deps) {
                 sessionObj,
             );
             if (narrErr) return res.status(400).json({ error: narrErr });
+            const noteNarrErr = await assertNoteNarrationIfRequired(
+                query,
+                req.user.id,
+                billType,
+                sessionObj,
+            );
+            if (noteNarrErr) return res.status(400).json({ error: noteNarrErr });
             const offlineOpId = trimStr(sessionObj.offlineOpId || req.body.offline_op_id, 80);
             if (offlineOpId) {
                 const officialHit = await query(
@@ -1793,7 +1805,7 @@ function registerResellerErpRoutes(app, deps) {
                     billNumber,
                     billType,
                     req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null,
-                    trimStr(req.body.customer_name, 255),
+                    normalizeCustomerCapsField(trimStr(req.body.customer_name, 255), 255),
                     Math.round(total * 100) / 100,
                     trimStr(req.body.status, 32) || 'draft',
                     JSON.stringify(lines),
@@ -1966,6 +1978,13 @@ function registerResellerErpRoutes(app, deps) {
                 sessionObj,
             );
             if (narrErr) return res.status(400).json({ error: narrErr });
+            const noteNarrErr = await assertNoteNarrationIfRequired(
+                query,
+                req.user.id,
+                billTypeForTotal,
+                sessionObj,
+            );
+            if (noteNarrErr) return res.status(400).json({ error: noteNarrErr });
             const status = trimStr(req.body.status, 32);
             const stLower = String(status || '').toLowerCase();
             if (
@@ -2027,7 +2046,9 @@ function registerResellerErpRoutes(app, deps) {
                  RETURNING *`,
                 [
                     req.body.customer_id != null ? parseInt(String(req.body.customer_id), 10) || null : null,
-                    trimStr(req.body.customer_name, 255) || null,
+                    req.body.customer_name != null && String(req.body.customer_name).trim()
+                        ? normalizeCustomerCapsField(trimStr(req.body.customer_name, 255), 255)
+                        : null,
                     Math.round(total * 100) / 100,
                     status || null,
                     JSON.stringify(lines),

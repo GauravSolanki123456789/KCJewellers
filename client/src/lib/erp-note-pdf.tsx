@@ -98,6 +98,7 @@ const styles = StyleSheet.create({
 export type NotePdfKind = 'credit' | 'debit'
 
 type NoteSession = ErpBillSession & {
+  noteNarration?: string
   reason?: string
   remarks?: string
   againstBills?: string
@@ -167,6 +168,12 @@ function NoteDocument({ kind, bill, shopName, customerMobile, slabSettingsRaw }:
           <View style={styles.row}>
             <Text style={styles.label}>Against bill(s)</Text>
             <Text style={styles.value}>{sanitizePdfText(session.againstBills)}</Text>
+          </View>
+        ) : null}
+        {session.noteNarration ? (
+          <View style={styles.row}>
+            <Text style={styles.label}>Narration</Text>
+            <Text style={styles.value}>{sanitizePdfText(session.noteNarration)}</Text>
           </View>
         ) : null}
         {session.reason ? (

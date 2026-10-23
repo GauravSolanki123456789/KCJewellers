@@ -54,6 +54,12 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
   const [invoiceItem, setInvoiceItem] = useState('')
   const [invoiceItems, setInvoiceItems] = useState<GstInvoiceItem[]>([])
   const [noteDate, setNoteDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [narrationEnabled, setNarrationEnabled] = useState(false)
+  const [narrationOptions, setNarrationOptions] = useState<{ id: number; label: string }[]>([])
+  const [noteNarration, setNoteNarration] = useState('')
+
+  const narrationApi =
+    kind === 'credit' ? '/api/reseller/erp/credit-note-narrations' : '/api/reseller/erp/debit-note-narrations'
 
   const title = kind === 'credit' ? 'Credit notes' : 'Debit notes'
   const billType = kind
@@ -78,6 +84,19 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
   useEffect(() => {
     void fetchGstInvoiceItems().then(setInvoiceItems)
   }, [])
+
+  useEffect(() => {
+    void axios
+      .get<{ enabled: boolean; options: { id: number; label: string }[] }>(narrationApi)
+      .then((r) => {
+        setNarrationEnabled(r.data.enabled === true)
+        setNarrationOptions(r.data.options || [])
+      })
+      .catch(() => {
+        setNarrationEnabled(false)
+        setNarrationOptions([])
+      })
+  }, [narrationApi])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -124,6 +143,10 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
       setMsg('Enter amount (₹) and/or weight (g).')
       return
     }
+    if (narrationEnabled && !noteNarration.trim()) {
+      setMsg('Select a narration from the list (Settings → Estimate narrations).')
+      return
+    }
     const taxable = hasAmt ? Math.round((amt / 1.03) * 100) / 100 : 0
     const gst = hasAmt ? Math.round((amt - taxable) * 100) / 100 : 0
     setBusy(true)
@@ -141,6 +164,7 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
         session: {
           reason,
           remarks,
+          ...(noteNarration.trim() ? { noteNarration: noteNarration.trim() } : {}),
           againstBills: against.trim(),
           taxableInr: taxable,
           gstInr: gst,
@@ -162,6 +186,7 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
       setRemarks('')
       setAgainst('')
       setInvoiceItem('')
+      setNoteNarration('')
       await load()
       setMsg(`${title.slice(0, -1)} ${res.data.bill.bill_number} issued.`)
       await downloadCreditDebitNotePdf({
@@ -273,6 +298,25 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Reason (optional)</p>
             <input className={`${erpInputCls} mt-1`} value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>
+          {narrationEnabled ? (
+            <div className="sm:col-span-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">
+                Narration <span className="text-[var(--kc-accent,#c41e3a)]">*</span>
+              </p>
+              <select
+                className={`${erpInputCls} mt-1 min-h-[44px]`}
+                value={noteNarration}
+                onChange={(e) => setNoteNarration(e.target.value)}
+              >
+                <option value="">Choose narration…</option>
+                {narrationOptions.map((o) => (
+                  <option key={o.id} value={o.label}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="sm:col-span-2">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1a1814]">Invoice item</p>
             <select

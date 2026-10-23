@@ -45,6 +45,7 @@ export async function downloadCreditDebitNoteExcel(
 ) {
   const XLSX = await import('xlsx')
   const session = (bill.session || {}) as ErpBillSession & {
+    noteNarration?: string
     reason?: string
     remarks?: string
     againstBills?: string
@@ -69,6 +70,7 @@ export async function downloadCreditDebitNoteExcel(
     ['Customer', bill.customer_name || ''],
     ['Mobile', session.mobile || ''],
     ['Against bill(s)', session.againstBills || ''],
+    ['Narration', session.noteNarration || ''],
     ['Reason', session.reason || ''],
     ['Remarks', session.remarks || bill.notes || ''],
     [],

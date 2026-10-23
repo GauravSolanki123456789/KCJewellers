@@ -28,9 +28,11 @@ CREATE TABLE IF NOT EXISTS reseller_erp_metal_purities (
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (reseller_user_id, metal_type, lower(trim(label)))
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_metal_purities_label
+  ON reseller_erp_metal_purities (reseller_user_id, metal_type, lower(trim(label)));
 
 CREATE TABLE IF NOT EXISTS reseller_erp_metal_stock_lots (
     id SERIAL PRIMARY KEY,

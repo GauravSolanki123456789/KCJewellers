@@ -6,8 +6,10 @@ import { Loader2, Plus, Trash2 } from 'lucide-react'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpErr } from '@/components/reseller/erp/erp-ui'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { appConfirm } from '@/lib/app-notice'
-
-type NarrationRow = { id: number; label: string; sort_order: number }
+import {
+  ErpNoteNarrationsSection,
+  type NarrationRow,
+} from '@/components/reseller/erp/ErpNoteNarrationsSection'
 
 export function ErpEstimateNarrationsWorkspace() {
   const { operator, shadowUnlocked } = useErpOperator()
@@ -23,17 +25,35 @@ export function ErpEstimateNarrationsWorkspace() {
   const [approvalNew, setApprovalNew] = useState('')
   const [approvalEditId, setApprovalEditId] = useState<number | null>(null)
   const [approvalEditLabel, setApprovalEditLabel] = useState('')
+  const [creditEnabled, setCreditEnabled] = useState(false)
+  const [creditOptions, setCreditOptions] = useState<NarrationRow[]>([])
+  const [creditNew, setCreditNew] = useState('')
+  const [creditEditId, setCreditEditId] = useState<number | null>(null)
+  const [creditEditLabel, setCreditEditLabel] = useState('')
+  const [creditToggleBusy, setCreditToggleBusy] = useState(false)
+  const [debitEnabled, setDebitEnabled] = useState(false)
+  const [debitOptions, setDebitOptions] = useState<NarrationRow[]>([])
+  const [debitNew, setDebitNew] = useState('')
+  const [debitEditId, setDebitEditId] = useState<number | null>(null)
+  const [debitEditLabel, setDebitEditLabel] = useState('')
+  const [debitToggleBusy, setDebitToggleBusy] = useState(false)
 
   const load = useCallback(async () => {
     setBusy(true)
     try {
-      const [est, appr] = await Promise.all([
+      const [est, appr, credit, debit] = await Promise.all([
         axios.get<{ enabled: boolean; options: NarrationRow[] }>('/api/reseller/erp/estimate-narrations'),
         axios.get<{ options: NarrationRow[] }>('/api/reseller/erp/approval-narrations'),
+        axios.get<{ enabled: boolean; options: NarrationRow[] }>('/api/reseller/erp/credit-note-narrations'),
+        axios.get<{ enabled: boolean; options: NarrationRow[] }>('/api/reseller/erp/debit-note-narrations'),
       ])
       setEnabled(est.data.enabled !== false)
       setOptions(est.data.options || [])
       setApprovalOptions(appr.data.options || [])
+      setCreditEnabled(credit.data.enabled === true)
+      setCreditOptions(credit.data.options || [])
+      setDebitEnabled(debit.data.enabled === true)
+      setDebitOptions(debit.data.options || [])
     } catch (e) {
       console.error(e)
     } finally {
@@ -361,6 +381,44 @@ export function ErpEstimateNarrationsWorkspace() {
           </ul>
         )}
       </div>
+
+      <ErpNoteNarrationsSection
+        kind="credit"
+        enabled={creditEnabled}
+        options={creditOptions}
+        busy={busy}
+        isAdmin={isAdmin}
+        shadowUnlocked={shadowUnlocked}
+        toggleBusy={creditToggleBusy}
+        newLabel={creditNew}
+        editId={creditEditId}
+        editLabel={creditEditLabel}
+        onNewLabel={setCreditNew}
+        onEditId={setCreditEditId}
+        onEditLabel={setCreditEditLabel}
+        onReload={load}
+        onEnabledChange={setCreditEnabled}
+        onToggleBusy={setCreditToggleBusy}
+      />
+
+      <ErpNoteNarrationsSection
+        kind="debit"
+        enabled={debitEnabled}
+        options={debitOptions}
+        busy={busy}
+        isAdmin={isAdmin}
+        shadowUnlocked={shadowUnlocked}
+        toggleBusy={debitToggleBusy}
+        newLabel={debitNew}
+        editId={debitEditId}
+        editLabel={debitEditLabel}
+        onNewLabel={setDebitNew}
+        onEditId={setDebitEditId}
+        onEditLabel={setDebitEditLabel}
+        onReload={load}
+        onEnabledChange={setDebitEnabled}
+        onToggleBusy={setDebitToggleBusy}
+      />
     </div>
   )
 }
