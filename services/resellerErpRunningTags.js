@@ -133,6 +133,8 @@ async function saleWeightOnRunningTagSql() {
 const RUNNING_TAG_LINE_BARCODE_SQL = `(
     lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
     OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
+    OR lower(trim(COALESCE(line->>'barcode', ''))) LIKE lower($2) || '~%'
+    OR lower(trim(COALESCE(line->>'code', ''))) LIKE lower($2) || '~%'
 )`;
 
 async function gstSoldGmForRunningTag(query, resellerUserId, barcode) {
@@ -186,10 +188,7 @@ async function jainavSoldGmForRunningTag(query, resellerUserId, barcode) {
              WHERE b.reseller_user_id = $1
                AND b.bill_type IN ('sale', 'sales_return')
                AND lower(COALESCE(b.status, '')) NOT IN ('cancelled', 'canceled', 'void')
-               AND (
-                    lower(trim(COALESCE(line->>'barcode', ''))) = lower($2)
-                    OR lower(trim(COALESCE(line->>'code', ''))) = lower($2)
-               )`,
+               AND ${RUNNING_TAG_LINE_BARCODE_SQL}`,
             [resellerUserId, barcode],
         );
         return roundGm(soldRows[0]?.gm);
@@ -229,6 +228,13 @@ async function recomputeRunningTagBalances(query, resellerUserId, opts = {}) {
         `SELECT * FROM reseller_erp_running_tags WHERE reseller_user_id = $1`,
         [resellerUserId],
     );
+    try {
+        const { healRunningTagIntakeShadowSold } = require('./resellerErpStockPieces');
+        await healRunningTagIntakeShadowSold(query, resellerUserId);
+    } catch (e) {
+        console.warn('erp running tag heal shadow sold:', e.message);
+    }
+
     const out = [];
     const jainavBooks = opts.includeAllSales === true;
     for (const tag of tags) {
@@ -238,10 +244,8 @@ async function recomputeRunningTagBalances(query, resellerUserId, opts = {}) {
         const approvalOutGm = await approvalOutGmForRunningTag(query, resellerUserId, barcode);
         const intakeBookGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'book');
         const intakeShadowGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'shadow');
-        const jainavSoldGm = jainavBooks
-            ? await jainavSoldGmForRunningTag(query, resellerUserId, barcode)
-            : 0;
-        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm - approvalOutGm);
+        const jainavSoldGm = await jainavSoldGmForRunningTag(query, resellerUserId, barcode);
+        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm - jainavSoldGm - approvalOutGm);
         const jainavBalanceGm = roundGm(
             intakeBookGm + intakeShadowGm - gstSoldGm - jainavSoldGm - approvalOutGm,
         );

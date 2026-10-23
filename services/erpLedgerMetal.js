@@ -205,6 +205,27 @@ function metalDebitFromSaleWeight(weightGm) {
     return { debit_metal_gm: gm, credit_metal_gm: 0 };
 }
 
+/** Classify jewellery metal for split gold / silver balance reports. */
+function inferLedgerMetalKind(row) {
+    const bits = [
+        String(row?.narration || ''),
+        String(row?.description || ''),
+        String(row?.ref || ''),
+    ]
+        .join(' ')
+        .toLowerCase();
+    if (/\bgold\b|\b22\s*k\b|\b18\s*k\b|\b24\s*k\b|\b916\b|\b750\b|\b585\b/.test(bits)) {
+        return 'gold';
+    }
+    if (/\bsilver\b|\bag\b|\b925\b|\b999\b/.test(bits)) {
+        return 'silver';
+    }
+    const mt = String(row?.metal_type || row?.metalType || '').toLowerCase();
+    if (mt.includes('gold')) return 'gold';
+    if (mt.includes('silver')) return 'silver';
+    return 'silver';
+}
+
 module.exports = {
     roundMetalGm,
     parseMetalGm,
@@ -219,4 +240,5 @@ module.exports = {
     metalGmFromNarration,
     metalDebitCreditFromLedgerEntry,
     metalDebitFromSaleWeight,
+    inferLedgerMetalKind,
 };

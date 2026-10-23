@@ -26,7 +26,7 @@ import {
   previewCustomerBalancesPdf,
 } from '@/lib/erp-ledger-customer-balances-pdf'
 
-type ReportId = 'customer_balances' | 'fixed_asset_metals'
+type ReportId = 'customer_balances' | 'fixed_asset_metals' | 'metal_balances_by_type'
 
 type ReportMeta = {
   id: ReportId
@@ -46,6 +46,12 @@ const REPORTS: ReportMeta[] = [
     id: 'fixed_asset_metals',
     title: 'Fixed asset metals',
     description: 'Metal held as fixed asset (does not affect metal balance)',
+    icon: Users,
+  },
+  {
+    id: 'metal_balances_by_type',
+    title: 'Gold & silver metal balances',
+    description: 'Customer metal owed split by gold vs silver (grams)',
     icon: Users,
   },
 ]
@@ -96,6 +102,21 @@ export function ErpLedgerReportsPanel({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [data, setData] = useState<BalancesReport | null>(null)
+  const [metalByType, setMetalByType] = useState<{
+    rows: {
+      customer_id: number
+      name: string
+      mobile: string
+      gold_balance_gm: number
+      silver_balance_gm: number
+      total_metal_balance_gm: number
+    }[]
+    summary: {
+      customer_count: number
+      total_gold_balance_gm: number
+      total_silver_balance_gm: number
+    }
+  } | null>(null)
   const [fixedAsset, setFixedAsset] = useState<
     | {
         customers: {
@@ -164,9 +185,36 @@ export function ErpLedgerReportsPanel({
     }
   }, [from, to, onDate])
 
+  const loadMetalByType = useCallback(async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      const params: Record<string, string> = {}
+      if (onDate) params.on = onDate
+      else {
+        if (from) params.from = from
+        if (to) params.to = to
+      }
+      if (showAllCustomers) params.all = '1'
+      const res = await axios.get<NonNullable<typeof metalByType>>(
+        '/api/reseller/erp/ledger/reports/metal-balances-by-type',
+        { params },
+      )
+      setMetalByType(res.data)
+      setData(null)
+      setFixedAsset(null)
+    } catch (e) {
+      setErr(erpErr(e))
+      setMetalByType(null)
+    } finally {
+      setBusy(false)
+    }
+  }, [from, to, onDate, showAllCustomers])
+
   useEffect(() => {
     if (activeReport === 'customer_balances') void loadBalances()
     if (activeReport === 'fixed_asset_metals') void loadFixedAsset()
+    if (activeReport === 'metal_balances_by_type') void loadMetalByType()
     // Run once when the report is opened. Date filters apply via Run report.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeReport])
@@ -333,7 +381,11 @@ export function ErpLedgerReportsPanel({
             className={erpBtnPrimary}
             disabled={busy}
             onClick={() =>
-              void (activeReport === 'fixed_asset_metals' ? loadFixedAsset() : loadBalances())
+              void (activeReport === 'fixed_asset_metals'
+                ? loadFixedAsset()
+                : activeReport === 'metal_balances_by_type'
+                  ? loadMetalByType()
+                  : loadBalances())
             }
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -389,7 +441,76 @@ export function ErpLedgerReportsPanel({
         ) : null}
       </div>
 
-      {activeReport === 'fixed_asset_metals' ? (
+      {activeReport === 'metal_balances_by_type' ? (
+        <>
+          {metalByType?.summary ? (
+            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2">
+                <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Customers
+                </p>
+                <p className="text-lg font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                  {metalByType.summary.customer_count}
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase text-amber-950/70">Total gold balance</p>
+                <p className="text-lg font-semibold tabular-nums text-amber-950">
+                  {formatMetalGm(metalByType.summary.total_gold_balance_gm)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Total silver balance
+                </p>
+                <p className="text-lg font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">
+                  {formatMetalGm(metalByType.summary.total_silver_balance_gm)}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+                <tr>
+                  <th className="px-3 py-2.5">Customer</th>
+                  <th className="px-3 py-2.5">Mobile</th>
+                  <th className="px-3 py-2.5 text-right">Gold (g)</th>
+                  <th className="px-3 py-2.5 text-right">Silver (g)</th>
+                  <th className="px-3 py-2.5 text-right">Total (g)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!metalByType?.rows?.length && !busy ? (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-10 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
+                      Run the report to see gold vs silver metal balances by customer.
+                    </td>
+                  </tr>
+                ) : (
+                  metalByType?.rows.map((row) => (
+                    <tr key={row.customer_id} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
+                      <td className="px-3 py-2.5 font-medium text-[var(--color-jewelry-black,#1a1814)]">
+                        {row.name}
+                      </td>
+                      <td className="px-3 py-2.5">{row.mobile || '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-950">
+                        {formatMetalGm(row.gold_balance_gm)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                        {formatMetalGm(row.silver_balance_gm)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {formatMetalGm(row.total_metal_balance_gm)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : activeReport === 'fixed_asset_metals' ? (
         <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
           <table className="min-w-full text-left text-xs">
             <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">

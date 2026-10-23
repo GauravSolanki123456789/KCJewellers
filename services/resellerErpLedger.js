@@ -21,6 +21,7 @@ const {
     buildCustomerAccount,
     buildDaybook,
     buildCustomerBalancesReport,
+    buildMetalBalancesByTypeReport,
     customerAccountToCsv,
     customerBalancesReportToCsv,
     daybookToCsv,
@@ -1868,6 +1869,23 @@ function registerResellerErpLedgerRoutes(app, deps) {
         } catch (e) {
             console.error('erp fixed asset metals report:', e);
             res.status(500).json({ error: e.message || 'Failed to load fixed asset report' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/metal-balances-by-type', checkAuth, erpGate, async (req, res) => {
+        try {
+            const includeShadow = req.session?.shadowUnlocked === true;
+            const report = await buildMetalBalancesByTypeReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+                includeShadow,
+                nonZeroOnly: String(req.query.all || '') !== '1',
+            });
+            res.json(report);
+        } catch (e) {
+            console.error('erp ledger report metal-balances-by-type:', e);
+            res.status(500).json({ error: e.message || 'Failed to load metal balance report' });
         }
     });
 

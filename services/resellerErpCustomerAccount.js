@@ -15,6 +15,7 @@ const {
     sanitizeLedgerDescription,
     applyVirtualMetalInrCredit,
     roundMetalGm,
+    inferLedgerMetalKind,
 } = require('./erpLedgerMetal');
 
 function normDate(d) {
@@ -1511,6 +1512,75 @@ function customerBalancesReportToCsv(report) {
     return lines.join('\r\n');
 }
 
+async function buildMetalBalancesByTypeReport(query, resellerUserId, opts = {}) {
+    const includeShadow = !!opts.includeShadow;
+    const nonZeroOnly = opts.nonZeroOnly !== false;
+
+    const customers = await query(
+        `SELECT id, name, mobile, gstin
+         FROM reseller_erp_customers
+         WHERE reseller_user_id = $1
+           ${sqlExcludeInternalErpCustomers('name', 'notes', { allowCashBook: includeShadow })}
+         ORDER BY name ASC`,
+        [resellerUserId],
+    );
+
+    const rows = [];
+    let sumGold = 0;
+    let sumSilver = 0;
+
+    for (const c of customers) {
+        let account;
+        try {
+            account = await buildCustomerAccount(query, resellerUserId, {
+                customerId: c.id,
+                from: parseDateOrNull(opts.from),
+                to: parseDateOrNull(opts.to),
+                on: parseDateOrNull(opts.on),
+                includeShadow,
+            });
+        } catch {
+            continue;
+        }
+        let goldRun = 0;
+        let silverRun = 0;
+        for (const tx of account.transactions || []) {
+            const d = Number(tx.debit_metal_gm) || 0;
+            const cr = Number(tx.credit_metal_gm) || 0;
+            const delta = d - cr;
+            if (Math.abs(delta) < 0.0005) continue;
+            const kind = inferLedgerMetalKind(tx);
+            if (kind === 'gold') goldRun += delta;
+            else silverRun += delta;
+        }
+        const goldBal = roundMetalGm(goldRun);
+        const silverBal = roundMetalGm(silverRun);
+        if (nonZeroOnly && Math.abs(goldBal) < 0.0005 && Math.abs(silverBal) < 0.0005) {
+            continue;
+        }
+        rows.push({
+            customer_id: c.id,
+            name: c.name,
+            mobile: c.mobile || '',
+            gstin: c.gstin || '',
+            gold_balance_gm: goldBal,
+            silver_balance_gm: silverBal,
+            total_metal_balance_gm: roundMetalGm(goldBal + silverBal),
+        });
+        sumGold += goldBal;
+        sumSilver += silverBal;
+    }
+
+    return {
+        rows,
+        summary: {
+            customer_count: rows.length,
+            total_gold_balance_gm: roundMetalGm(sumGold),
+            total_silver_balance_gm: roundMetalGm(sumSilver),
+        },
+    };
+}
+
 async function getCustomerBalancesBeforeLedgerEntry(query, resellerUserId, customerId, ledgerEntryId) {
     const account = await buildCustomerAccount(query, resellerUserId, {
         customerId,
@@ -1532,6 +1602,7 @@ module.exports = {
     buildCustomerAccount,
     buildDaybook,
     buildCustomerBalancesReport,
+    buildMetalBalancesByTypeReport,
     customerAccountToCsv,
     customerBalancesReportToCsv,
     daybookToCsv,

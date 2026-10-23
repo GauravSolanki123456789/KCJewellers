@@ -917,6 +917,12 @@ async function markPiecesSold(query, resellerUserId, lines, billId) {
     const fullSoldBarcodes = [];
     const seenBarcode = new Set();
     const touchedItemCodes = new Set();
+    let runningTagSet = new Set();
+    try {
+        runningTagSet = await loadRunningTagBarcodeSet(query, resellerUserId);
+    } catch {
+        runningTagSet = new Set();
+    }
 
     for (const line of lines || []) {
         const piece = await fetchStockPieceRowForLine(query, resellerUserId, line, true);
@@ -941,6 +947,19 @@ async function markPiecesSold(query, resellerUserId, lines, billId) {
         const key = bc.toLowerCase();
         if (seenBarcode.has(key)) continue;
         seenBarcode.add(key);
+        if (runningTagSet.has(key)) {
+            const marked = await markRunningTagIntakeOfficialSold(
+                query,
+                resellerUserId,
+                bc,
+                lineWeightGm(line),
+                billId,
+            );
+            for (const row of marked) {
+                if (row.item_code) touchedItemCodes.add(row.item_code);
+            }
+            continue;
+        }
         fullSoldBarcodes.push(bc);
     }
 
@@ -961,6 +980,125 @@ function lineStockBarcode(line) {
         if (s) return s;
     }
     return '';
+}
+
+function lineWeightGm(line) {
+    const og = Number(line && line.originalWeightGm);
+    const wg = Number(line && (line.weightGm ?? line.net_weight ?? line.weight));
+    if (Number.isFinite(og) && og > 0) return roundGm(og);
+    if (Number.isFinite(wg) && wg > 0) return roundGm(wg);
+    return 0;
+}
+
+const RUNNING_TAG_SALE_WEIGHT_EPS_GM = 0.05;
+
+/**
+ * S + Enter bills use the 9-digit running tag on the line; stock is stored as tag~weight.
+ */
+async function markRunningTagIntakeShadowSold(query, resellerUserId, tagBarcode, weightGm, shadowBillId) {
+    const rt = String(tagBarcode || '').trim();
+    if (!rt) return [];
+    const wt = roundGm(weightGm);
+    const intakeBc = wt > 0 ? runningTagIntakeBarcode(rt, wt) : null;
+    const barcodes = [...new Set([intakeBc, rt].filter(Boolean))];
+    const shadowId = Number.isFinite(Number(shadowBillId)) && Number(shadowBillId) > 0 ? Number(shadowBillId) : null;
+    const rows = await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'shadow_sold',
+            shadow_bill_id = $1,
+            sold_bill_id = NULL,
+            updated_at = NOW()
+         WHERE reseller_user_id = $2
+           AND status = 'in_stock'
+           AND (
+                barcode = ANY($3::text[])
+                OR (
+                    lower(trim(COALESCE(payload_json->>'running_tag_barcode', ''))) = lower($4)
+                    AND ($5::numeric <= 0 OR ABS(COALESCE(avg_weight, 0) - $5::numeric) <= $6::numeric)
+                )
+           )
+         RETURNING id, item_code`,
+        [shadowId, resellerUserId, barcodes, rt, wt, RUNNING_TAG_SALE_WEIGHT_EPS_GM],
+    );
+    return rows;
+}
+
+async function markRunningTagIntakeOfficialSold(query, resellerUserId, tagBarcode, weightGm, soldBillId) {
+    const rt = String(tagBarcode || '').trim();
+    if (!rt) return [];
+    const wt = roundGm(weightGm);
+    const intakeBc = wt > 0 ? runningTagIntakeBarcode(rt, wt) : null;
+    const barcodes = [...new Set([intakeBc, rt].filter(Boolean))];
+    const billId = Number.isFinite(Number(soldBillId)) && Number(soldBillId) > 0 ? Number(soldBillId) : null;
+    const rows = await query(
+        `UPDATE reseller_erp_stock_pieces SET
+            status = 'sold',
+            sold_bill_id = $1,
+            shadow_bill_id = NULL,
+            rfid_tag = NULL,
+            updated_at = NOW()
+         WHERE reseller_user_id = $2
+           AND status = 'in_stock'
+           AND (
+                barcode = ANY($3::text[])
+                OR (
+                    lower(trim(COALESCE(payload_json->>'running_tag_barcode', ''))) = lower($4)
+                    AND ($5::numeric <= 0 OR ABS(COALESCE(avg_weight, 0) - $5::numeric) <= $6::numeric)
+                )
+           )
+         RETURNING id, item_code`,
+        [billId, resellerUserId, barcodes, rt, wt, RUNNING_TAG_SALE_WEIGHT_EPS_GM],
+    );
+    return rows;
+}
+
+/** Backfill shadow_sold on running-tag intake rows when Jainav bill used the 9-digit tag barcode. */
+async function healRunningTagIntakeShadowSold(query, resellerUserId) {
+    let runningTagSet;
+    try {
+        runningTagSet = await loadRunningTagBarcodeSet(query, resellerUserId);
+    } catch {
+        return 0;
+    }
+    if (!runningTagSet.size) return 0;
+    let bills = [];
+    try {
+        bills = await query(
+            `SELECT id, bill_type, lines_json
+             FROM reseller_erp_shadow_bills
+             WHERE reseller_user_id = $1
+               AND bill_type IN ('sale', 'sales_return')
+               AND lower(COALESCE(status, '')) NOT IN ('cancelled', 'canceled', 'void')`,
+            [resellerUserId],
+        );
+    } catch {
+        return 0;
+    }
+    let touched = 0;
+    for (const bill of bills) {
+        let lines = bill.lines_json;
+        if (typeof lines === 'string') {
+            try {
+                lines = JSON.parse(lines);
+            } catch {
+                lines = [];
+            }
+        }
+        if (!Array.isArray(lines)) continue;
+        const bt = String(bill.bill_type || 'sale').toLowerCase();
+        for (const line of lines) {
+            const bc = lineStockBarcode(line);
+            if (!bc || !runningTagSet.has(bc.toLowerCase())) continue;
+            const wt = lineWeightGm(line);
+            if (bt === 'sales_return') {
+                await restorePiecesInStock(query, resellerUserId, [line]);
+                continue;
+            }
+            const rows = await markRunningTagIntakeShadowSold(query, resellerUserId, bc, wt, bill.id);
+            touched += rows.length;
+        }
+    }
+    return touched;
 }
 
 async function syncAlertsForPieceIds(query, resellerUserId, pieceIds) {
@@ -1083,6 +1221,12 @@ async function markPiecesShadowSold(query, resellerUserId, lines, shadowBillId) 
     const fullSoldBarcodes = [];
     const seenBarcode = new Set();
     const touchedItemCodes = new Set();
+    let runningTagSet = new Set();
+    try {
+        runningTagSet = await loadRunningTagBarcodeSet(query, resellerUserId);
+    } catch {
+        runningTagSet = new Set();
+    }
 
     for (const line of lines || []) {
         const piece = await fetchStockPieceRowForLine(query, resellerUserId, line, true);
@@ -1107,6 +1251,19 @@ async function markPiecesShadowSold(query, resellerUserId, lines, shadowBillId) 
         const key = bc.toLowerCase();
         if (seenBarcode.has(key)) continue;
         seenBarcode.add(key);
+        if (runningTagSet.has(key)) {
+            const marked = await markRunningTagIntakeShadowSold(
+                query,
+                resellerUserId,
+                bc,
+                lineWeightGm(line),
+                shadowId,
+            );
+            for (const row of marked) {
+                if (row.item_code) touchedItemCodes.add(row.item_code);
+            }
+            continue;
+        }
         fullSoldBarcodes.push(bc);
     }
 
@@ -1546,6 +1703,9 @@ function registerStockPieceRoutes(app, deps) {
             );
             if (!batchRows.length) return res.status(404).json({ error: 'Batch not found' });
             await healLanePiecesToInStock(query, req.user.id);
+            if (req.session?.shadowUnlocked === true) {
+                await healRunningTagIntakeShadowSold(query, req.user.id);
+            }
             const pieces = await query(
                 `SELECT * FROM reseller_erp_stock_pieces
                  WHERE batch_id = $1::uuid AND reseller_user_id = $2
@@ -3188,4 +3348,5 @@ module.exports = {
     syncStockAlertCounts,
     assertStockAvailableForBillLines,
     isQtyTrackedFixedPricePiece,
+    healRunningTagIntakeShadowSold,
 };
