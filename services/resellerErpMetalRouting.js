@@ -73,7 +73,48 @@ async function ensureMetalRoutingSchema(pool) {
 
         CREATE INDEX IF NOT EXISTS idx_metal_stock_lots_reseller
             ON reseller_erp_metal_stock_lots (reseller_user_id, metal_type, status);
+
+        ALTER TABLE reseller_erp_metal_purities
+            ADD COLUMN IF NOT EXISTS metal_type VARCHAR(16) NOT NULL DEFAULT 'silver';
+        ALTER TABLE reseller_erp_metal_purities
+            ADD COLUMN IF NOT EXISTS default_charge_pct NUMERIC(8, 4);
+        ALTER TABLE reseller_erp_metal_purities
+            ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE reseller_erp_metal_purities
+            ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+        ALTER TABLE reseller_erp_metal_purities
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE reseller_erp_metal_purities
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        ALTER TABLE reseller_erp_metal_stock_lots
+            ADD COLUMN IF NOT EXISTS charge_pct NUMERIC(8, 4);
+        ALTER TABLE reseller_erp_metal_stock_lots
+            ADD COLUMN IF NOT EXISTS pure_gm NUMERIC(14, 3) NOT NULL DEFAULT 0;
+        ALTER TABLE reseller_erp_metal_stock_lots
+            ADD COLUMN IF NOT EXISTS status VARCHAR(16) NOT NULL DEFAULT 'active';
+        ALTER TABLE reseller_erp_metal_stock_lots
+            ADD COLUMN IF NOT EXISTS move_date DATE NOT NULL DEFAULT CURRENT_DATE;
     `);
+}
+
+/** Append optional metal / counter filters; startIdx is the next $n placeholder index. */
+function appendMetalRoutingReportFilters(metalType, counterFilter, startIdx) {
+    let idx = startIdx;
+    const extraParams = [];
+    let metalClause = '';
+    let counterClause = '';
+    if (metalType === 'gold' || metalType === 'silver') {
+        extraParams.push(metalType);
+        metalClause = ` AND l.metal_type = $${idx}`;
+        idx += 1;
+    }
+    if (counterFilter && counterFilter.length) {
+        extraParams.push(counterFilter);
+        counterClause = ` AND l.counter_id = ANY($${idx}::int[])`;
+        idx += 1;
+    }
+    return { metalClause, counterClause, extraParams };
 }
 
 function routingGate() {
@@ -864,18 +905,14 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     }
                 }
 
-                const params = [req.user.id, from, to];
-                let metalClause = '';
-                if (metalType === 'gold' || metalType === 'silver') {
-                    params.push(metalType);
-                    metalClause = ` AND l.metal_type = $${params.length}`;
-                }
+                const openFilters = appendMetalRoutingReportFilters(metalType, counterFilter, 3);
+                const openingParams = [req.user.id, from, ...openFilters.extraParams];
 
-                let counterClause = '';
-                if (counterFilter) {
-                    params.push(counterFilter);
-                    counterClause = ` AND l.counter_id = ANY($${params.length}::int[])`;
-                }
+                const closeFilters = appendMetalRoutingReportFilters(metalType, counterFilter, 3);
+                const closingParams = [req.user.id, to, ...closeFilters.extraParams];
+
+                const recvFilters = appendMetalRoutingReportFilters(metalType, counterFilter, 4);
+                const receivedParams = [req.user.id, from, to, ...recvFilters.extraParams];
 
                 const openingSql = `
                     SELECT l.counter_id, c.name AS counter_name, l.purity_id, p.label AS purity_label,
@@ -889,7 +926,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         l.status = 'active'
                         OR (l.status = 'closed' AND l.updated_at >= $2::timestamptz)
                       )
-                      ${metalClause}${counterClause}
+                      ${openFilters.metalClause}${openFilters.counterClause}
                     GROUP BY l.counter_id, c.name, l.purity_id, p.label
                 `;
 
@@ -901,8 +938,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     LEFT JOIN reseller_erp_metal_purities p ON p.id = l.purity_id
                     WHERE l.reseller_user_id = $1
                       AND l.status = 'active'
-                      AND l.move_date <= $3::date
-                      ${metalClause}${counterClause}
+                      AND l.move_date <= $2::date
+                      ${closeFilters.metalClause}${closeFilters.counterClause}
                     GROUP BY l.counter_id, c.name, l.purity_id, p.label
                 `;
 
@@ -915,14 +952,14 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     WHERE l.reseller_user_id = $1
                       AND l.parent_lot_id IS NULL
                       AND l.move_date >= $2::date AND l.move_date <= $3::date
-                      ${metalClause}${counterClause}
+                      ${recvFilters.metalClause}${recvFilters.counterClause}
                     GROUP BY l.counter_id, c.name, l.purity_id, p.label
                 `;
 
                 const [openingRows, closingRows, receivedRows] = await Promise.all([
-                    query(openingSql, params),
-                    query(closingSql, params),
-                    query(receivedSql, params),
+                    query(openingSql, openingParams),
+                    query(closingSql, closingParams),
+                    query(receivedSql, receivedParams),
                 ]);
 
                 const key = (r) =>
