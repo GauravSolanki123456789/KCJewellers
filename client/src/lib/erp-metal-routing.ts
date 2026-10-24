@@ -35,8 +35,34 @@ export type MetalStockLot = {
   status: string
   notes: string | null
   move_date: string
+  from_customer_id?: number | null
+  from_customer?: { id: number; name: string; mobile?: string | null } | null
+  held_by_customer_id?: number | null
+  held_by_customer?: { id: number; name: string; mobile?: string | null } | null
   created_at?: string
   updated_at?: string
+}
+
+export type MetalLotEvent = {
+  id: number
+  lot_id: number
+  event_type: string
+  gross_gm: number | null
+  from_counter_name?: string | null
+  to_counter_name?: string | null
+  from_operator_name?: string | null
+  to_operator_name?: string | null
+  from_customer?: { id: number; name: string; mobile?: string | null } | null
+  to_customer?: { id: number; name: string; mobile?: string | null } | null
+  notes?: string | null
+  created_at: string
+}
+
+export type MetalLotJourney = {
+  root_lot_id: number
+  lot: MetalStockLot
+  lots: MetalStockLot[]
+  events: MetalLotEvent[]
 }
 
 export type MetalRoutingBootstrap = {
@@ -148,6 +174,7 @@ export async function receiveMetalLot(body: {
   charge_pct?: number
   counter_id?: number
   operator_id?: number
+  from_customer_id?: number
   notes?: string
   move_date?: string
 }): Promise<MetalStockLot> {
@@ -193,6 +220,41 @@ export async function transferMetalLot(
 ): Promise<{ mode: 'full' | 'partial'; lot: MetalStockLot; transferred?: MetalStockLot }> {
   const { data } = await axios.post(`${BASE}/lots/${lotId}/transfer`, body)
   return data
+}
+
+export async function handoverMetalLot(
+  lotId: number,
+  body: {
+    to_customer_id?: number
+    to_operator_id?: number
+    counter_id?: number
+    notes?: string
+  },
+): Promise<MetalStockLot> {
+  const { data } = await axios.post<{ lot: MetalStockLot }>(`${BASE}/lots/${lotId}/handover`, body)
+  return data.lot
+}
+
+export async function closeMetalLot(lotId: number, notes?: string): Promise<MetalStockLot> {
+  const { data } = await axios.post<{ lot: MetalStockLot }>(`${BASE}/lots/${lotId}/close`, { notes })
+  return data.lot
+}
+
+export async function deleteMetalLot(lotId: number): Promise<void> {
+  await axios.delete(`${BASE}/lots/${lotId}`)
+}
+
+export async function fetchMetalLotJourney(lotId: number): Promise<MetalLotJourney> {
+  const { data } = await axios.get<MetalLotJourney>(`${BASE}/lots/${lotId}/journey`)
+  return data
+}
+
+export function roundMetalGm(n: number): number {
+  return Math.round(Number(n) * 1000) / 1000
+}
+
+export function metalGrossExceedsMax(requestedGm: number, maxGm: number): boolean {
+  return roundMetalGm(requestedGm) > roundMetalGm(maxGm)
 }
 
 export async function fetchMetalStockReport(params: {
