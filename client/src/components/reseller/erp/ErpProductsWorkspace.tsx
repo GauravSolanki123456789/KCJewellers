@@ -22,6 +22,7 @@ import { ArrowLeft, Download, FileSpreadsheet, Loader2, Pencil, Printer, ScanBar
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { appConfirm } from '@/lib/app-notice'
 import { formatPvGrams, formatPvWeightGrams } from '@/lib/erp-pv-weight'
+import { formatPvCategoryLabel } from '@/lib/erp-pv-category'
 
 type ActivePv = {
   pv_number: string
@@ -32,6 +33,8 @@ type ActivePv = {
   received_weight_gm?: number
   pending_weight_gm?: number
   status: string
+  pv_category?: string | null
+  metal_type?: string | null
 }
 
 function PvWeightTally({ pv }: { pv: ActivePv }) {
@@ -68,6 +71,9 @@ type Batch = {
   row_count: number
   piece_count?: number
   created_at: string
+  pv_category?: string | null
+  pv_metal_type?: string | null
+  pv_status?: string | null
 }
 
 type ImportBatch = {
@@ -617,7 +623,11 @@ export function ErpProductsWorkspace() {
               {activePv ? (
                 <div className="mt-2">
                   <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                    {activePv.pv_number} · {activePv.status}
+                    {activePv.pv_number}
+                    {activePv.pv_category ? ` · ${formatPvCategoryLabel(activePv.pv_category)}` : ''}
+                    {activePv.metal_type ? ` · ${String(activePv.metal_type).toLowerCase() === 'gold' ? 'Gold' : 'Silver'}` : ''}
+                    {' · '}
+                    {activePv.status}
                   </p>
                   <PvWeightTally pv={activePv} />
                 </div>
@@ -922,6 +932,8 @@ export function ErpProductsWorkspace() {
                   <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{b.batch_label}</p>
                   <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                     {b.piece_count ?? b.row_count} pieces · {formatErpDateDdMmYyyy(b.created_at)}
+                    {b.pv_category ? ` · ${formatPvCategoryLabel(b.pv_category)}` : ''}
+                    {b.pv_status ? ` · ${b.pv_status}` : ''}
                   </p>
                 </div>
                 <span className="text-xs font-semibold text-[var(--kc-accent,#c41e3a)]">Open</span>

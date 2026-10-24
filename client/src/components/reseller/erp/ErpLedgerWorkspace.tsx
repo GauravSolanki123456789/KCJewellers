@@ -34,6 +34,7 @@ import { ErpLedgerReportsPanel } from '@/components/reseller/erp/ErpLedgerReport
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
+import { formatPvCategoryLabel, PV_CATEGORY_OPTIONS } from '@/lib/erp-pv-category'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
 import { exportDaybookToTallyLocal } from '@/lib/erp-tally-export'
 import { downloadDaybookPdf, type DaybookExportData } from '@/lib/erp-ledger-statement-pdf'
@@ -451,8 +452,11 @@ function emptyPvForm() {
     vendor_name: '',
     vendor_bill_ref: '',
     amount_inr: '',
+    gross_wt_gm: '',
+    metal_pct: '',
     weight_gm: '',
     metal_type: 'SILVER',
+    pv_category: '',
     payment_mode: 'neft',
     narration: '',
     customer_id: '',
@@ -509,6 +513,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       pending_weight_kg: number
       status: string
       entry_date: string
+      pv_category?: string | null
       customer_id?: number | null
       customer_name?: string | null
       customer_mobile?: string | null
@@ -1371,6 +1376,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       alert('Enter weight in grams')
       return
     }
+    if (metalLedgerShop && !pvForm.pv_category) {
+      alert('Select a category (Metal, Item, Repair, Return, Sample, or Non metal)')
+      return
+    }
     setBusy(true)
     try {
       const res = await axios.post<{ purchase_voucher: { pv_number: string } }>(
@@ -1379,6 +1388,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           ...pvForm,
           amount_inr: amountOptional ? amount > 0 ? amount : 0 : amount,
           weight_gm: weightGm,
+          pv_category: pvForm.pv_category || null,
           customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
         },
       )
@@ -1386,17 +1396,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         `Purchase saved — ${res.data.purchase_voucher.pv_number}. Upload stock in Products with this PV number.`,
         'success',
       )
-      setPvForm({
-        entry_date: todayIso(),
-        vendor_name: '',
-        vendor_bill_ref: '',
-        amount_inr: '',
-        weight_gm: '',
-        metal_type: 'SILVER',
-        payment_mode: 'neft',
-        narration: '',
-        customer_id: '',
-      })
+      setPvForm(emptyPvForm())
       setPvCustomerQ('')
       setPvCustomerLabel('')
       setPvCustomerResults([])
@@ -2480,9 +2480,58 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
               Amount (₹){metalLedgerShop ? ' — optional if metal mode' : ''}
               <input className={`${erpInputCls} mt-1 tabular-nums`} inputMode="decimal" value={pvForm.amount_inr} onChange={(e) => setPvForm({ ...pvForm, amount_inr: e.target.value.replace(/[^\d.]/g, '') })} />
             </label>
+            {metalLedgerShop ? (
+              <>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Gross Wt (g)
+                  <input
+                    className={`${erpInputCls} mt-1 tabular-nums`}
+                    inputMode="decimal"
+                    value={pvForm.gross_wt_gm}
+                    onChange={(e) => {
+                      const gross_wt_gm = e.target.value.replace(/[^\d.]/g, '')
+                      const autoWt = fineGmFromGrossPct(gross_wt_gm, pvForm.metal_pct)
+                      setPvForm({
+                        ...pvForm,
+                        gross_wt_gm,
+                        weight_gm: autoWt || pvForm.weight_gm,
+                      })
+                    }}
+                  />
+                </label>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal %
+                  <input
+                    className={`${erpInputCls} mt-1 tabular-nums`}
+                    inputMode="decimal"
+                    value={pvForm.metal_pct}
+                    onChange={(e) => {
+                      const metal_pct = e.target.value.replace(/[^\d.]/g, '')
+                      const autoWt = fineGmFromGrossPct(pvForm.gross_wt_gm, metal_pct)
+                      setPvForm({
+                        ...pvForm,
+                        metal_pct,
+                        weight_gm: autoWt || pvForm.weight_gm,
+                      })
+                    }}
+                  />
+                </label>
+              </>
+            ) : null}
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Weight (grams)
-              <input className={`${erpInputCls} mt-1 tabular-nums`} inputMode="decimal" value={pvForm.weight_gm} onChange={(e) => setPvForm({ ...pvForm, weight_gm: e.target.value.replace(/[^\d.]/g, '') })} />
+              <input
+                className={`${erpInputCls} mt-1 tabular-nums`}
+                inputMode="decimal"
+                value={pvForm.weight_gm}
+                onChange={(e) => setPvForm({ ...pvForm, weight_gm: e.target.value.replace(/[^\d.]/g, '') })}
+                readOnly={metalLedgerShop && !!fineGmFromGrossPct(pvForm.gross_wt_gm, pvForm.metal_pct)}
+                title={
+                  metalLedgerShop && fineGmFromGrossPct(pvForm.gross_wt_gm, pvForm.metal_pct)
+                    ? 'Calculated from gross weight × metal %'
+                    : undefined
+                }
+              />
             </label>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Metal
@@ -2491,6 +2540,23 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 <option value="GOLD">Gold</option>
               </select>
             </label>
+            {metalLedgerShop ? (
+              <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                Category
+                <select
+                  className={`${erpInputCls} mt-1`}
+                  value={pvForm.pv_category}
+                  onChange={(e) => setPvForm({ ...pvForm, pv_category: e.target.value })}
+                >
+                  <option value="">Select category…</option>
+                  {PV_CATEGORY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Payment mode
               <select className={`${erpInputCls} mt-1`} value={pvForm.payment_mode} onChange={(e) => setPvForm({ ...pvForm, payment_mode: e.target.value })}>
@@ -2523,7 +2589,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     <div className="min-w-0">
                       <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">{pv.pv_number}</p>
                       <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-                        {pv.vendor_name || 'Vendor'} ·{' '}
+                        {pv.vendor_name || 'Vendor'}
+                        {pv.pv_category ? ` · ${formatPvCategoryLabel(pv.pv_category)}` : ''} ·{' '}
                         {formatPvWeightGrams(pv.weight_kg)} · pending {formatPvWeightGrams(pv.pending_weight_kg)} ·{' '}
                         {pv.status} · {formatErpDateDdMmYyyy(pv.entry_date)}
                       </p>

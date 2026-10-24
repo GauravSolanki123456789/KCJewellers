@@ -7,6 +7,27 @@ const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 const { loadJewelleryLedgerMetalEnabled } = require('./erpJewelleryLedgerSettings');
 const { roundMetalGm, normalizeJewelleryMetal } = require('./erpLedgerMetal');
 
+const PV_CATEGORY_VALUES = new Set(['metal', 'item', 'repair', 'return', 'sample', 'non_metal']);
+
+function normalizePvCategory(raw) {
+    const s = trimStr(raw, 32).toLowerCase().replace(/[\s-]+/g, '_');
+    if (s === 'nonmetal') return 'non_metal';
+    return PV_CATEGORY_VALUES.has(s) ? s : null;
+}
+
+function pvCategoryDisplayLabel(code) {
+    if (!code) return '';
+    const map = {
+        metal: 'Metal',
+        item: 'Item',
+        repair: 'Repair',
+        return: 'Return',
+        sample: 'Sample',
+        non_metal: 'Non metal',
+    };
+    return map[code] || String(code).replace(/_/g, ' ');
+}
+
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
     return s.length > max ? s.slice(0, max) : s;
@@ -98,6 +119,8 @@ async function ensurePurchaseSchema(pool) {
             ALTER COLUMN weight_kg TYPE NUMERIC(14, 6);
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS jewellery_metal VARCHAR(16);
+        ALTER TABLE reseller_erp_purchase_vouchers
+            ADD COLUMN IF NOT EXISTS pv_category VARCHAR(32);
     `);
 }
 
@@ -123,6 +146,7 @@ function mapPv(row) {
         received_weight_gm: receivedGm,
         pending_weight_gm: pendingGm,
         metal_type: row.metal_type,
+        pv_category: row.pv_category || null,
         narration: row.narration,
         ledger_entry_id: row.ledger_entry_id,
         status: row.status,
@@ -455,6 +479,16 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             const vendorBillRef = trimStr(req.body.vendor_bill_ref, 120);
             const metalType = trimStr(req.body.metal_type, 32);
             const narration = trimStr(req.body.narration, 2000);
+            let pvCategory = normalizePvCategory(req.body.pv_category || req.body.category);
+            if (metalLedgerOn) {
+                if (!pvCategory) {
+                    return res.status(400).json({
+                        error: 'Select a category (Metal, Item, Repair, Return, Sample, or Non metal)',
+                    });
+                }
+            } else {
+                pvCategory = pvCategory || null;
+            }
             const customerIdRaw = parseInt(String(req.body.customer_id || ''), 10);
             const customerId =
                 Number.isFinite(customerIdRaw) && customerIdRaw > 0 ? customerIdRaw : null;
@@ -469,10 +503,22 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             const pvRows = await query(
                 `INSERT INTO reseller_erp_purchase_vouchers (
                     reseller_user_id, pv_number, entry_date, vendor_name, vendor_bill_ref,
-                    amount_inr, weight_kg, metal_type, narration, status, customer_id
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10)
+                    amount_inr, weight_kg, metal_type, pv_category, narration, status, customer_id
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$11)
                  RETURNING *`,
-                [req.user.id, pvNumber, entryDate, vendorName, vendorBillRef, amount, weightKg, metalType, narration, customerId],
+                [
+                    req.user.id,
+                    pvNumber,
+                    entryDate,
+                    vendorName,
+                    vendorBillRef,
+                    amount,
+                    weightKg,
+                    metalType,
+                    pvCategory,
+                    narration,
+                    customerId,
+                ],
             );
             const pv = pvRows[0];
 
@@ -481,9 +527,10 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
             const ledgerMetalGm =
                 metalLedgerOn && weightGm > 0 ? roundMetalGm(weightGm) : null;
             const jewelleryMetal = normalizeJewelleryMetal(metalType) || 'silver';
+            const catBit = pvCategory ? `${pvCategoryDisplayLabel(pvCategory)} · ` : '';
             const ledgerNarration =
                 narration ||
-                `${jewelleryMetal === 'gold' ? 'Gold ' : ''}Stock purchase ${pvNumber} · ${weightGm.toFixed(3)} g`;
+                `${catBit}${jewelleryMetal === 'gold' ? 'Gold ' : ''}Stock purchase ${pvNumber} · ${weightGm.toFixed(3)} g`;
             const ledgerRows = await query(
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, payment_mode,

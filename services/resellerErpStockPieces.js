@@ -1679,8 +1679,12 @@ function registerStockPieceRoutes(app, deps) {
             const rows = await query(
                 `SELECT b.*,
                     (SELECT COUNT(*)::int FROM reseller_erp_stock_pieces p
-                     WHERE p.batch_id = b.id) AS piece_count
+                     WHERE p.batch_id = b.id) AS piece_count,
+                    pv.pv_category,
+                    pv.metal_type AS pv_metal_type,
+                    pv.status AS pv_status
                  FROM reseller_erp_stock_batches b
+                 LEFT JOIN reseller_erp_purchase_vouchers pv ON pv.id = b.purchase_voucher_id
                  WHERE b.reseller_user_id = $1
                  ORDER BY b.created_at DESC
                  LIMIT 100`,
