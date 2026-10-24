@@ -119,7 +119,89 @@ async function ensureMetalRoutingSchema(pool) {
 
         CREATE INDEX IF NOT EXISTS idx_metal_lot_events_lot
             ON reseller_erp_metal_lot_events (reseller_user_id, lot_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_metal_routing_categories (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name VARCHAR(128) NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_metal_routing_categories_name
+            ON reseller_erp_metal_routing_categories (reseller_user_id, lower(trim(name)));
+
+        ALTER TABLE reseller_erp_metal_stock_lots
+            ADD COLUMN IF NOT EXISTS lot_number INTEGER;
+        ALTER TABLE reseller_erp_metal_stock_lots
+            ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES reseller_erp_metal_routing_categories(id) ON DELETE SET NULL;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_metal_stock_lots_lot_number
+            ON reseller_erp_metal_stock_lots (reseller_user_id, lot_number)
+            WHERE lot_number IS NOT NULL;
+
+        ALTER TABLE reseller_erp_metal_lot_events
+            ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES reseller_erp_metal_routing_categories(id) ON DELETE SET NULL;
     `);
+}
+
+async function allocateMetalLotNumber(query, userId) {
+    const rows = await query(
+        `SELECT lot_number FROM reseller_erp_metal_stock_lots
+         WHERE reseller_user_id = $1 AND lot_number IS NOT NULL
+         ORDER BY lot_number ASC`,
+        [userId],
+    );
+    let expected = 1;
+    for (const r of rows) {
+        const n = Number(r.lot_number);
+        if (!Number.isFinite(n)) continue;
+        if (n > expected) return expected;
+        if (n === expected) expected += 1;
+    }
+    return expected;
+}
+
+async function counterLabelWithIncharge(query, userId, counterId) {
+    if (!counterId) return null;
+    const rows = await query(
+        `SELECT c.name, c.incharge_operator_id, o.display_name, o.username
+         FROM reseller_erp_metal_routing_counters c
+         LEFT JOIN reseller_erp_operators o
+           ON o.id = c.incharge_operator_id AND o.reseller_user_id = c.reseller_user_id
+         WHERE c.id = $1 AND c.reseller_user_id = $2 LIMIT 1`,
+        [counterId, userId],
+    );
+    if (!rows.length) return null;
+    const name = String(rows[0].name || '').trim();
+    const staff = String(rows[0].display_name || rows[0].username || '').trim();
+    return staff ? `${name} (${staff})` : name;
+}
+
+function lotWithCustomerBlock(lot) {
+    return !!(lot && lot.held_by_customer_id);
+}
+
+async function assertLotActionsAllowed(lot) {
+    if (lotWithCustomerBlock(lot)) {
+        const err = new Error(
+            'This lot is with a customer. A manager must take it back before transfer, split, or another handover.',
+        );
+        err.status = 400;
+        throw err;
+    }
+}
+
+async function mapCategoryBrief(query, userId, categoryId) {
+    if (!categoryId) return null;
+    const rows = await query(
+        `SELECT id, name FROM reseller_erp_metal_routing_categories
+         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+        [categoryId, userId],
+    );
+    return rows.length ? { id: rows[0].id, name: rows[0].name } : null;
 }
 
 function grossExceedsMax(requestedGm, maxGm) {
@@ -142,8 +224,8 @@ async function logMetalLotEvent(query, payload) {
         `INSERT INTO reseller_erp_metal_lot_events (
             reseller_user_id, lot_id, event_type, gross_gm,
             from_counter_id, to_counter_id, from_operator_id, to_operator_id,
-            from_customer_id, to_customer_id, notes, created_by_operator_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            from_customer_id, to_customer_id, notes, created_by_operator_id, category_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
             payload.resellerUserId,
             payload.lotId,
@@ -157,6 +239,7 @@ async function logMetalLotEvent(query, payload) {
             payload.toCustomerId ?? null,
             payload.notes ?? null,
             payload.createdByOperatorId ?? null,
+            payload.categoryId ?? null,
         ],
     );
 }
@@ -193,14 +276,7 @@ async function findLotRootId(query, userId, lotId) {
 }
 
 async function mapLotEventRow(query, userId, row) {
-    const counterName = async (id) => {
-        if (!id) return null;
-        const c = await query(
-            `SELECT name FROM reseller_erp_metal_routing_counters WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
-            [id, userId],
-        );
-        return c.length ? c[0].name : null;
-    };
+    const counterName = async (id) => counterLabelWithIncharge(query, userId, id);
     const operatorName = async (id) => {
         if (!id) return null;
         const o = await query(
@@ -224,6 +300,7 @@ async function mapLotEventRow(query, userId, row) {
         to_operator_name: await operatorName(row.to_operator_id),
         from_customer: await mapCustomerBrief(query, userId, row.from_customer_id),
         to_customer: await mapCustomerBrief(query, userId, row.to_customer_id),
+        category: await mapCategoryBrief(query, userId, row.category_id),
         notes: row.notes,
         created_at: row.created_at,
     };
@@ -329,9 +406,12 @@ async function mapCounterRow(query, userId, row) {
             };
         }
     }
+    const name = row.name;
+    const staff = incharge?.displayName ? String(incharge.displayName).trim() : '';
     return {
         id: row.id,
-        name: row.name,
+        name,
+        label_with_incharge: staff ? `${name} (${staff})` : name,
         slug: row.slug,
         sort_order: row.sort_order,
         is_active: !!row.is_active,
@@ -365,12 +445,19 @@ async function mapLotRow(query, userId, row) {
         if (p.length) purity = { id: p[0].id, label: p[0].label, metal_type: p[0].metal_type };
     }
     if (row.counter_id) {
+        const label = await counterLabelWithIncharge(query, userId, row.counter_id);
         const c = await query(
-            `SELECT id, name FROM reseller_erp_metal_routing_counters
+            `SELECT id, name, incharge_operator_id FROM reseller_erp_metal_routing_counters
              WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
             [row.counter_id, userId],
         );
-        if (c.length) counter = { id: c[0].id, name: c[0].name };
+        if (c.length) {
+            counter = {
+                id: c[0].id,
+                name: c[0].name,
+                label_with_incharge: label || c[0].name,
+            };
+        }
     }
     if (row.operator_id) {
         const o = await query(
@@ -387,9 +474,13 @@ async function mapLotRow(query, userId, row) {
     }
     const fromCustomer = await mapCustomerBrief(query, userId, row.from_customer_id);
     const heldByCustomer = await mapCustomerBrief(query, userId, row.held_by_customer_id);
+    const category = await mapCategoryBrief(query, userId, row.category_id);
     return {
         id: row.id,
+        lot_number: row.lot_number != null ? Number(row.lot_number) : null,
         metal_type: row.metal_type,
+        category_id: row.category_id ?? null,
+        category,
         purity_id: row.purity_id,
         purity,
         counter_id: row.counter_id,
@@ -769,6 +860,164 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
         },
     );
 
+    app.get('/api/reseller/erp/metal-routing/categories', checkAuth, erpGate, gate, async (req, res) => {
+        try {
+            const rows = await query(
+                `SELECT * FROM reseller_erp_metal_routing_categories
+                 WHERE reseller_user_id = $1
+                 ORDER BY sort_order, name`,
+                [req.user.id],
+            );
+            res.json({
+                categories: rows.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    sort_order: r.sort_order,
+                    is_active: !!r.is_active,
+                })),
+            });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to load categories' });
+        }
+    });
+
+    app.post(
+        '/api/reseller/erp/metal-routing/categories',
+        checkAuth,
+        erpGate,
+        gate,
+        managerOrAdmin,
+        requireJson,
+        async (req, res) => {
+            try {
+                const name = String(req.body.name || '').trim().slice(0, 128);
+                if (!name) return res.status(400).json({ error: 'Category name required' });
+                const sortOrder = parseInt(String(req.body.sort_order ?? 0), 10) || 0;
+                const existing = await query(
+                    `SELECT * FROM reseller_erp_metal_routing_categories
+                     WHERE reseller_user_id = $1 AND lower(trim(name)) = lower(trim($2)) LIMIT 1`,
+                    [req.user.id, name],
+                );
+                if (existing.length) {
+                    if (!existing[0].is_active) {
+                        const revived = await query(
+                            `UPDATE reseller_erp_metal_routing_categories SET is_active = true, updated_at = CURRENT_TIMESTAMP
+                             WHERE id = $1 RETURNING *`,
+                            [existing[0].id],
+                        );
+                        return res.json({
+                            category: {
+                                id: revived[0].id,
+                                name: revived[0].name,
+                                sort_order: revived[0].sort_order,
+                                is_active: true,
+                            },
+                        });
+                    }
+                    return res.json({
+                        category: {
+                            id: existing[0].id,
+                            name: existing[0].name,
+                            sort_order: existing[0].sort_order,
+                            is_active: !!existing[0].is_active,
+                        },
+                    });
+                }
+                const ins = await query(
+                    `INSERT INTO reseller_erp_metal_routing_categories (reseller_user_id, name, sort_order)
+                     VALUES ($1, $2, $3)
+                     RETURNING *`,
+                    [req.user.id, name, sortOrder],
+                );
+                res.json({
+                    category: {
+                        id: ins[0].id,
+                        name: ins[0].name,
+                        sort_order: ins[0].sort_order,
+                        is_active: !!ins[0].is_active,
+                    },
+                });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to create category' });
+            }
+        },
+    );
+
+    app.patch(
+        '/api/reseller/erp/metal-routing/categories/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        managerOrAdmin,
+        requireJson,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                const name =
+                    req.body.name != null ? String(req.body.name).trim().slice(0, 128) : null;
+                const sortOrder =
+                    req.body.sort_order != null
+                        ? parseInt(String(req.body.sort_order), 10) || 0
+                        : undefined;
+                const isActive = req.body.is_active;
+                const sets = [];
+                const params = [req.user.id, id];
+                if (name) {
+                    params.push(name);
+                    sets.push(`name = $${params.length}`);
+                }
+                if (sortOrder !== undefined) {
+                    params.push(sortOrder);
+                    sets.push(`sort_order = $${params.length}`);
+                }
+                if (typeof isActive === 'boolean') {
+                    params.push(isActive);
+                    sets.push(`is_active = $${params.length}`);
+                }
+                if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+                sets.push('updated_at = CURRENT_TIMESTAMP');
+                const rows = await query(
+                    `UPDATE reseller_erp_metal_routing_categories SET ${sets.join(', ')}
+                     WHERE reseller_user_id = $1 AND id = $2 RETURNING *`,
+                    params,
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Category not found' });
+                res.json({
+                    category: {
+                        id: rows[0].id,
+                        name: rows[0].name,
+                        sort_order: rows[0].sort_order,
+                        is_active: !!rows[0].is_active,
+                    },
+                });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to update category' });
+            }
+        },
+    );
+
+    app.delete(
+        '/api/reseller/erp/metal-routing/categories/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        managerOrAdmin,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                await query(
+                    `UPDATE reseller_erp_metal_routing_categories
+                     SET is_active = false, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1 AND reseller_user_id = $2`,
+                    [id, req.user.id],
+                );
+                res.json({ success: true });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to delete category' });
+            }
+        },
+    );
+
     app.get('/api/reseller/erp/metal-routing/lots', checkAuth, erpGate, gate, async (req, res) => {
         try {
             const op = req.erpOperator;
@@ -800,7 +1049,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 params.push(counterIds);
                 sql += ` AND counter_id = ANY($${params.length}::int[])`;
             }
-            sql += ` ORDER BY move_date DESC, id DESC LIMIT 500`;
+            sql += ` ORDER BY COALESCE(lot_number, id) DESC, id DESC LIMIT 500`;
             const rows = await query(sql, params);
             const lots = [];
             for (const r of rows) {
@@ -865,6 +1114,17 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     return res.status(400).json({ error: 'Purity does not match selected metal type' });
                 }
 
+                const categoryId = parseInt(String(req.body.category_id), 10);
+                if (!Number.isFinite(categoryId)) {
+                    return res.status(400).json({ error: 'category_id required' });
+                }
+                const catOk = await query(
+                    `SELECT id FROM reseller_erp_metal_routing_categories
+                     WHERE id = $1 AND reseller_user_id = $2 AND is_active = true LIMIT 1`,
+                    [categoryId, req.user.id],
+                );
+                if (!catOk.length) return res.status(400).json({ error: 'Invalid category' });
+
                 const canSeeAll =
                     isAdminOp(op) ||
                     (await canManageMetalRouting(query, req.user.id, op));
@@ -887,12 +1147,14 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     req.body.charge_pct,
                 );
                 const pureGm = computePureGm(grossGm, chargePct);
+                const lotNumber = await allocateMetalLotNumber(query, req.user.id);
 
                 const ins = await query(
                     `INSERT INTO reseller_erp_metal_stock_lots (
                         reseller_user_id, metal_type, purity_id, counter_id, operator_id,
-                        gross_gm, charge_pct, pure_gm, notes, move_date, from_customer_id
-                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::date, CURRENT_DATE), $11)
+                        gross_gm, charge_pct, pure_gm, notes, move_date, from_customer_id,
+                        category_id, lot_number
+                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::date, CURRENT_DATE), $11, $12, $13)
                      RETURNING *`,
                     [
                         req.user.id,
@@ -906,6 +1168,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         notes,
                         moveDate,
                         fromCustomerId,
+                        categoryId,
+                        lotNumber,
                     ],
                 );
                 await logMetalLotEvent(query, {
@@ -917,6 +1181,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     toOperatorId: operatorId,
                     fromCustomerId,
                     notes,
+                    categoryId,
                     createdByOperatorId: op.id,
                 });
                 res.json({ lot: await mapLotRow(query, req.user.id, ins[0]) });
@@ -948,6 +1213,11 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 const parent = parentRows[0];
                 if (parent.status !== 'active') {
                     return res.status(400).json({ error: 'Lot is not active' });
+                }
+                try {
+                    await assertLotActionsAllowed(parent);
+                } catch (e) {
+                    return res.status(e.status || 400).json({ error: e.message });
                 }
 
                 const canSeeAll =
@@ -1034,11 +1304,13 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
 
                 const children = [];
                 for (const spec of childSpecs) {
+                    const childLotNumber = await allocateMetalLotNumber(query, req.user.id);
                     const ins = await query(
                         `INSERT INTO reseller_erp_metal_stock_lots (
                             reseller_user_id, metal_type, purity_id, counter_id, operator_id,
-                            parent_lot_id, gross_gm, charge_pct, pure_gm, move_date
-                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE)
+                            parent_lot_id, gross_gm, charge_pct, pure_gm, move_date,
+                            category_id, lot_number
+                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, $10, $11)
                          RETURNING *`,
                         [
                             req.user.id,
@@ -1050,6 +1322,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                             spec.grossGm,
                             spec.chargePct,
                             spec.pureGm,
+                            parent.category_id,
+                            childLotNumber,
                         ],
                     );
                     const childRow = ins[0];
@@ -1062,6 +1336,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         toCounterId: spec.counterId,
                         fromOperatorId: parent.operator_id,
                         toOperatorId: spec.operatorId,
+                        categoryId: parent.category_id,
                         createdByOperatorId: op.id,
                     });
                     children.push(await mapLotRow(query, req.user.id, childRow));
@@ -1164,6 +1439,11 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 if (parent.status !== 'active') {
                     return res.status(400).json({ error: 'Lot is not active' });
                 }
+                try {
+                    await assertLotActionsAllowed(parent);
+                } catch (e) {
+                    return res.status(e.status || 400).json({ error: e.message });
+                }
 
                 const canSeeAll =
                     isAdminOp(op) ||
@@ -1223,6 +1503,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         fromOperatorId: parent.operator_id,
                         toOperatorId: operatorId,
                         notes,
+                        categoryId: parent.category_id,
                         createdByOperatorId: op.id,
                     });
                     return res.json({
@@ -1250,11 +1531,13 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     [lotId, remainingGross, remPure],
                 );
 
+                const transferLotNumber = await allocateMetalLotNumber(query, req.user.id);
                 const ins = await query(
                     `INSERT INTO reseller_erp_metal_stock_lots (
                         reseller_user_id, metal_type, purity_id, counter_id, operator_id,
-                        parent_lot_id, gross_gm, charge_pct, pure_gm, notes, move_date
-                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE)
+                        parent_lot_id, gross_gm, charge_pct, pure_gm, notes, move_date,
+                        category_id, lot_number
+                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE, $11, $12)
                      RETURNING *`,
                     [
                         req.user.id,
@@ -1267,6 +1550,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         chargePct,
                         movePure,
                         notes,
+                        parent.category_id,
+                        transferLotNumber,
                     ],
                 );
 
@@ -1284,6 +1569,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     fromOperatorId: parent.operator_id,
                     toOperatorId: operatorId,
                     notes,
+                    categoryId: parent.category_id,
                     createdByOperatorId: op.id,
                 });
 
@@ -1329,6 +1615,11 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 if (lot.status !== 'active') {
                     return res.status(400).json({ error: 'Lot is not active' });
                 }
+                if (lot.held_by_customer_id) {
+                    return res.status(400).json({
+                        error: 'Lot is with a customer. Manager must take it back before another handover.',
+                    });
+                }
 
                 const canSeeAll =
                     isAdminOp(op) ||
@@ -1367,7 +1658,6 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         operator_id = COALESCE($3, operator_id),
                         counter_id = COALESCE($4, counter_id),
                         held_by_customer_id = $5,
-                        notes = COALESCE($6, notes),
                         updated_at = CURRENT_TIMESTAMP
                      WHERE id = $1 AND reseller_user_id = $2
                      RETURNING *`,
@@ -1376,8 +1666,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         req.user.id,
                         toOperatorId || op.id,
                         targetCounterId,
-                        toCustomerId,
-                        notes,
+                        toCustomerId || null,
                     ],
                 );
 
@@ -1393,12 +1682,66 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     fromCustomerId: lot.held_by_customer_id,
                     toCustomerId,
                     notes,
+                    categoryId: lot.category_id,
                     createdByOperatorId: op.id,
                 });
 
                 res.json({ lot: await mapLotRow(query, req.user.id, updated[0]) });
             } catch (e) {
                 res.status(500).json({ error: e.message || 'Handover failed' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/metal-routing/lots/:id/recall-from-customer',
+        checkAuth,
+        erpGate,
+        gate,
+        managerOrAdmin,
+        requireJson,
+        async (req, res) => {
+            try {
+                const op = req.erpOperator;
+                const lotId = parseInt(String(req.params.id), 10);
+                const rows = await query(
+                    `SELECT * FROM reseller_erp_metal_stock_lots
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [lotId, req.user.id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Lot not found' });
+                const lot = rows[0];
+                if (lot.status !== 'active') {
+                    return res.status(400).json({ error: 'Lot is not active' });
+                }
+                if (!lot.held_by_customer_id) {
+                    return res.status(400).json({ error: 'Lot is not with a customer' });
+                }
+                const notes = String(req.body.notes || '').trim().slice(0, 2000) || null;
+                const fromCustomerId = lot.held_by_customer_id;
+                const updated = await query(
+                    `UPDATE reseller_erp_metal_stock_lots SET
+                        held_by_customer_id = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1 AND reseller_user_id = $2
+                     RETURNING *`,
+                    [lotId, req.user.id],
+                );
+                await logMetalLotEvent(query, {
+                    resellerUserId: req.user.id,
+                    lotId,
+                    eventType: 'recall_from_customer',
+                    grossGm: lot.gross_gm,
+                    fromCounterId: lot.counter_id,
+                    fromOperatorId: lot.operator_id,
+                    fromCustomerId,
+                    notes,
+                    categoryId: lot.category_id,
+                    createdByOperatorId: op.id,
+                });
+                res.json({ lot: await mapLotRow(query, req.user.id, updated[0]) });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Recall failed' });
             }
         },
     );
@@ -1687,6 +2030,131 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 });
             } catch (e) {
                 res.status(500).json({ error: e.message || 'Failed to load stock report' });
+            }
+        },
+    );
+
+    app.get(
+        '/api/reseller/erp/metal-routing/reports/lots-ledger',
+        checkAuth,
+        erpGate,
+        gate,
+        async (req, res) => {
+            try {
+                const op = req.erpOperator;
+                const from = String(req.query.from || '').trim() || null;
+                const to = String(req.query.to || '').trim() || null;
+                const metalType = String(req.query.metal_type || '').trim().toLowerCase();
+                const lotStatus = String(req.query.lot_status || 'all').trim().toLowerCase();
+                const view = String(req.query.view || 'summary').trim().toLowerCase();
+                if (!from || !to) {
+                    return res.status(400).json({ error: 'from and to dates required (YYYY-MM-DD)' });
+                }
+
+                const canSeeAll =
+                    isAdminOp(op) ||
+                    (await canManageMetalRouting(query, req.user.id, op));
+                if (!canSeeAll) {
+                    return res.status(403).json({ error: 'Lots ledger report requires manager or admin' });
+                }
+
+                if (view === 'detail') {
+                    const params = [req.user.id, from, to];
+                    let sql = `
+                        SELECT e.*, l.lot_number, l.metal_type, l.status AS lot_status
+                        FROM reseller_erp_metal_lot_events e
+                        JOIN reseller_erp_metal_stock_lots l ON l.id = e.lot_id
+                        WHERE e.reseller_user_id = $1
+                          AND e.created_at::date >= $2::date
+                          AND e.created_at::date <= $3::date`;
+                    if (metalType === 'gold' || metalType === 'silver') {
+                        params.push(metalType);
+                        sql += ` AND l.metal_type = $${params.length}`;
+                    }
+                    if (lotStatus === 'active' || lotStatus === 'closed') {
+                        params.push(lotStatus);
+                        sql += ` AND l.status = $${params.length}`;
+                    }
+                    sql += ` ORDER BY e.created_at ASC, e.id ASC LIMIT 5000`;
+                    const eventRows = await query(sql, params);
+                    const rows = [];
+                    for (const ev of eventRows) {
+                        const mapped = await mapLotEventRow(query, req.user.id, ev);
+                        rows.push({
+                            ...mapped,
+                            lot_number: ev.lot_number != null ? Number(ev.lot_number) : null,
+                            metal_type: ev.metal_type,
+                            lot_status: ev.lot_status,
+                        });
+                    }
+                    return res.json({ from, to, view: 'detail', lot_status: lotStatus, rows });
+                }
+
+                const lotParams = [req.user.id];
+                let lotSql = `SELECT * FROM reseller_erp_metal_stock_lots WHERE reseller_user_id = $1`;
+                if (metalType === 'gold' || metalType === 'silver') {
+                    lotParams.push(metalType);
+                    lotSql += ` AND metal_type = $${lotParams.length}`;
+                }
+                if (lotStatus === 'active' || lotStatus === 'closed') {
+                    lotParams.push(lotStatus);
+                    lotSql += ` AND status = $${lotParams.length}`;
+                }
+                lotSql += ` ORDER BY COALESCE(lot_number, id) ASC LIMIT 2000`;
+                const lotRows = await query(lotSql, lotParams);
+                const summary = [];
+                for (const lot of lotRows) {
+                    const evRows = await query(
+                        `SELECT event_type, gross_gm FROM reseller_erp_metal_lot_events
+                         WHERE reseller_user_id = $1 AND lot_id = $2
+                           AND created_at::date >= $3::date AND created_at::date <= $4::date`,
+                        [req.user.id, lot.id, from, to],
+                    );
+                    let receivedGm = 0;
+                    let issuedGm = 0;
+                    for (const ev of evRows) {
+                        const g = Number(ev.gross_gm) || 0;
+                        if (ev.event_type === 'receive') receivedGm += g;
+                        else if (
+                            ev.event_type === 'transfer' ||
+                            ev.event_type === 'handover_customer' ||
+                            ev.event_type === 'close' ||
+                            ev.event_type === 'split'
+                        ) {
+                            issuedGm += g;
+                        }
+                    }
+                    receivedGm = roundGm(receivedGm);
+                    issuedGm = roundGm(issuedGm);
+                    const closingGm =
+                        lot.status === 'active' ? roundGm(Number(lot.gross_gm) || 0) : 0;
+                    const openingGm = roundGm(Math.max(0, closingGm - receivedGm + issuedGm));
+                    const mapped = await mapLotRow(query, req.user.id, lot);
+                    summary.push({
+                        lot_id: lot.id,
+                        lot_number: lot.lot_number != null ? Number(lot.lot_number) : lot.id,
+                        metal_type: lot.metal_type,
+                        status: lot.status,
+                        category: mapped.category,
+                        counter: mapped.counter,
+                        purity: mapped.purity,
+                        from_customer: mapped.from_customer,
+                        held_by_customer: mapped.held_by_customer,
+                        opening_gross_gm: openingGm,
+                        received_gross_gm: receivedGm,
+                        issued_gross_gm: issuedGm,
+                        closing_gross_gm: closingGm,
+                    });
+                }
+                res.json({
+                    from,
+                    to,
+                    view: 'summary',
+                    lot_status: lotStatus,
+                    rows: summary,
+                });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to load lots ledger' });
             }
         },
     );

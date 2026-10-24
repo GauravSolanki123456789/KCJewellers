@@ -4,19 +4,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import {
   closeMetalLot,
+  createMetalCategory,
   createMetalCounter,
   createMetalPurity,
+  deleteMetalCategory,
   deleteMetalCounter,
   deleteMetalLot,
   deleteMetalPurity,
+  fetchMetalCategories,
   fetchMetalLotJourney,
   fetchMetalLots,
+  fetchMetalLotsLedgerReport,
   fetchMetalPurities,
   fetchMetalRoutingBootstrap,
   fetchMetalStaffReport,
   fetchMetalStockReport,
   handoverMetalLot,
   metalGrossExceedsMax,
+  metalLotDisplayNumber,
+  recallMetalLotFromCustomer,
   receiveMetalLot,
   roundMetalGm,
   setMetalRoutingManager,
@@ -24,9 +30,13 @@ import {
   transferMetalLot,
   updateMetalLot,
   updateMetalCounter,
+  type MetalLotEvent,
   type MetalLotJourney,
+  type MetalLotsLedgerDetailRow,
+  type MetalLotsLedgerSummaryRow,
   type MetalPurity,
   type MetalRoutingBootstrap,
+  type MetalRoutingCategory,
   type MetalStockLot,
   type MetalStockReportRow,
 } from '@/lib/erp-metal-routing'
@@ -52,7 +62,12 @@ function lotPurityLabel(lot: MetalStockLot): string {
 }
 
 function formatLotSummary(lot: MetalStockLot): string {
-  return `#${lot.id} · Gross: ${Number(lot.gross_gm).toFixed(3)} g    Purity: ${lotPurityLabel(lot)}    Pure wt: ${Number(lot.pure_gm).toFixed(3)} g`
+  const n = metalLotDisplayNumber(lot)
+  return `#${n} · Gross: ${Number(lot.gross_gm).toFixed(3)} g    Purity: ${lotPurityLabel(lot)}    Pure wt: ${Number(lot.pure_gm).toFixed(3)} g`
+}
+
+function lotCounterLabel(lot: MetalStockLot): string {
+  return lot.counter?.label_with_incharge ?? lot.counter?.name ?? 'No counter'
 }
 
 type SplitRow = { grossGm: string; counterId: number | '' }
@@ -65,7 +80,12 @@ export function ErpMetalRoutingWorkspace() {
 
   const [operators, setOperators] = useState<{ id: number; displayName: string }[]>([])
   const [purities, setPurities] = useState<MetalPurity[]>([])
+  const [categories, setCategories] = useState<MetalRoutingCategory[]>([])
   const [lots, setLots] = useState<MetalStockLot[]>([])
+  const [lotListMode, setLotListMode] = useState<'open' | 'closed'>('open')
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [categoryId, setCategoryId] = useState<number | ''>('')
+  const [categoryQuery, setCategoryQuery] = useState('')
 
   const [newCounterName, setNewCounterName] = useState('')
   const [managerOpId, setManagerOpId] = useState<number | ''>('')
@@ -92,6 +112,7 @@ export function ErpMetalRoutingWorkspace() {
   const [handoverCustomerId, setHandoverCustomerId] = useState<number | null>(null)
   const [handoverCustomerName, setHandoverCustomerName] = useState('')
   const [handoverOperatorId, setHandoverOperatorId] = useState<number | ''>('')
+  const [handoverNotes, setHandoverNotes] = useState('')
   const [journey, setJourney] = useState<MetalLotJourney | null>(null)
   const [journeyBusy, setJourneyBusy] = useState(false)
 
@@ -99,6 +120,11 @@ export function ErpMetalRoutingWorkspace() {
   const [reportTo, setReportTo] = useState(erpTodayIso())
   const [reportMetal, setReportMetal] = useState<'gold' | 'silver' | ''>('')
   const [stockRows, setStockRows] = useState<MetalStockReportRow[]>([])
+  const [ledgerRows, setLedgerRows] = useState<
+    (MetalLotsLedgerSummaryRow | MetalLotsLedgerDetailRow)[]
+  >([])
+  const [ledgerView, setLedgerView] = useState<'summary' | 'detail'>('summary')
+  const [ledgerLotStatus, setLedgerLotStatus] = useState<'active' | 'closed' | 'all'>('active')
   const [staffReportOpId, setStaffReportOpId] = useState<number | ''>('')
   const [reportBusy, setReportBusy] = useState(false)
 
@@ -112,19 +138,35 @@ export function ErpMetalRoutingWorkspace() {
     setPurities(await fetchMetalPurities(metalType))
   }, [metalType])
 
+  const reloadCategories = useCallback(async () => {
+    setCategories(await fetchMetalCategories())
+  }, [])
+
   const reloadLots = useCallback(async () => {
     const list = await fetchMetalLots({
       metal_type: metalType,
-      status: 'active',
+      status: lotListMode === 'closed' ? 'closed' : 'active',
     })
     setLots(list)
-  }, [metalType])
+  }, [metalType, lotListMode])
+
+  const activeCategories = useMemo(
+    () => categories.filter((c) => c.is_active),
+    [categories],
+  )
+
+  const filteredCategories = useMemo(() => {
+    const q = categoryQuery.trim().toLowerCase()
+    if (!q) return activeCategories
+    return activeCategories.filter((c) => c.name.toLowerCase().includes(q))
+  }, [activeCategories, categoryQuery])
 
   useEffect(() => {
     void (async () => {
       setLoading(true)
       try {
         await reloadBoot()
+        await reloadCategories()
       } catch {
         appAlert('Failed to load metal routing', 'error')
       } finally {
@@ -153,6 +195,13 @@ export function ErpMetalRoutingWorkspace() {
       setPurityId(active[0].id)
     }
   }, [purities, purityId])
+
+  useEffect(() => {
+    if (!categoryId && activeCategories.length === 1) {
+      setCategoryId(activeCategories[0].id)
+      setCategoryQuery(activeCategories[0].name)
+    }
+  }, [activeCategories, categoryId])
 
   useEffect(() => {
     if (!boot || boot.role === 'viewer') return
@@ -245,9 +294,35 @@ export function ErpMetalRoutingWorkspace() {
     }
   }
 
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) return
+    try {
+      const cat = await createMetalCategory(newCategoryName.trim())
+      setNewCategoryName('')
+      await reloadCategories()
+      setCategoryId(cat.id)
+      setCategoryQuery(cat.name)
+      appAlert('Category saved', 'success')
+    } catch (e: unknown) {
+      appAlert(extractErr(e) || 'Could not save category', 'error')
+    }
+  }
+
+  const resolveReceiveCategoryId = (): number | null => {
+    if (categoryId) return Number(categoryId)
+    const q = categoryQuery.trim().toLowerCase()
+    const match = activeCategories.find((c) => c.name.toLowerCase() === q)
+    return match ? match.id : null
+  }
+
   const onReceive = async () => {
     if (!purityId || !grossGm) {
       appAlert('Purity and gross grams required', 'error')
+      return
+    }
+    const resolvedCategoryId = resolveReceiveCategoryId()
+    if (!resolvedCategoryId) {
+      appAlert('Choose a category (required)', 'error')
       return
     }
     try {
@@ -258,6 +333,7 @@ export function ErpMetalRoutingWorkspace() {
         charge_pct: chargePct ? Number(chargePct) : undefined,
         counter_id: receiveCounterId ? Number(receiveCounterId) : undefined,
         from_customer_id: fromCustomerId ?? undefined,
+        category_id: resolvedCategoryId,
         notes: receiveNotes || undefined,
         move_date: moveDate,
       })
@@ -385,7 +461,9 @@ export function ErpMetalRoutingWorkspace() {
       const lot = await handoverMetalLot(selectedLot.id, {
         to_customer_id: handoverCustomerId ?? undefined,
         to_operator_id: handoverOperatorId ? Number(handoverOperatorId) : undefined,
+        notes: handoverNotes.trim() || undefined,
       })
+      setHandoverNotes('')
       mergeLotInList(lot)
       setHandoverCustomerId(null)
       setHandoverCustomerName('')
@@ -417,10 +495,23 @@ export function ErpMetalRoutingWorkspace() {
     }
   }
 
+  const onRecallFromCustomer = async () => {
+    if (!selectedLot || !canManage) return
+    try {
+      const lot = await recallMetalLotFromCustomer(selectedLot.id)
+      mergeLotInList(lot)
+      void loadJourney(selectedLot.id)
+      appAlert(`Lot #${metalLotDisplayNumber(selectedLot)} taken back from customer`, 'success')
+    } catch (e: unknown) {
+      appAlert(extractErr(e) || 'Recall failed', 'error')
+    }
+  }
+
   const onDeleteLot = async () => {
     if (!selectedLot || !canManage) return
+    const n = metalLotDisplayNumber(selectedLot)
     const ok = await appConfirm(
-      `Delete lot #${selectedLot.id} and any split children from the database? This cannot be undone.`,
+      `Delete lot #${n} and any split children? The lot number can be reused for the next receive.`,
     )
     if (!ok) return
     try {
@@ -428,7 +519,7 @@ export function ErpMetalRoutingWorkspace() {
       setActiveLotId(null)
       setJourney(null)
       await reloadLots()
-      appAlert(`Lot #${selectedLot.id} deleted`, 'success')
+      appAlert(`Lot #${n} deleted — number is free to reuse`, 'success')
     } catch (e: unknown) {
       appAlert(extractErr(e) || 'Delete failed', 'error')
     }
@@ -459,6 +550,25 @@ export function ErpMetalRoutingWorkspace() {
       setStockRows(data.rows)
     } catch (e: unknown) {
       appAlert(extractErr(e) || 'Report failed', 'error')
+    } finally {
+      setReportBusy(false)
+    }
+  }
+
+  const loadLotsLedgerReport = async () => {
+    if (!canManage) return
+    setReportBusy(true)
+    try {
+      const data = await fetchMetalLotsLedgerReport({
+        from: reportFrom,
+        to: reportTo,
+        metal_type: reportMetal || undefined,
+        lot_status: ledgerLotStatus,
+        view: ledgerView,
+      })
+      setLedgerRows(data.rows as (MetalLotsLedgerSummaryRow | MetalLotsLedgerDetailRow)[])
+    } catch (e: unknown) {
+      appAlert(extractErr(e) || 'Lots ledger report failed', 'error')
     } finally {
       setReportBusy(false)
     }
@@ -505,7 +615,11 @@ export function ErpMetalRoutingWorkspace() {
         <button
           type="button"
           className={erpBtnGhost}
-          onClick={() => void reloadBoot().then(() => Promise.all([reloadPurities(), reloadLots()]))}
+          onClick={() =>
+            void reloadBoot().then(() =>
+              Promise.all([reloadPurities(), reloadCategories(), reloadLots()]),
+            )
+          }
         >
           <RefreshCw className="size-4" /> Refresh
         </button>
@@ -602,6 +716,43 @@ export function ErpMetalRoutingWorkspace() {
                       <Trash2 className="size-4" />
                     </button>
                   </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className={`${erpCardCls} space-y-3`}>
+            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Lot categories</p>
+            <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+              Required when receiving metal (e.g. Metal, Ornaments).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                className={`${erpInputCls} min-w-[160px] flex-1`}
+                placeholder="Category name"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+              />
+              <button type="button" className={erpBtnPrimary} onClick={() => void addCategory()}>
+                <Plus className="size-4" /> Add
+              </button>
+            </div>
+            <ul className="space-y-1 text-sm">
+              {activeCategories.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between rounded-lg bg-black/[0.03] px-2 py-1.5 text-[var(--color-jewelry-black,#1a1814)]"
+                >
+                  <span>{c.name}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-rose-700"
+                    onClick={() =>
+                      void deleteMetalCategory(c.id).then(() => reloadCategories())
+                    }
+                  >
+                    Remove
+                  </button>
                 </li>
               ))}
             </ul>
@@ -756,6 +907,46 @@ export function ErpMetalRoutingWorkspace() {
               </label>
             </div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-black/50">
+              Category (required)
+              <div className="relative mt-1">
+                <input
+                  className={`${erpInputCls} block w-full`}
+                  list="metal-routing-categories"
+                  placeholder="Type or pick category…"
+                  value={categoryQuery}
+                  onChange={(e) => {
+                    setCategoryQuery(e.target.value)
+                    const q = e.target.value.trim().toLowerCase()
+                    const match = activeCategories.find((c) => c.name.toLowerCase() === q)
+                    setCategoryId(match ? match.id : '')
+                  }}
+                />
+                <datalist id="metal-routing-categories">
+                  {activeCategories.map((c) => (
+                    <option key={c.id} value={c.name} />
+                  ))}
+                </datalist>
+                {filteredCategories.length > 0 && categoryQuery.trim() && !categoryId ? (
+                  <ul className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white shadow-lg">
+                    {filteredCategories.slice(0, 8).map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm text-[var(--color-jewelry-black,#1a1814)] hover:bg-black/[0.04]"
+                          onClick={() => {
+                            setCategoryId(c.id)
+                            setCategoryQuery(c.name)
+                          }}
+                        >
+                          {c.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </label>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-black/50">
               From customer (optional)
               <div className="mt-1">
                 <ErpCustomerSuggestField
@@ -786,9 +977,51 @@ export function ErpMetalRoutingWorkspace() {
           </div>
 
           <div className={`${erpCardCls} space-y-3`}>
-            <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Active lots</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                {lotListMode === 'closed' ? 'Closed lots' : 'Open lots'}
+              </p>
+              {canManage ? (
+                <div className="flex rounded-xl border border-[var(--color-slate-700,#e8e4df)] p-0.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-lg px-3 py-1.5 text-xs font-semibold',
+                      lotListMode === 'open'
+                        ? 'bg-[var(--color-jewelry-black,#1a1814)] text-white'
+                        : 'text-[var(--color-jewelry-black,#1a1814)]',
+                    )}
+                    onClick={() => {
+                      setLotListMode('open')
+                      setActiveLotId(null)
+                      setJourney(null)
+                    }}
+                  >
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-lg px-3 py-1.5 text-xs font-semibold',
+                      lotListMode === 'closed'
+                        ? 'bg-[var(--color-jewelry-black,#1a1814)] text-white'
+                        : 'text-[var(--color-jewelry-black,#1a1814)]',
+                    )}
+                    onClick={() => {
+                      setLotListMode('closed')
+                      setActiveLotId(null)
+                      setJourney(null)
+                    }}
+                  >
+                    Closed
+                  </button>
+                </div>
+              ) : null}
+            </div>
             {visibleLots.length === 0 ? (
-              <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">No active lots for {metalType}.</p>
+              <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+                No {lotListMode} lots for {metalType}.
+              </p>
             ) : (
               <ul className="max-h-[min(70vh,520px)] space-y-2 overflow-y-auto">
                 {visibleLots.map((lot) => (
@@ -803,7 +1036,8 @@ export function ErpMetalRoutingWorkspace() {
                     >
                       <p className="font-semibold leading-snug">{formatLotSummary(lot)}</p>
                       <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                        {lot.counter?.name ?? 'No counter'}
+                        {lotCounterLabel(lot)}
+                        {lot.category?.name ? ` · ${lot.category.name}` : ''}
                         {lot.held_by_customer?.name ? ` · With ${lot.held_by_customer.name}` : ''}
                         {lot.from_customer?.name ? ` · From ${lot.from_customer.name}` : ''}
                         {' · '}
@@ -812,6 +1046,23 @@ export function ErpMetalRoutingWorkspace() {
                     </button>
                     {activeLotId === lot.id ? (
                       <div className="space-y-3 border-t border-[var(--color-slate-700,#e8e4df)] p-3">
+                        {lot.held_by_customer?.name ? (
+                          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                            With customer: <strong>{lot.held_by_customer.name}</strong>
+                            {canManage ? (
+                              <button
+                                type="button"
+                                className="ml-2 font-semibold underline"
+                                onClick={() => void onRecallFromCustomer()}
+                              >
+                                Take back (manager)
+                              </button>
+                            ) : (
+                              ' — ask manager to take back before moving this lot.'
+                            )}
+                          </p>
+                        ) : null}
+                        {lotListMode === 'open' && lot.status === 'active' && !lot.held_by_customer_id ? (
                         <div className="space-y-2">
                           <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
                             Move to counter
@@ -829,7 +1080,7 @@ export function ErpMetalRoutingWorkspace() {
                                 .filter((c) => c.id !== lot.counter_id)
                                 .map((c) => (
                                   <option key={c.id} value={c.id}>
-                                    {c.name}
+                                    {c.label_with_incharge ?? c.name}
                                   </option>
                                 ))}
                             </select>
@@ -861,7 +1112,9 @@ export function ErpMetalRoutingWorkspace() {
                             </button>
                           </div>
                         </div>
+                        ) : null}
 
+                        {lotListMode === 'open' && lot.status === 'active' && !lot.held_by_customer_id ? (
                         <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">
                           <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
                             <UserRound className="mr-1 inline size-3.5" />
@@ -910,12 +1163,19 @@ export function ErpMetalRoutingWorkspace() {
                               </select>
                             </label>
                           </div>
+                          <textarea
+                            className={`${erpInputCls} min-h-[52px] w-full text-sm`}
+                            placeholder="Handover notes (optional — shown in history)"
+                            value={handoverNotes}
+                            onChange={(e) => setHandoverNotes(e.target.value)}
+                          />
                           <button type="button" className={erpBtnGhost} onClick={() => void onHandover()}>
                             Hand over
                           </button>
                         </div>
+                        ) : null}
 
-                        {canManage ? (
+                        {canManage && lotListMode === 'open' && lot.status === 'active' ? (
                           <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/50 p-3">
                             <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
                               Change purity (manager)
@@ -949,6 +1209,7 @@ export function ErpMetalRoutingWorkspace() {
                           </div>
                         ) : null}
 
+                        {lotListMode === 'open' && lot.status === 'active' && !lot.held_by_customer_id ? (
                         <div className="space-y-2">
                           <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
                             Split (optional)
@@ -1015,10 +1276,11 @@ export function ErpMetalRoutingWorkspace() {
                             {roundMetalGm(Number(lot.gross_gm)).toFixed(3)} g
                             {!metalGrossExceedsMax(splitTotalGross, Number(lot.gross_gm)) &&
                             splitTotalGross < roundMetalGm(Number(lot.gross_gm))
-                              ? ` — ${roundMetalGm(Number(lot.gross_gm) - splitTotalGross).toFixed(3)} g stays on #${lot.id}`
+                              ? ` — ${roundMetalGm(Number(lot.gross_gm) - splitTotalGross).toFixed(3)} g stays on #${metalLotDisplayNumber(lot)}`
                               : ''}
                           </p>
                         </div>
+                        ) : null}
 
                         <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/40 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1058,7 +1320,7 @@ export function ErpMetalRoutingWorkspace() {
                           )}
                         </div>
 
-                        {canManage ? (
+                        {canManage && lotListMode === 'open' && lot.status === 'active' ? (
                           <div className="flex flex-wrap gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
                             <button type="button" className={erpBtnGhost} onClick={() => void onCloseLot()}>
                               Close lot (manager)
@@ -1154,6 +1416,104 @@ export function ErpMetalRoutingWorkspace() {
               </button>
             </div>
           ) : null}
+
+          {canManage ? (
+            <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)]/30 p-3">
+              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Lots ledger (open / closed)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  className={erpInputCls}
+                  value={ledgerLotStatus}
+                  onChange={(e) =>
+                    setLedgerLotStatus(e.target.value as 'active' | 'closed' | 'all')
+                  }
+                >
+                  <option value="active">Open lots</option>
+                  <option value="closed">Closed lots</option>
+                  <option value="all">All lots</option>
+                </select>
+                <select
+                  className={erpInputCls}
+                  value={ledgerView}
+                  onChange={(e) => setLedgerView(e.target.value as 'summary' | 'detail')}
+                >
+                  <option value="summary">Summary per lot</option>
+                  <option value="detail">Detail (every movement)</option>
+                </select>
+                <button
+                  type="button"
+                  className={erpBtnPrimary}
+                  disabled={reportBusy}
+                  onClick={() => void loadLotsLedgerReport()}
+                >
+                  {reportBusy ? <Loader2 className="size-4 animate-spin" /> : 'Lots ledger'}
+                </button>
+              </div>
+              {ledgerRows.length ? (
+                <div className="max-h-[min(50vh,420px)] overflow-auto">
+                  {ledgerView === 'detail' ? (
+                    <ul className="space-y-2 text-xs text-[var(--color-jewelry-black,#1a1814)]">
+                      {(ledgerRows as MetalLotsLedgerDetailRow[]).map((row) => (
+                        <li
+                          key={row.id}
+                          className="rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white p-2"
+                        >
+                          <p className="font-medium">
+                            #{row.lot_number ?? '—'} · {formatMetalLotEvent(row)}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-black/50">
+                            {new Date(row.created_at).toLocaleString('en-IN')} · {row.lot_status}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <table className="w-full min-w-[640px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b text-black/50">
+                          <th className="py-2 pr-2">Lot</th>
+                          <th className="py-2 pr-2">Category</th>
+                          <th className="py-2 pr-2">Counter</th>
+                          <th className="py-2 pr-2 text-right">Opening</th>
+                          <th className="py-2 pr-2 text-right">Received</th>
+                          <th className="py-2 pr-2 text-right">Issued</th>
+                          <th className="py-2 text-right">Closing</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(ledgerRows as MetalLotsLedgerSummaryRow[]).map((r) => (
+                          <tr key={r.lot_id} className="border-b border-black/5">
+                            <td className="py-2 pr-2">
+                              #{r.lot_number} · {r.status}
+                            </td>
+                            <td className="py-2 pr-2">{r.category?.name ?? '—'}</td>
+                            <td className="py-2 pr-2">
+                              {r.counter?.label_with_incharge ?? r.counter?.name ?? '—'}
+                            </td>
+                            <td className="py-2 pr-2 text-right tabular-nums">
+                              {fmtGm(r.opening_gross_gm)}
+                            </td>
+                            <td className="py-2 pr-2 text-right tabular-nums">
+                              {fmtGm(r.received_gross_gm)}
+                            </td>
+                            <td className="py-2 pr-2 text-right tabular-nums">
+                              {fmtGm(r.issued_gross_gm)}
+                            </td>
+                            <td className="py-2 text-right tabular-nums">
+                              {fmtGm(r.closing_gross_gm)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {stockRows.length ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[480px] text-left text-xs">
@@ -1199,22 +1559,26 @@ function extractErr(e: unknown): string | null {
   return null
 }
 
-function formatMetalLotEvent(ev: MetalLotJourney['events'][number]): string {
+function formatMetalLotEvent(ev: MetalLotEvent): string {
   const g = ev.gross_gm != null ? `${Number(ev.gross_gm).toFixed(3)} g` : ''
+  const note = ev.notes?.trim() ? ` · Notes: ${ev.notes.trim()}` : ''
+  const cat = ev.category?.name ? ` · ${ev.category.name}` : ''
   switch (ev.event_type) {
     case 'receive':
-      return `Received ${g}${ev.to_counter_name ? ` → ${ev.to_counter_name}` : ''}${ev.from_customer?.name ? ` (from customer ${ev.from_customer.name})` : ''}`
+      return `Received ${g}${ev.to_counter_name ? ` → ${ev.to_counter_name}` : ''}${ev.from_customer?.name ? ` (from customer ${ev.from_customer.name})` : ''}${note}${cat}`
     case 'transfer':
-      return `Transfer ${g}: ${ev.from_counter_name ?? '—'} → ${ev.to_counter_name ?? '—'}${ev.to_operator_name ? ` · ${ev.to_operator_name}` : ''}`
+      return `Transfer ${g}: ${ev.from_counter_name ?? '—'} → ${ev.to_counter_name ?? '—'}${ev.to_operator_name ? ` · ${ev.to_operator_name}` : ''}${note}`
     case 'split':
-      return `Split ${g} → ${ev.to_counter_name ?? 'counter'}${ev.to_operator_name ? ` · ${ev.to_operator_name}` : ''}`
+      return `Split ${g} → ${ev.to_counter_name ?? 'counter'}${ev.to_operator_name ? ` · ${ev.to_operator_name}` : ''}${note}`
     case 'handover_customer':
-      return `Handed to customer ${ev.to_customer?.name ?? '—'}${g ? ` · ${g}` : ''}`
+      return `Handed to customer ${ev.to_customer?.name ?? '—'}${g ? ` · ${g}` : ''}${note}`
     case 'handover_staff':
-      return `Handed to staff ${ev.to_operator_name ?? '—'}${g ? ` · ${g}` : ''}`
+      return `Handed to staff ${ev.to_operator_name ?? '—'}${g ? ` · ${g}` : ''}${note}`
+    case 'recall_from_customer':
+      return `Taken back from customer ${ev.from_customer?.name ?? '—'}${g ? ` · ${g}` : ''}${note}`
     case 'close':
-      return `Closed by manager${g ? ` · ${g}` : ''}`
+      return `Closed by manager${g ? ` · ${g}` : ''}${note}`
     default:
-      return `${ev.event_type}${g ? ` · ${g}` : ''}`
+      return `${ev.event_type}${g ? ` · ${g}` : ''}${note}`
   }
 }

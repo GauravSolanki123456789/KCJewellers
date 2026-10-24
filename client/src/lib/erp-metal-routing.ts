@@ -1,8 +1,16 @@
 import axios from '@/lib/axios'
 
+export type MetalRoutingCategory = {
+  id: number
+  name: string
+  sort_order: number
+  is_active: boolean
+}
+
 export type MetalRoutingCounter = {
   id: number
   name: string
+  label_with_incharge?: string
   slug: string
   sort_order: number
   is_active: boolean
@@ -21,11 +29,14 @@ export type MetalPurity = {
 
 export type MetalStockLot = {
   id: number
+  lot_number?: number | null
   metal_type: string
+  category_id?: number | null
+  category?: { id: number; name: string } | null
   purity_id: number | null
   purity?: { id: number; label: string; metal_type: string } | null
   counter_id: number | null
-  counter?: { id: number; name: string } | null
+  counter?: { id: number; name: string; label_with_incharge?: string } | null
   operator_id: number | null
   operator?: { id: number; displayName: string } | null
   parent_lot_id: number | null
@@ -54,8 +65,31 @@ export type MetalLotEvent = {
   to_operator_name?: string | null
   from_customer?: { id: number; name: string; mobile?: string | null } | null
   to_customer?: { id: number; name: string; mobile?: string | null } | null
+  category?: { id: number; name: string } | null
   notes?: string | null
   created_at: string
+}
+
+export type MetalLotsLedgerSummaryRow = {
+  lot_id: number
+  lot_number: number
+  metal_type: string
+  status: string
+  category?: { id: number; name: string } | null
+  counter?: MetalStockLot['counter']
+  purity?: MetalStockLot['purity']
+  from_customer?: MetalStockLot['from_customer']
+  held_by_customer?: MetalStockLot['held_by_customer']
+  opening_gross_gm: number
+  received_gross_gm: number
+  issued_gross_gm: number
+  closing_gross_gm: number
+}
+
+export type MetalLotsLedgerDetailRow = MetalLotEvent & {
+  lot_number: number | null
+  metal_type: string
+  lot_status: string
 }
 
 export type MetalLotJourney = {
@@ -158,6 +192,31 @@ export async function deleteMetalPurity(id: number): Promise<void> {
   await axios.delete(`${BASE}/purities/${id}`)
 }
 
+export async function fetchMetalCategories(): Promise<MetalRoutingCategory[]> {
+  const { data } = await axios.get<{ categories: MetalRoutingCategory[] }>(`${BASE}/categories`)
+  return data.categories ?? []
+}
+
+export async function createMetalCategory(name: string, sortOrder?: number): Promise<MetalRoutingCategory> {
+  const { data } = await axios.post<{ category: MetalRoutingCategory }>(`${BASE}/categories`, {
+    name,
+    sort_order: sortOrder,
+  })
+  return data.category
+}
+
+export async function updateMetalCategory(
+  id: number,
+  body: Partial<{ name: string; sort_order: number; is_active: boolean }>,
+): Promise<MetalRoutingCategory> {
+  const { data } = await axios.patch<{ category: MetalRoutingCategory }>(`${BASE}/categories/${id}`, body)
+  return data.category
+}
+
+export async function deleteMetalCategory(id: number): Promise<void> {
+  await axios.delete(`${BASE}/categories/${id}`)
+}
+
 export async function fetchMetalLots(params?: {
   metal_type?: 'gold' | 'silver'
   counter_id?: number
@@ -175,6 +234,7 @@ export async function receiveMetalLot(body: {
   counter_id?: number
   operator_id?: number
   from_customer_id?: number
+  category_id: number
   notes?: string
   move_date?: string
 }): Promise<MetalStockLot> {
@@ -244,6 +304,17 @@ export async function deleteMetalLot(lotId: number): Promise<void> {
   await axios.delete(`${BASE}/lots/${lotId}`)
 }
 
+export async function recallMetalLotFromCustomer(lotId: number, notes?: string): Promise<MetalStockLot> {
+  const { data } = await axios.post<{ lot: MetalStockLot }>(`${BASE}/lots/${lotId}/recall-from-customer`, {
+    notes,
+  })
+  return data.lot
+}
+
+export function metalLotDisplayNumber(lot: Pick<MetalStockLot, 'id' | 'lot_number'>): number {
+  return lot.lot_number != null && Number.isFinite(Number(lot.lot_number)) ? Number(lot.lot_number) : lot.id
+}
+
 export async function fetchMetalLotJourney(lotId: number): Promise<MetalLotJourney> {
   const { data } = await axios.get<MetalLotJourney>(`${BASE}/lots/${lotId}/journey`)
   return data
@@ -271,5 +342,22 @@ export async function fetchMetalStaffReport(
   params: { from: string; to: string },
 ): Promise<MetalStaffReport> {
   const { data } = await axios.get<MetalStaffReport>(`${BASE}/reports/staff/${operatorId}`, { params })
+  return data
+}
+
+export async function fetchMetalLotsLedgerReport(params: {
+  from: string
+  to: string
+  metal_type?: 'gold' | 'silver'
+  lot_status?: 'active' | 'closed' | 'all'
+  view?: 'summary' | 'detail'
+}): Promise<{
+  from: string
+  to: string
+  view: string
+  lot_status: string
+  rows: MetalLotsLedgerSummaryRow[] | MetalLotsLedgerDetailRow[]
+}> {
+  const { data } = await axios.get(`${BASE}/reports/lots-ledger`, { params })
   return data
 }
