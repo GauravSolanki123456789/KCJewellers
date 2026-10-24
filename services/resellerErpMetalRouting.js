@@ -7,6 +7,7 @@ const {
     operatorCanAccessModule,
     requireErpOperatorAdmin,
 } = require('./resellerErpOperators');
+const { parseDateOrNull } = require('./erpDateNormalize');
 
 const ROUTING_MODULE = 'metal-routing';
 
@@ -306,23 +307,28 @@ async function mapLotEventRow(query, userId, row) {
     };
 }
 
-/** Append optional metal / counter filters; startIdx is the next $n placeholder index. */
-function appendMetalRoutingReportFilters(metalType, counterFilter, startIdx) {
+/** Append optional metal / counter / operator filters; startIdx is the next $n placeholder index. */
+function appendMetalRoutingReportFilters(metalType, counterFilter, startIdx, operatorId) {
     let idx = startIdx;
     const extraParams = [];
     let metalClause = '';
     let counterClause = '';
+    let operatorClause = '';
     if (metalType === 'gold' || metalType === 'silver') {
         extraParams.push(metalType);
         metalClause = ` AND l.metal_type = $${idx}`;
         idx += 1;
     }
-    if (counterFilter && counterFilter.length) {
+    if (operatorId) {
+        extraParams.push(operatorId);
+        operatorClause = ` AND l.operator_id = $${idx}`;
+        idx += 1;
+    } else if (counterFilter && counterFilter.length) {
         extraParams.push(counterFilter);
         counterClause = ` AND l.counter_id = ANY($${idx}::int[])`;
         idx += 1;
     }
-    return { metalClause, counterClause, extraParams };
+    return { metalClause, counterClause, operatorClause, extraParams };
 }
 
 function routingGate() {
@@ -510,6 +516,35 @@ async function staffCounterIds(query, userId, operatorId) {
         [userId, operatorId],
     );
     return rows.map((r) => r.id);
+}
+
+async function counterInchargeOperatorId(query, userId, counterId) {
+    if (!counterId) return null;
+    const rows = await query(
+        `SELECT incharge_operator_id FROM reseller_erp_metal_routing_counters
+         WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+        [counterId, userId],
+    );
+    const id = rows[0]?.incharge_operator_id;
+    return id != null ? Number(id) : null;
+}
+
+async function resolveLotOperatorId(query, userId, { operatorId, counterId, fallbackOpId }) {
+    if (operatorId) return operatorId;
+    const incharge = await counterInchargeOperatorId(query, userId, counterId);
+    if (incharge) return incharge;
+    return fallbackOpId || null;
+}
+
+async function staffCanAccessLot(query, userId, op, lot) {
+    if (!op || !lot) return false;
+    if (isAdminOp(op) || (await canManageMetalRouting(query, userId, op))) return true;
+    if (lot.operator_id && Number(lot.operator_id) === Number(op.id)) return true;
+    if (!lot.operator_id && lot.counter_id) {
+        const ids = await staffCounterIds(query, userId, op.id);
+        return ids.includes(lot.counter_id);
+    }
+    return false;
 }
 
 function registerResellerErpMetalRoutingRoutes(app, deps) {
@@ -1042,12 +1077,19 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 isAdminOp(op) ||
                 (await canManageMetalRouting(query, req.user.id, op));
             if (!canSeeAll) {
-                const counterIds = await staffCounterIds(query, req.user.id, op.id);
-                if (!counterIds.length) {
-                    return res.json({ lots: [] });
-                }
-                params.push(counterIds);
-                sql += ` AND counter_id = ANY($${params.length}::int[])`;
+                params.push(op.id);
+                sql += ` AND (
+                    operator_id = $${params.length}
+                    OR (
+                        operator_id IS NULL
+                        AND counter_id IN (
+                            SELECT id FROM reseller_erp_metal_routing_counters
+                            WHERE reseller_user_id = $1
+                              AND is_active = true
+                              AND incharge_operator_id = $${params.length}
+                        )
+                    )
+                )`;
             }
             sql += ` ORDER BY COALESCE(lot_number, id) DESC, id DESC LIMIT 500`;
             const rows = await query(sql, params);
@@ -1130,14 +1172,17 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     (await canManageMetalRouting(query, req.user.id, op));
                 if (!canSeeAll) {
                     const counterIds = await staffCounterIds(query, req.user.id, op.id);
-                    if (!counterIds.length) {
-                        return res.status(403).json({ error: 'No counter assigned to you' });
-                    }
-                    if (counterId && !counterIds.includes(counterId)) {
+                    if (counterId && counterIds.length && !counterIds.includes(counterId)) {
                         return res.status(403).json({ error: 'Not your counter' });
                     }
-                    if (!counterId) counterId = counterIds[0];
+                    if (!counterId && counterIds.length) counterId = counterIds[0];
                     operatorId = op.id;
+                } else if (req.body.operator_id == null || String(req.body.operator_id).trim() === '') {
+                    operatorId = await resolveLotOperatorId(query, req.user.id, {
+                        operatorId: null,
+                        counterId,
+                        fallbackOpId: op.id,
+                    });
                 }
 
                 const chargePct = await resolveChargePct(
@@ -1220,14 +1265,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     return res.status(e.status || 400).json({ error: e.message });
                 }
 
-                const canSeeAll =
-                    isAdminOp(op) ||
-                    (await canManageMetalRouting(query, req.user.id, op));
-                if (!canSeeAll && parent.counter_id) {
-                    const counterIds = await staffCounterIds(query, req.user.id, op.id);
-                    if (!counterIds.includes(parent.counter_id)) {
-                        return res.status(403).json({ error: 'Not your counter lot' });
-                    }
+                if (!(await staffCanAccessLot(query, req.user.id, op, parent))) {
+                    return res.status(403).json({ error: 'Not your lot' });
                 }
 
                 const parentChargePct = await resolveChargePct(
@@ -1259,18 +1298,28 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         pureGm = computePureGm(grossGm, chargePct);
                     }
                     totalGross += grossGm;
+                    const destCounterId =
+                        part.counter_id != null
+                            ? parseInt(String(part.counter_id), 10) || parent.counter_id
+                            : parent.counter_id;
+                    const specifiedOp =
+                        part.operator_id != null
+                            ? parseInt(String(part.operator_id), 10) || null
+                            : null;
+                    const destOperatorId = await resolveLotOperatorId(query, req.user.id, {
+                        operatorId: specifiedOp,
+                        counterId:
+                            destCounterId && destCounterId !== parent.counter_id
+                                ? destCounterId
+                                : null,
+                        fallbackOpId: parent.operator_id || op.id,
+                    });
                     childSpecs.push({
                         pureGm: roundGm(pureGm),
                         grossGm: roundGm(grossGm),
                         chargePct,
-                        counterId:
-                            part.counter_id != null
-                                ? parseInt(String(part.counter_id), 10) || parent.counter_id
-                                : parent.counter_id,
-                        operatorId:
-                            part.operator_id != null
-                                ? parseInt(String(part.operator_id), 10) || op.id
-                                : op.id,
+                        counterId: destCounterId,
+                        operatorId: destOperatorId,
                     });
                 }
 
@@ -1445,14 +1494,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     return res.status(e.status || 400).json({ error: e.message });
                 }
 
-                const canSeeAll =
-                    isAdminOp(op) ||
-                    (await canManageMetalRouting(query, req.user.id, op));
-                if (!canSeeAll && parent.counter_id) {
-                    const counterIds = await staffCounterIds(query, req.user.id, op.id);
-                    if (!counterIds.includes(parent.counter_id)) {
-                        return res.status(403).json({ error: 'Not your counter lot' });
-                    }
+                if (!(await staffCanAccessLot(query, req.user.id, op, parent))) {
+                    return res.status(403).json({ error: 'Not your lot' });
                 }
 
                 const counterOk = await query(
@@ -1475,10 +1518,15 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     return res.status(400).json({ error: 'Nothing to transfer' });
                 }
 
-                const operatorId =
-                    req.body.operator_id != null
-                        ? parseInt(String(req.body.operator_id), 10) || op.id
-                        : op.id;
+                const specifiedOp =
+                    req.body.operator_id != null && String(req.body.operator_id).trim() !== ''
+                        ? parseInt(String(req.body.operator_id), 10) || null
+                        : null;
+                const operatorId = await resolveLotOperatorId(query, req.user.id, {
+                    operatorId: specifiedOp,
+                    counterId: targetCounterId,
+                    fallbackOpId: op.id,
+                });
                 const notes = String(req.body.notes || '').trim().slice(0, 2000) || null;
 
                 if (Math.abs(moveGross - parentGross) <= 0.001) {
@@ -1621,14 +1669,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     });
                 }
 
-                const canSeeAll =
-                    isAdminOp(op) ||
-                    (await canManageMetalRouting(query, req.user.id, op));
-                if (!canSeeAll && lot.counter_id) {
-                    const counterIds = await staffCounterIds(query, req.user.id, op.id);
-                    if (!counterIds.includes(lot.counter_id)) {
-                        return res.status(403).json({ error: 'Not your counter lot' });
-                    }
+                if (!(await staffCanAccessLot(query, req.user.id, op, lot))) {
+                    return res.status(403).json({ error: 'Not your lot' });
                 }
 
                 if (toCustomerId) {
@@ -1844,14 +1886,8 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                 if (!lotRows.length) return res.status(404).json({ error: 'Lot not found' });
                 const lot = lotRows[0];
 
-                const canSeeAll =
-                    isAdminOp(op) ||
-                    (await canManageMetalRouting(query, req.user.id, op));
-                if (!canSeeAll && lot.counter_id) {
-                    const counterIds = await staffCounterIds(query, req.user.id, op.id);
-                    if (!counterIds.includes(lot.counter_id)) {
-                        return res.status(403).json({ error: 'Not your counter lot' });
-                    }
+                if (!(await staffCanAccessLot(query, req.user.id, op, lot))) {
+                    return res.status(403).json({ error: 'Not your lot' });
                 }
 
                 const rootId = await findLotRootId(query, req.user.id, lotId);
@@ -1897,8 +1933,11 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
             try {
                 const op = req.erpOperator;
                 const metalType = String(req.query.metal_type || '').trim().toLowerCase();
-                const from = String(req.query.from || '').trim() || null;
-                const to = String(req.query.to || '').trim() || null;
+                const onDate = parseDateOrNull(req.query.on);
+                const from =
+                    onDate || parseDateOrNull(req.query.from) || String(req.query.from || '').trim() || null;
+                const to =
+                    onDate || parseDateOrNull(req.query.to) || String(req.query.to || '').trim() || null;
                 if (!from || !to) {
                     return res.status(400).json({ error: 'from and to dates required (YYYY-MM-DD)' });
                 }
@@ -1907,25 +1946,33 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     isAdminOp(op) ||
                     (await canManageMetalRouting(query, req.user.id, op));
                 let counterFilter = null;
+                let operatorIdFilter = null;
                 if (!canSeeAll) {
-                    counterFilter = await staffCounterIds(query, req.user.id, op.id);
-                    if (!counterFilter.length) {
-                        return res.json({
-                            from,
-                            to,
-                            metal_type: metalType || 'all',
-                            rows: [],
-                        });
-                    }
+                    operatorIdFilter = op.id;
                 }
 
-                const openFilters = appendMetalRoutingReportFilters(metalType, counterFilter, 3);
+                const openFilters = appendMetalRoutingReportFilters(
+                    metalType,
+                    counterFilter,
+                    3,
+                    operatorIdFilter,
+                );
                 const openingParams = [req.user.id, from, ...openFilters.extraParams];
 
-                const closeFilters = appendMetalRoutingReportFilters(metalType, counterFilter, 3);
+                const closeFilters = appendMetalRoutingReportFilters(
+                    metalType,
+                    counterFilter,
+                    3,
+                    operatorIdFilter,
+                );
                 const closingParams = [req.user.id, to, ...closeFilters.extraParams];
 
-                const recvFilters = appendMetalRoutingReportFilters(metalType, counterFilter, 4);
+                const recvFilters = appendMetalRoutingReportFilters(
+                    metalType,
+                    counterFilter,
+                    4,
+                    operatorIdFilter,
+                );
                 const receivedParams = [req.user.id, from, to, ...recvFilters.extraParams];
 
                 const openingSql = `
@@ -1940,7 +1987,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                         l.status = 'active'
                         OR (l.status = 'closed' AND l.updated_at >= $2::timestamptz)
                       )
-                      ${openFilters.metalClause}${openFilters.counterClause}
+                      ${openFilters.metalClause}${openFilters.counterClause}${openFilters.operatorClause}
                     GROUP BY l.counter_id, c.name, l.purity_id, p.label
                 `;
 
@@ -1953,7 +2000,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     WHERE l.reseller_user_id = $1
                       AND l.status = 'active'
                       AND l.move_date <= $2::date
-                      ${closeFilters.metalClause}${closeFilters.counterClause}
+                      ${closeFilters.metalClause}${closeFilters.counterClause}${closeFilters.operatorClause}
                     GROUP BY l.counter_id, c.name, l.purity_id, p.label
                 `;
 
@@ -1966,7 +2013,7 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
                     WHERE l.reseller_user_id = $1
                       AND l.parent_lot_id IS NULL
                       AND l.move_date >= $2::date AND l.move_date <= $3::date
-                      ${recvFilters.metalClause}${recvFilters.counterClause}
+                      ${recvFilters.metalClause}${recvFilters.counterClause}${recvFilters.operatorClause}
                     GROUP BY l.counter_id, c.name, l.purity_id, p.label
                 `;
 
@@ -2042,8 +2089,11 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
         async (req, res) => {
             try {
                 const op = req.erpOperator;
-                const from = String(req.query.from || '').trim() || null;
-                const to = String(req.query.to || '').trim() || null;
+                const onDate = parseDateOrNull(req.query.on);
+                const from =
+                    onDate || parseDateOrNull(req.query.from) || String(req.query.from || '').trim() || null;
+                const to =
+                    onDate || parseDateOrNull(req.query.to) || String(req.query.to || '').trim() || null;
                 const metalType = String(req.query.metal_type || '').trim().toLowerCase();
                 const lotStatus = String(req.query.lot_status || 'all').trim().toLowerCase();
                 const view = String(req.query.view || 'summary').trim().toLowerCase();
@@ -2168,8 +2218,11 @@ function registerResellerErpMetalRoutingRoutes(app, deps) {
             try {
                 const op = req.erpOperator;
                 const operatorId = parseInt(String(req.params.operatorId), 10);
-                const from = String(req.query.from || '').trim() || null;
-                const to = String(req.query.to || '').trim() || null;
+                const onDate = parseDateOrNull(req.query.on);
+                const from =
+                    onDate || parseDateOrNull(req.query.from) || String(req.query.from || '').trim() || null;
+                const to =
+                    onDate || parseDateOrNull(req.query.to) || String(req.query.to || '').trim() || null;
                 if (!Number.isFinite(operatorId)) {
                     return res.status(400).json({ error: 'operatorId required' });
                 }

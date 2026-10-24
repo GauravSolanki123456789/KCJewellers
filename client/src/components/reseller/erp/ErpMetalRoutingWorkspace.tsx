@@ -42,8 +42,9 @@ import {
 } from '@/lib/erp-metal-routing'
 import { appAlert, appConfirm } from '@/lib/app-notice'
 import { ErpCustomerSuggestField } from '@/components/reseller/erp/ErpCustomerSuggestField'
+import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
-import { erpTodayIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { erpDateFilterToIso, erpTodayIso, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { cn } from '@/lib/utils'
 import { GitBranch, History, Loader2, Plus, RefreshCw, Scale, Trash2, UserRound } from 'lucide-react'
@@ -118,6 +119,7 @@ export function ErpMetalRoutingWorkspace() {
 
   const [reportFrom, setReportFrom] = useState(erpTodayIso())
   const [reportTo, setReportTo] = useState(erpTodayIso())
+  const [reportOn, setReportOn] = useState('')
   const [reportMetal, setReportMetal] = useState<'gold' | 'silver' | ''>('')
   const [stockRows, setStockRows] = useState<MetalStockReportRow[]>([])
   const [ledgerRows, setLedgerRows] = useState<
@@ -539,12 +541,24 @@ export function ErpMetalRoutingWorkspace() {
     }
   }
 
+  const reportRangeIso = () => {
+    const onIso = erpDateFilterToIso(reportOn)
+    const fromIso = onIso || erpDateFilterToIso(reportFrom)
+    const toIso = onIso || erpDateFilterToIso(reportTo)
+    return { fromIso, toIso, onIso }
+  }
+
   const loadStockReport = async () => {
+    const { fromIso, toIso } = reportRangeIso()
+    if (!fromIso || !toIso) {
+      appAlert('Enter a valid from/to or on date (dd/mm/yyyy)', 'error')
+      return
+    }
     setReportBusy(true)
     try {
       const data = await fetchMetalStockReport({
-        from: reportFrom,
-        to: reportTo,
+        from: fromIso,
+        to: toIso,
         metal_type: reportMetal || undefined,
       })
       setStockRows(data.rows)
@@ -557,11 +571,16 @@ export function ErpMetalRoutingWorkspace() {
 
   const loadLotsLedgerReport = async () => {
     if (!canManage) return
+    const { fromIso, toIso } = reportRangeIso()
+    if (!fromIso || !toIso) {
+      appAlert('Enter a valid from/to or on date (dd/mm/yyyy)', 'error')
+      return
+    }
     setReportBusy(true)
     try {
       const data = await fetchMetalLotsLedgerReport({
-        from: reportFrom,
-        to: reportTo,
+        from: fromIso,
+        to: toIso,
         metal_type: reportMetal || undefined,
         lot_status: ledgerLotStatus,
         view: ledgerView,
@@ -577,9 +596,14 @@ export function ErpMetalRoutingWorkspace() {
   const loadStaffReport = async () => {
     const opId = staffReportOpId || operator?.id
     if (!opId) return
+    const { fromIso, toIso } = reportRangeIso()
+    if (!fromIso || !toIso) {
+      appAlert('Enter a valid from/to or on date (dd/mm/yyyy)', 'error')
+      return
+    }
     setReportBusy(true)
     try {
-      const data = await fetchMetalStaffReport(Number(opId), { from: reportFrom, to: reportTo })
+      const data = await fetchMetalStaffReport(Number(opId), { from: fromIso, to: toIso })
       appAlert(
         `${data.operator.displayName}: ${data.summary.movement_count} moves · ${fmtGm(data.summary.total_pure_gm)} pure`,
         'info',
@@ -1334,6 +1358,17 @@ export function ErpMetalRoutingWorkspace() {
                             </button>
                           </div>
                         ) : null}
+                        {canManage && lot.status === 'closed' ? (
+                          <div className="flex flex-wrap gap-2 border-t border-[var(--color-slate-700,#e8e4df)] pt-3">
+                            <button
+                              type="button"
+                              className="rounded-xl border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-800"
+                              onClick={() => void onDeleteLot()}
+                            >
+                              <Trash2 className="mr-1 inline size-4" /> Delete closed lot
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </li>
@@ -1350,20 +1385,38 @@ export function ErpMetalRoutingWorkspace() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[10px] font-semibold uppercase text-black/50">
               From
-              <input
-                type="date"
+              <ErpDateInput
                 className={`${erpInputCls} mt-1 block`}
-                value={reportFrom}
-                onChange={(e) => setReportFrom(e.target.value)}
+                value={reportOn ? '' : reportFrom}
+                onChange={(v) => {
+                  setReportOn('')
+                  setReportFrom(v)
+                }}
               />
             </label>
             <label className="text-[10px] font-semibold uppercase text-black/50">
               To
-              <input
-                type="date"
+              <ErpDateInput
                 className={`${erpInputCls} mt-1 block`}
-                value={reportTo}
-                onChange={(e) => setReportTo(e.target.value)}
+                value={reportOn ? '' : reportTo}
+                onChange={(v) => {
+                  setReportOn('')
+                  setReportTo(v)
+                }}
+              />
+            </label>
+            <label className="text-[10px] font-semibold uppercase text-black/50">
+              On date
+              <ErpDateInput
+                className={`${erpInputCls} mt-1 block`}
+                value={reportOn}
+                onChange={(v) => {
+                  setReportOn(v)
+                  if (v.trim()) {
+                    setReportFrom('')
+                    setReportTo('')
+                  }
+                }}
               />
             </label>
             <select
@@ -1382,17 +1435,6 @@ export function ErpMetalRoutingWorkspace() {
               onClick={() => void loadStockReport()}
             >
               {reportBusy ? <Loader2 className="size-4 animate-spin" /> : 'Stock report'}
-            </button>
-            <button
-              type="button"
-              className={erpBtnGhost}
-              onClick={() => {
-                const t = erpTodayIso()
-                setReportFrom(t)
-                setReportTo(t)
-              }}
-            >
-              Today
             </button>
           </div>
           {canManage ? (

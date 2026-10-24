@@ -50,6 +50,8 @@ export type CustomerAccountData = {
     total_paid_inr: number
     balance_due_inr: number
     metal_balance_gm?: number
+    gold_metal_balance_gm?: number
+    has_gold_metal?: boolean
     transaction_count: number
   }
   transactions: CustomerAccountTx[]
@@ -328,28 +330,6 @@ export function ErpCustomerAccountPanel({
     }
   }
 
-  const applyMetalRateToEntry = async (ledgerEntryId: number) => {
-    const rateStr = await appPrompt('Metal rate (₹/g) to apply against ₹ balance:', '230')
-    if (rateStr == null || !rateStr.trim()) return
-    const rate = Number(rateStr.replace(/[,₹\s]/g, ''))
-    if (!Number.isFinite(rate) || rate <= 0) {
-      appAlert('Enter a valid rate.', 'error')
-      return
-    }
-    setBusy(true)
-    try {
-      await axios.post(`/api/reseller/erp/ledger/entries/${ledgerEntryId}/apply-metal-rate`, {
-        metal_rate_per_g: rate,
-      })
-      appAlert('Metal rate applied to this receipt.', 'success')
-      if (selected) await loadAccount(selected)
-    } catch (e) {
-      appAlert(erpErr(e), 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const convertMetalCreditToInr = async () => {
     if (!selected || !account) return
     const bal = account.summary.metal_balance_gm || 0
@@ -490,7 +470,15 @@ export function ErpCustomerAccountPanel({
 
       {account ? (
         <>
-          <div className={`grid grid-cols-2 gap-2 ${metalView ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+          <div
+            className={`grid grid-cols-2 gap-2 ${
+              metalView && account.summary.has_gold_metal
+                ? 'sm:grid-cols-5'
+                : metalView
+                  ? 'sm:grid-cols-4'
+                  : 'sm:grid-cols-3'
+            }`}
+          >
             {[
               { l: 'Total billed', v: formatErpInr(account.summary.total_billed_inr) },
               { l: 'Total paid', v: formatErpInr(account.summary.total_paid_inr) },
@@ -507,6 +495,16 @@ export function ErpCustomerAccountPanel({
                       sub: metalBalanceHint(account.summary.metal_balance_gm || 0),
                       accent: Math.abs(account.summary.metal_balance_gm || 0) >= 0.0005,
                     },
+                    ...(account.summary.has_gold_metal
+                      ? [
+                          {
+                            l: 'Gold metal balance',
+                            v: formatMetalGm(account.summary.gold_metal_balance_gm) || '0.000 g',
+                            sub: metalBalanceHint(account.summary.gold_metal_balance_gm || 0),
+                            accent: Math.abs(account.summary.gold_metal_balance_gm || 0) >= 0.0005,
+                          },
+                        ]
+                      : []),
                   ]
                 : []),
             ].map((c: { l: string; v: string; accent?: boolean; sub?: string }) => (
@@ -608,20 +606,6 @@ export function ErpCustomerAccountPanel({
                                 inrAmount: t.credit > 0 ? t.credit : t.debit,
                               })
                             }
-                          >
-                            Convert ₹→metal
-                          </button>
-                        ) : null}
-                        {t.ledger_entry_id &&
-                        t.weight_gm &&
-                        t.weight_gm > 0 &&
-                        !t.virtual_metal_inr &&
-                        String(t.kind).toLowerCase().includes('payment') ? (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            className="mb-1 whitespace-nowrap rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 text-[9px] font-semibold text-[#1a1814]"
-                            onClick={() => void applyMetalRateToEntry(t.ledger_entry_id!)}
                           >
                             Apply ₹ rate
                           </button>

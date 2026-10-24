@@ -35,6 +35,7 @@ const {
     roundMetalGm,
     virtualMetalReceiptSettlement,
     isFixedAssetMetalRow,
+    normalizeJewelleryMetal,
 } = require('./erpLedgerMetal');
 const { getCustomerBalancesBeforeLedgerEntry } = require('./resellerErpCustomerAccount');
 
@@ -174,6 +175,7 @@ function mapLedgerEntry(row, extras = {}) {
         employee_id: row.employee_id,
         weight_kg: row.weight_kg != null ? Number(row.weight_kg) : null,
         metal_gm: metalGmFromLedgerRow(row) || null,
+        jewellery_metal: normalizeJewelleryMetal(row.jewellery_metal) || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -225,6 +227,8 @@ async function ensureLedgerSchema(pool) {
             ADD COLUMN IF NOT EXISTS virtual_metal_inr BOOLEAN NOT NULL DEFAULT false;
         ALTER TABLE reseller_erp_ledger_entries
             ADD COLUMN IF NOT EXISTS fixed_asset_metal BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS jewellery_metal VARCHAR(16);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_reseller_date
             ON reseller_erp_ledger_entries (reseller_user_id, entry_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_reseller_erp_ledger_entries_customer
@@ -841,6 +845,10 @@ function registerResellerErpLedgerRoutes(app, deps) {
             }
             const metalGm = parseMetalGm(req.body.metal_gm ?? req.body.metalWeight ?? req.body.weight_gm);
             const metalRate = parseAmount(req.body.metal_rate_per_g ?? req.body.metalRatePerG);
+            let jewelleryMetal =
+                normalizeJewelleryMetal(
+                    req.body.jewellery_metal || req.body.jewelleryMetal || req.body.metal_type,
+                ) || null;
             let amount = parseAmount(req.body.amount_inr) ?? 0;
             const virtualMetalValueInr = !!(
                 req.body.virtual_metal_value_inr ||
@@ -978,27 +986,35 @@ function registerResellerErpLedgerRoutes(app, deps) {
             if (
                 resolvedMetalGm != null &&
                 Math.abs(resolvedMetalGm) >= 0.0005 &&
+                !jewelleryMetal
+            ) {
+                jewelleryMetal = 'silver';
+            }
+            if (
+                resolvedMetalGm != null &&
+                Math.abs(resolvedMetalGm) >= 0.0005 &&
                 !narration
             ) {
                 const absGm = Math.abs(resolvedMetalGm).toFixed(3);
                 const rateBit =
                     metalRate != null && metalRate > 0 ? ` @ ₹${metalRate}/g` : '';
+                const metalWord = jewelleryMetal === 'gold' ? 'Gold metal' : 'Metal';
                 if (metalKind === 'to_cash' || metalKind === 'convert_cash') {
                     narration = shopOwesMetal
-                        ? `Metal converted to cash (payable) ${absGm} g${rateBit}`
-                        : `Metal converted to cash (receivable) ${absGm} g${rateBit}`;
+                        ? `${metalWord} converted to cash (payable) ${absGm} g${rateBit}`
+                        : `${metalWord} converted to cash (receivable) ${absGm} g${rateBit}`;
                 } else if (metalKind === 'mc_adjust') {
                     narration = `MC against metal ${absGm} g${rateBit}`;
                 } else if (metalKind === 'apply' || metalKind === 'redeem' || entryType === 'adjustment') {
-                    narration = `Metal applied ${absGm} g against bill${rateBit}`;
+                    narration = `${metalWord} applied ${absGm} g against bill${rateBit}`;
                 } else if (metalKind === 'fixed_asset_issue') {
-                    narration = `Fixed asset metal issued to customer ${absGm} g${rateBit}`;
+                    narration = `Fixed asset ${metalWord.toLowerCase()} issued to customer ${absGm} g${rateBit}`;
                 } else if (metalKind === 'fixed_asset_receive' || metalKind === 'fixed_asset') {
-                    narration = `Metal received as fixed asset ${absGm} g${rateBit}`;
+                    narration = `${metalWord} received as fixed asset ${absGm} g${rateBit}`;
                 } else if (entryType === 'payment_out') {
-                    narration = `Metal issued ${absGm} g${rateBit}`;
+                    narration = `${metalWord} issued ${absGm} g${rateBit}`;
                 } else {
-                    narration = `Metal received ${absGm} g${rateBit}`;
+                    narration = `${metalWord} received ${absGm} g${rateBit}`;
                 }
             }
             if (fixedAssetMetal) {
@@ -1041,8 +1057,8 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     reseller_user_id, entry_date, entry_type, amount_inr, customer_id, bill_id,
                     payment_mode, reference_no, bank_name, counterparty_name, narration, is_suspense,
                     ledger_scope, employee_id, pv_id, weight_kg, metal_gm, metal_cleared_gm, virtual_metal_inr,
-                    fixed_asset_metal
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                    fixed_asset_metal, jewellery_metal
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -1065,6 +1081,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     metalClearedGm,
                     virtualMetalFlag,
                     fixedAssetMetal,
+                    jewelleryMetal,
                 ],
             );
             res.json({ success: true, entry: mapLedgerEntry(rows[0]) });

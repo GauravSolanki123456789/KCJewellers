@@ -12,7 +12,8 @@ type Props = {
 
 /** dd/mm/yyyy text field — same format as ERP filters (not browser locale date picker). */
 export function ErpDateInput({ value, onChange, className, placeholder = 'dd/mm/yyyy' }: Props) {
-  const display = value.includes('/') ? value : isoToDdMmYyyyInput(value)
+  const raw = String(value || '')
+  const display = /^\d{4}-\d{2}-\d{2}/.test(raw.trim()) ? isoToDdMmYyyyInput(raw) : raw
 
   return (
     <input

@@ -5,7 +5,7 @@
 const { randomUUID } = require('crypto');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 const { loadJewelleryLedgerMetalEnabled } = require('./erpJewelleryLedgerSettings');
-const { roundMetalGm } = require('./erpLedgerMetal');
+const { roundMetalGm, normalizeJewelleryMetal } = require('./erpLedgerMetal');
 
 function trimStr(v, max = 500) {
     const s = String(v ?? '').trim();
@@ -96,6 +96,8 @@ async function ensurePurchaseSchema(pool) {
             ALTER COLUMN received_weight_kg TYPE NUMERIC(14, 6);
         ALTER TABLE reseller_erp_ledger_entries
             ALTER COLUMN weight_kg TYPE NUMERIC(14, 6);
+        ALTER TABLE reseller_erp_ledger_entries
+            ADD COLUMN IF NOT EXISTS jewellery_metal VARCHAR(16);
     `);
 }
 
@@ -478,12 +480,16 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                 metalLedgerOn && paymentMode === 'metal' ? 0 : amount;
             const ledgerMetalGm =
                 metalLedgerOn && weightGm > 0 ? roundMetalGm(weightGm) : null;
+            const jewelleryMetal = normalizeJewelleryMetal(metalType) || 'silver';
+            const ledgerNarration =
+                narration ||
+                `${jewelleryMetal === 'gold' ? 'Gold ' : ''}Stock purchase ${pvNumber} · ${weightGm.toFixed(3)} g`;
             const ledgerRows = await query(
                 `INSERT INTO reseller_erp_ledger_entries (
                     reseller_user_id, entry_date, entry_type, amount_inr, payment_mode,
                     reference_no, counterparty_name, narration, is_suspense, ledger_scope,
-                    pv_id, weight_kg, metal_gm, customer_id
-                 ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8,$9,$10,$11)
+                    pv_id, weight_kg, metal_gm, customer_id, jewellery_metal
+                 ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8,$9,$10,$11,$12)
                  RETURNING id`,
                 [
                     req.user.id,
@@ -492,11 +498,12 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                     paymentMode,
                     pvNumber,
                     vendorName,
-                    narration || `Stock purchase ${pvNumber} · ${weightGm.toFixed(3)} g`,
+                    ledgerNarration,
                     pv.id,
                     weightKg,
                     ledgerMetalGm,
                     customerId,
+                    jewelleryMetal,
                 ],
             );
 

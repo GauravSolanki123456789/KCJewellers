@@ -46,32 +46,55 @@ function ledgerPeriodLabel(meta: CustomerAccountPdfMeta): string {
   return ''
 }
 
+const BORDER = '#1a1814'
+
 const styles = StyleSheet.create({
-  page: { padding: 32, fontSize: 9, fontFamily: 'Helvetica' },
-  shopName: { fontSize: 14, fontWeight: 'bold', marginBottom: 6, textAlign: 'center' },
-  title: { fontSize: 11, fontWeight: 'bold', marginBottom: 4, textAlign: 'center' },
+  page: { padding: 28, paddingBottom: 36, fontSize: 8, fontFamily: 'Helvetica', color: '#1a1814' },
+  shopName: { fontSize: 14, fontWeight: 'bold', marginBottom: 6, textAlign: 'center', color: '#1a1814' },
+  title: { fontSize: 11, fontWeight: 'bold', marginBottom: 4, textAlign: 'center', color: '#1a1814' },
   sub: { fontSize: 9, color: '#444', marginBottom: 12, textAlign: 'center' },
   row: { flexDirection: 'row', marginBottom: 3 },
-  label: { width: 90, fontWeight: 'bold' },
+  label: { width: 90, fontWeight: 'bold', color: '#1a1814' },
+  tableOuter: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    marginTop: 10,
+  },
   tableHeader: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-    paddingBottom: 4,
-    marginTop: 12,
-    marginBottom: 4,
-    fontWeight: 'bold',
+    backgroundColor: '#f7f4ef',
   },
-  tableRow: { flexDirection: 'row', paddingVertical: 3, borderBottomWidth: 0.5, borderBottomColor: '#eee' },
-  c1: { width: '14%' },
-  c2: { width: '12%' },
-  c3: { width: '14%' },
-  c4: { width: '20%' },
-  cW: { width: '10%', textAlign: 'right' },
-  c5: { width: '10%', textAlign: 'right' },
-  c6: { width: '10%', textAlign: 'right' },
-  c7: { width: '11%', textAlign: 'right' },
-  c8: { width: '10%', textAlign: 'right' },
+  tableRow: { flexDirection: 'row' },
+  th: {
+    borderRightWidth: 0.75,
+    borderBottomWidth: 0.75,
+    borderColor: BORDER,
+    paddingVertical: 5,
+    paddingHorizontal: 3,
+    fontSize: 7,
+    fontWeight: 'bold',
+    color: '#1a1814',
+  },
+  td: {
+    borderRightWidth: 0.75,
+    borderBottomWidth: 0.75,
+    borderColor: BORDER,
+    paddingVertical: 4,
+    paddingHorizontal: 3,
+    fontSize: 7,
+    color: '#1a1814',
+  },
+  tdRight: { textAlign: 'right' },
+  lastCol: { borderRightWidth: 0 },
+  c1: { width: '12%' },
+  c2: { width: '11%' },
+  c3: { width: '12%' },
+  c4: { width: '21%' },
+  cW: { width: '10%' },
+  c5: { width: '11%' },
+  c6: { width: '11%' },
+  c7: { width: '12%' },
+  c8: { width: '10%' },
 })
 
 function LedgerStatementDocument({
@@ -113,47 +136,66 @@ function LedgerStatementDocument({
             </Text>
           </View>
         ) : null}
-        <View style={styles.tableHeader}>
-          <Text style={styles.c1}>Date</Text>
-          <Text style={styles.c2}>Type</Text>
-          <Text style={styles.c3}>Ref</Text>
-          <Text style={styles.c4}>Description</Text>
-          <Text style={styles.cW}>Weight</Text>
-          <Text style={styles.c5}>Debit</Text>
-          <Text style={styles.c6}>Credit</Text>
-          <Text style={styles.c7}>Balance</Text>
-          {meta.laneLedger ? <Text style={styles.c8}>Metal bal.</Text> : null}
-        </View>
-        {account.transactions.map((t, i) => (
-          <View key={`${t.ref}-${i}`} style={styles.tableRow}>
-            <Text style={styles.c1}>{pdfDateLabel(t.date)}</Text>
-            <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
-            <Text style={styles.c3}>{t.ref || '—'}</Text>
-            <Text style={styles.c4}>{pdfLedgerDescription(t.description)}</Text>
-            <Text style={styles.cW}>
-              {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
+        {account.summary.has_gold_metal ? (
+          <View style={styles.row}>
+            <Text style={styles.label}>Gold metal</Text>
+            <Text>
+              {formatMetalGm(account.summary.gold_metal_balance_gm)} (
+              {metalBalanceHint(account.summary.gold_metal_balance_gm || 0)})
             </Text>
-            <Text style={styles.c5}>{formatLedgerDebitCell(t, laneFmt)}</Text>
-            <Text style={styles.c6}>
-              {formatLedgerVirtualMetalCredit(
-                {
-                  virtual_metal_inr: t.virtual_metal_inr,
-                  virtual_metal_show_inr_credit: t.virtual_metal_show_inr_credit,
-                  credit: t.credit,
-                  weight_gm: t.weight_gm,
-                  credit_metal_gm: t.credit_metal_gm,
-                },
-                laneFmt,
-              )}
-            </Text>
-            <Text style={styles.c7}>
-              {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, laneFmt)}
+          </View>
+        ) : null}
+        <View style={styles.tableOuter}>
+          <View style={styles.tableHeader} fixed>
+            <Text style={[styles.th, styles.c1]}>Date</Text>
+            <Text style={[styles.th, styles.c2]}>Type</Text>
+            <Text style={[styles.th, styles.c3]}>Ref</Text>
+            <Text style={[styles.th, styles.c4]}>Description</Text>
+            <Text style={[styles.th, styles.cW, styles.tdRight]}>Weight</Text>
+            <Text style={[styles.th, styles.c5, styles.tdRight]}>Debit</Text>
+            <Text style={[styles.th, styles.c6, styles.tdRight]}>Credit</Text>
+            <Text
+              style={[styles.th, styles.c7, styles.tdRight, ...(meta.laneLedger ? [] : [styles.lastCol])]}
+            >
+              Balance
             </Text>
             {meta.laneLedger ? (
-              <Text style={styles.c8}>{formatMetalBalanceCell(t.balance_metal_gm)}</Text>
+              <Text style={[styles.th, styles.c8, styles.tdRight, styles.lastCol]}>Metal bal.</Text>
             ) : null}
           </View>
-        ))}
+          {account.transactions.map((t, i) => (
+            <View key={`${t.ref}-${i}`} style={styles.tableRow} wrap={false}>
+              <Text style={[styles.td, styles.c1]}>{pdfDateLabel(t.date)}</Text>
+              <Text style={[styles.td, styles.c2]}>{formatLedgerTransactionKind(t.kind)}</Text>
+              <Text style={[styles.td, styles.c3]}>{t.ref || '—'}</Text>
+              <Text style={[styles.td, styles.c4]}>{pdfLedgerDescription(t.description)}</Text>
+              <Text style={[styles.td, styles.cW, styles.tdRight]}>
+                {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
+              </Text>
+              <Text style={[styles.td, styles.c5, styles.tdRight]}>{formatLedgerDebitCell(t, laneFmt)}</Text>
+              <Text style={[styles.td, styles.c6, styles.tdRight]}>
+                {formatLedgerVirtualMetalCredit(
+                  {
+                    virtual_metal_inr: t.virtual_metal_inr,
+                    virtual_metal_show_inr_credit: t.virtual_metal_show_inr_credit,
+                    credit: t.credit,
+                    weight_gm: t.weight_gm,
+                    credit_metal_gm: t.credit_metal_gm,
+                  },
+                  laneFmt,
+                )}
+              </Text>
+              <Text style={[styles.td, styles.c7, styles.tdRight, ...(meta.laneLedger ? [] : [styles.lastCol])]}>
+                {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, laneFmt)}
+              </Text>
+              {meta.laneLedger ? (
+                <Text style={[styles.td, styles.c8, styles.tdRight, styles.lastCol]}>
+                  {formatMetalBalanceCell(t.balance_metal_gm)}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
       </Page>
     </Document>
   )
@@ -218,24 +260,28 @@ function DaybookTableRows({ data }: { data: DaybookExportData }) {
     splitMetalColumn: metalSplit,
   }
   return (
-    <>
-      <View style={styles.tableHeader}>
-        <Text style={styles.c1}>Date</Text>
-        <Text style={styles.c2}>Type</Text>
-        <Text style={styles.c3}>Party</Text>
-        <Text style={styles.c4}>Reference</Text>
-        <Text style={styles.c5}>Debit</Text>
-        <Text style={styles.c6}>Credit</Text>
-        <Text style={styles.c7}>Balance</Text>
-        {metalSplit ? <Text style={styles.c8}>Metal bal.</Text> : null}
+    <View style={styles.tableOuter}>
+      <View style={styles.tableHeader} fixed>
+        <Text style={[styles.th, styles.c1]}>Date</Text>
+        <Text style={[styles.th, styles.c2]}>Type</Text>
+        <Text style={[styles.th, styles.c3]}>Party</Text>
+        <Text style={[styles.th, styles.c4]}>Reference</Text>
+        <Text style={[styles.th, styles.c5, styles.tdRight]}>Debit</Text>
+        <Text style={[styles.th, styles.c6, styles.tdRight]}>Credit</Text>
+        <Text style={[styles.th, styles.c7, styles.tdRight, ...(metalSplit ? [] : [styles.lastCol])]}>
+          Balance
+        </Text>
+        {metalSplit ? (
+          <Text style={[styles.th, styles.c8, styles.tdRight, styles.lastCol]}>Metal bal.</Text>
+        ) : null}
       </View>
       {data.transactions.map((t, i) => (
-        <View key={`${t.reference}-${i}`} style={styles.tableRow}>
-          <Text style={styles.c1}>{t.entry_date}</Text>
-          <Text style={styles.c2}>{formatLedgerTransactionKind(t.kind)}</Text>
-          <Text style={styles.c3}>{t.customer_name}</Text>
-          <Text style={styles.c4}>{t.reference || '—'}</Text>
-          <Text style={styles.c5}>
+        <View key={`${t.reference}-${i}`} style={styles.tableRow} wrap={false}>
+          <Text style={[styles.td, styles.c1]}>{t.entry_date}</Text>
+          <Text style={[styles.td, styles.c2]}>{formatLedgerTransactionKind(t.kind)}</Text>
+          <Text style={[styles.td, styles.c3]}>{t.customer_name}</Text>
+          <Text style={[styles.td, styles.c4]}>{t.reference || '—'}</Text>
+          <Text style={[styles.td, styles.c5, styles.tdRight]}>
             {formatLedgerDebitCell(
               {
                 debit_inr: t.debit_inr,
@@ -250,7 +296,7 @@ function DaybookTableRows({ data }: { data: DaybookExportData }) {
               dayFmt,
             )}
           </Text>
-          <Text style={styles.c6}>
+          <Text style={[styles.td, styles.c6, styles.tdRight]}>
             {formatLedgerVirtualMetalCredit(
               {
                 credit: t.credit_inr,
@@ -260,13 +306,17 @@ function DaybookTableRows({ data }: { data: DaybookExportData }) {
               dayFmt,
             )}
           </Text>
-          <Text style={styles.c7}>
+          <Text style={[styles.td, styles.c7, styles.tdRight, ...(metalSplit ? [] : [styles.lastCol])]}>
             {formatLedgerBalanceCell(t.balance_inr, t.balance_metal_gm, dayFmt)}
           </Text>
-          {metalSplit ? <Text style={styles.c8}>{formatMetalBalanceCell(t.balance_metal_gm)}</Text> : null}
+          {metalSplit ? (
+            <Text style={[styles.td, styles.c8, styles.tdRight, styles.lastCol]}>
+              {formatMetalBalanceCell(t.balance_metal_gm)}
+            </Text>
+          ) : null}
         </View>
       ))}
-    </>
+    </View>
   )
 }
 

@@ -383,6 +383,20 @@ function firstOfMonthIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
+function fineGmFromGrossPct(gross: string, pct: string): string {
+  const g = Number(String(gross).replace(/[,gG\s]/g, ''))
+  const p = Number(String(pct).replace(/[,%\s]/g, ''))
+  if (!(Number.isFinite(g) && g > 0 && Number.isFinite(p) && p > 0)) return ''
+  return (Math.round(g * (p / 100) * 1000) / 1000).toFixed(3)
+}
+
+function rupeesToGrams(amount: string, rate: string): string {
+  const a = Number(String(amount).replace(/[,₹\s]/g, ''))
+  const r = Number(String(rate).replace(/[,₹\s]/g, ''))
+  if (!(Number.isFinite(a) && a > 0 && Number.isFinite(r) && r > 0)) return ''
+  return (Math.round((a / r) * 1000) / 1000).toFixed(3)
+}
+
 function emptyPaymentForm() {
   return {
     entry_date: todayIso(),
@@ -396,6 +410,7 @@ function emptyPaymentForm() {
     narration: '',
     is_suspense: false,
     currency: 'inr' as 'inr' | 'metal',
+    jewellery_metal: 'silver' as 'silver' | 'gold',
     metal_kind: 'received' as
       | 'received'
       | 'fixed_asset_receive'
@@ -407,6 +422,9 @@ function emptyPaymentForm() {
     metal_gm: '',
     metal_rate: '',
     metal_value_offset_inr: false,
+    gross_wt_gm: '',
+    metal_pct: '',
+    convert_inr_to_metal: false,
   }
 }
 
@@ -513,6 +531,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [payBalances, setPayBalances] = useState<{
     balance_due_inr: number
     metal_balance_gm: number
+    gold_metal_balance_gm?: number
+    has_gold_metal?: boolean
   } | null>(null)
   const [pvCustomerQ, setPvCustomerQ] = useState('')
   const [pvCustomerResults, setPvCustomerResults] = useState<ErpCustomer[]>([])
@@ -589,7 +609,14 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       : '/api/reseller/erp/ledger/customer-account'
     const ac = new AbortController()
     void axios
-      .get<{ summary: { balance_due_inr: number; metal_balance_gm?: number } }>(path, {
+      .get<{
+        summary: {
+          balance_due_inr: number
+          metal_balance_gm?: number
+          gold_metal_balance_gm?: number
+          has_gold_metal?: boolean
+        }
+      }>(path, {
         params: { customer_id: form.customer_id },
         signal: ac.signal,
       })
@@ -597,6 +624,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         setPayBalances({
           balance_due_inr: r.data.summary.balance_due_inr || 0,
           metal_balance_gm: r.data.summary.metal_balance_gm || 0,
+          gold_metal_balance_gm: r.data.summary.gold_metal_balance_gm || 0,
+          has_gold_metal: !!r.data.summary.has_gold_metal,
         })
       })
       .catch(() => setPayBalances(null))
@@ -733,10 +762,25 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
 
   const saveEntry = async () => {
     const amount = Number(String(form.amount_inr).replace(/[,₹\s]/g, ''))
-    const metalGm = Number(String(form.metal_gm).replace(/[,gG\s]/g, ''))
-    const isMetal = form.currency === 'metal' || form.payment_mode === 'metal'
-    if (isMetal) {
-      const rate = Number(String(form.metal_rate).replace(/[,₹\s]/g, ''))
+    const rate = Number(String(form.metal_rate).replace(/[,₹\s]/g, ''))
+    const convertInrToGm = form.currency === 'inr' && form.convert_inr_to_metal && metalLedgerShop
+    let metalGm = Number(String(form.metal_gm).replace(/[,gG\s]/g, ''))
+    let isMetal = form.currency === 'metal' || form.payment_mode === 'metal' || convertInrToGm
+    let saveAmount = amount
+    let saveNarration = form.narration
+    if (convertInrToGm) {
+      if (!(Number.isFinite(amount) && amount > 0 && Number.isFinite(rate) && rate > 0)) {
+        alert('Enter amount (₹) and metal rate (₹/g) to convert rupees to grams')
+        return
+      }
+      metalGm = Math.round((amount / rate) * 1000) / 1000
+      saveAmount = 0
+      isMetal = true
+      const metalWord = form.jewellery_metal === 'gold' ? 'Gold metal' : 'Metal'
+      const bit = `Converted ₹${amount.toFixed(2)} @ ₹${rate}/g → ${metalGm.toFixed(3)} g`
+      saveNarration = saveNarration.trim() ? `${saveNarration.trim()} · ${bit}` : bit
+    }
+    if (isMetal && !convertInrToGm) {
       if (form.metal_kind === 'mc_adjust') {
         if (
           !(Number.isFinite(metalGm) && Math.abs(metalGm) >= 0.0005) &&
@@ -754,13 +798,13 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         alert('Enter metal weight in grams')
         return
       }
-    } else if (!Number.isFinite(amount) || amount <= 0) {
+    } else if (!isMetal && (!Number.isFinite(amount) || amount <= 0)) {
       alert('Enter a valid amount')
       return
     }
     setBusy(true)
     try {
-      const metalKind = isMetal ? form.metal_kind : undefined
+      const metalKind = isMetal ? (convertInrToGm ? 'received' : form.metal_kind) : undefined
       const convertSide =
         isMetal && form.metal_kind === 'to_cash'
           ? payBalances && payBalances.metal_balance_gm < 0
@@ -771,7 +815,11 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         entry_date: form.entry_date,
         entry_type: form.is_suspense
           ? 'suspense_in'
-          : isMetal
+          : convertInrToGm
+            ? form.entry_type === 'payment_out'
+              ? 'payment_out'
+              : 'payment_in'
+            : isMetal
             ? form.metal_kind === 'issued'
               ? 'payment_out'
               : form.metal_kind === 'apply' ||
@@ -780,9 +828,10 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 ? 'adjustment'
                 : 'payment_in'
             : form.entry_type,
-        amount_inr: Number.isFinite(amount) && amount > 0 ? amount : 0,
+        amount_inr: Number.isFinite(saveAmount) && saveAmount > 0 ? saveAmount : 0,
         metal_gm: isMetal ? metalGm : undefined,
         metal_kind: metalKind,
+        jewellery_metal: isMetal ? form.jewellery_metal : undefined,
         convert_side: convertSide,
         metal_rate_per_g:
           isMetal && form.metal_rate.trim()
@@ -790,6 +839,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             : undefined,
         virtual_metal_value_inr:
           isMetal &&
+          !convertInrToGm &&
           form.metal_value_offset_inr &&
           (form.metal_kind === 'received' || form.metal_kind === 'apply'),
         customer_id: form.customer_id ? Number(form.customer_id) : null,
@@ -797,7 +847,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
         reference_no: form.reference_no,
         bank_name: form.bank_name,
         counterparty_name: form.counterparty_name,
-        narration: form.narration,
+        narration: saveNarration,
         is_suspense: form.is_suspense,
         ledger_scope: laneMode ? 'lane' : 'official',
       })
@@ -1933,6 +1983,19 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
             {form.currency === 'metal' ? (
               <>
                 <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal
+                  <select
+                    className={`${erpInputCls} mt-1`}
+                    value={form.jewellery_metal}
+                    onChange={(e) =>
+                      setForm({ ...form, jewellery_metal: e.target.value as 'silver' | 'gold' })
+                    }
+                  >
+                    <option value="silver">Silver</option>
+                    <option value="gold">Gold</option>
+                  </select>
+                </label>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                   Metal movement
                   <select
                     className={`${erpInputCls} mt-1`}
@@ -1970,6 +2033,34 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     />
                   </label>
                 ) : null}
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Gross Wt (g)
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    inputMode="decimal"
+                    value={form.gross_wt_gm}
+                    onChange={(e) => {
+                      const gross_wt_gm = e.target.value.replace(/[^\d.]/g, '')
+                      const metal_gm = fineGmFromGrossPct(gross_wt_gm, form.metal_pct) || form.metal_gm
+                      setForm({ ...form, gross_wt_gm, metal_gm })
+                    }}
+                    placeholder="e.g. 10"
+                  />
+                </label>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal %
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    inputMode="decimal"
+                    value={form.metal_pct}
+                    onChange={(e) => {
+                      const metal_pct = e.target.value.replace(/[^\d.]/g, '')
+                      const metal_gm = fineGmFromGrossPct(form.gross_wt_gm, metal_pct) || form.metal_gm
+                      setForm({ ...form, metal_pct, metal_gm })
+                    }}
+                    placeholder="e.g. 99.9"
+                  />
+                </label>
                 <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
                   Weight (g)
                   <input
@@ -2011,6 +2102,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 ) : null}
               </>
             ) : (
+            <>
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Amount (₹)
               <input
@@ -2020,6 +2112,61 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 onChange={(e) => setForm({ ...form, amount_inr: e.target.value })}
               />
             </label>
+            {metalLedgerShop ? (
+              <div className="flex flex-col justify-end">
+                <label className="flex min-h-[44px] items-center gap-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/80">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-[var(--color-slate-700,#e8e4df)]"
+                    checked={form.convert_inr_to_metal}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        convert_inr_to_metal: e.target.checked,
+                      })
+                    }
+                  />
+                  Convert rupees to grams
+                </label>
+              </div>
+            ) : null}
+            {metalLedgerShop && form.convert_inr_to_metal ? (
+              <>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal
+                  <select
+                    className={`${erpInputCls} mt-1`}
+                    value={form.jewellery_metal}
+                    onChange={(e) =>
+                      setForm({ ...form, jewellery_metal: e.target.value as 'silver' | 'gold' })
+                    }
+                  >
+                    <option value="silver">Silver</option>
+                    <option value="gold">Gold</option>
+                  </select>
+                </label>
+                <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                  Metal rate (₹/g) to apply against ₹ balance
+                  <input
+                    className={`${erpInputCls} mt-1`}
+                    inputMode="decimal"
+                    value={form.metal_rate}
+                    onChange={(e) => setForm({ ...form, metal_rate: e.target.value.replace(/[^\d.]/g, '') })}
+                    placeholder="e.g. 220"
+                  />
+                </label>
+                {rupeesToGrams(form.amount_inr, form.metal_rate) ? (
+                  <p className="self-end rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-sm font-semibold tabular-nums text-[#1a1814]">
+                    {rupeesToGrams(form.amount_inr, form.metal_rate)} g
+                  </p>
+                ) : (
+                  <p className="self-end text-[11px] text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Enter amount and rate to see grams
+                  </p>
+                )}
+              </>
+            ) : null}
+            </>
             )}
             {form.currency !== 'metal' ? (
               <>
@@ -2126,6 +2273,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                     Due {formatErpInr(payBalances.balance_due_inr)}
                     {formatMetalGm(payBalances.metal_balance_gm)
                       ? ` · ${formatMetalGm(payBalances.metal_balance_gm)}`
+                      : ''}
+                    {payBalances.has_gold_metal
+                      ? ` · Gold ${formatMetalGm(payBalances.gold_metal_balance_gm) || '0.000 g'}`
                       : ''}
                   </p>
                   <p className="text-[#1a1814]/60">{metalBalanceHint(payBalances.metal_balance_gm)}</p>

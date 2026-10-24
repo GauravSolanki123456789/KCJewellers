@@ -28,6 +28,27 @@ function accountCsvEscape(v) {
     return s;
 }
 
+function inferBillJewelleryMetal(bill) {
+    try {
+        let lines = bill?.lines_json;
+        if (typeof lines === 'string') lines = JSON.parse(lines);
+        if (Array.isArray(lines)) {
+            let gold = 0;
+            let silver = 0;
+            for (const l of lines) {
+                const mt = String(l.metal || l.metal_type || l.metalType || '').toLowerCase();
+                if (mt.includes('gold')) gold += 1;
+                else if (mt.includes('silver')) silver += 1;
+            }
+            if (gold && !silver) return 'gold';
+            if (silver && !gold) return 'silver';
+        }
+    } catch {
+        /* ignore */
+    }
+    return inferLedgerMetalKind(bill);
+}
+
 function totalWeightGmFromLines(linesJson) {
     let lines = linesJson;
     if (typeof lines === 'string') {
@@ -612,7 +633,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     const entryParams = book ? [resellerUserId] : [resellerUserId, customerId, nameCompact];
     let entrySql = `SELECT id, entry_date, entry_type, amount_inr, payment_mode, reference_no,
                            narration, bill_id, shadow_bill_id, is_suspense, ledger_scope, weight_kg, metal_gm,
-                           metal_cleared_gm, virtual_metal_inr
+                           metal_cleared_gm, virtual_metal_inr, jewellery_metal
                     FROM reseller_erp_ledger_entries
                     WHERE reseller_user_id = $1 AND is_suspense = false`;
     if (book === 'cash') {
@@ -719,6 +740,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
                       : 0,
             debit_metal_gm: convertedGm > 0 && !isCredit ? convertedGm : 0,
             credit_metal_gm: convertedGm > 0 && isCredit ? convertedGm : 0,
+            jewellery_metal: inferBillJewelleryMetal(s),
         });
     }
 
@@ -783,6 +805,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             credit_metal_gm: metalDc.credit_metal_gm,
             virtual_metal_inr: !!p.virtual_metal_inr,
             metal_cleared_gm: p.metal_cleared_gm != null ? roundMetalGm(p.metal_cleared_gm) : undefined,
+            jewellery_metal: inferLedgerMetalKind(p),
         });
     }
 
@@ -838,6 +861,28 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         ? transactions[transactions.length - 1].balance_metal_gm
         : 0;
 
+    let goldRun = 0;
+    let hasGoldMetal = false;
+    const withGold = transactions.map((t) => {
+        const kind = inferLedgerMetalKind(t);
+        const d = Number(t.debit_metal_gm) || 0;
+        const c = Number(t.credit_metal_gm) || 0;
+        const w = Number(t.weight_gm) || 0;
+        if (kind === 'gold' && (Math.abs(d) >= 0.0005 || Math.abs(c) >= 0.0005 || Math.abs(w) >= 0.0005)) {
+            hasGoldMetal = true;
+            goldRun += d - c;
+        }
+        return {
+            ...t,
+            jewellery_metal: kind,
+            balance_gold_metal_gm: roundMetalGm(goldRun),
+        };
+    });
+    const goldMetalBalance = withGold.length
+        ? withGold[withGold.length - 1].balance_gold_metal_gm
+        : 0;
+    if (Math.abs(goldMetalBalance) >= 0.0005) hasGoldMetal = true;
+
     return {
         customer: {
             id: customer.id,
@@ -852,9 +897,11 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             total_paid_inr: Math.round(totalPaid * 100) / 100,
             balance_due_inr: balanceDue,
             metal_balance_gm: roundMetalGm(metalBalance),
-            transaction_count: transactions.length,
+            gold_metal_balance_gm: roundMetalGm(goldMetalBalance),
+            has_gold_metal: hasGoldMetal,
+            transaction_count: withGold.length,
         },
-        transactions,
+        transactions: withGold,
     };
 }
 

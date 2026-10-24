@@ -70,12 +70,8 @@ export function toIsoDateInput(raw?: string | null): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
   const fromDmy = parseDdMmYyyyToIso(s)
   if (fromDmy) return fromDmy
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return ''
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
+  // Never Date.parse partials like "01" / "01/01" — JS treats those as 2001-01-01.
+  return ''
 }
 
 /** ISO yyyy-mm-dd → dd/mm/yyyy for text inputs. */
