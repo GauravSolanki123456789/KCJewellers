@@ -103,13 +103,13 @@ SET PARTIAL_CUTTER OFF
 SET TEAR ON
 CLS
 CODEPAGE 1252
-TEXT 4,6,"ROMAN.TTF",0,1,5,"{{product_name}}"
-TEXT 4,22,"ROMAN.TTF",0,1,5,"GWT:{{gross_weight}}"
-TEXT 4,38,"ROMAN.TTF",0,1,5,"NWT:{{net_weight}}"
-TEXT 4,54,"ROMAN.TTF",0,1,5,"Pcs:{{pcs_label}}"
-TEXT 92,6,"ROMAN.TTF",0,1,5,"{{barcode_short}}"
-QRCODE 92,22,L,2,A,0,"{{qr_code}}"
-TEXT 92,68,"ROMAN.TTF",0,1,5,"{{company_code}}"
+TEXT 3,4,"ROMAN.TTF",0,1,5,"{{product_name_short}}"
+TEXT 3,18,"ROMAN.TTF",0,1,5,"GWT:{{gross_weight}}"
+TEXT 3,32,"ROMAN.TTF",0,1,5,"NWT:{{net_weight}}"
+TEXT 3,46,"ROMAN.TTF",0,1,5,"Pcs:{{pcs_label}}"
+TEXT 68,4,"ROMAN.TTF",0,1,5,"{{barcode_short}}"
+QRCODE 68,18,L,2,A,0,"{{qr_code}}"
+TEXT 68,56,"ROMAN.TTF",0,1,5,"{{company_code}}"
 PRINT 1,1
 `.trim();
 
@@ -1116,6 +1116,28 @@ function composeTsplMultiColumnRow(tsplList, layout) {
     return [first.header, 'CLS', ...bodies, first.trailer].filter(Boolean).join('\n').trim();
 }
 
+function batchThreeAcrossLabelRows(items, templateSource) {
+    const list = (items || []).filter((r) => r && r.tspl);
+    if (!list.length) return [];
+    const layout = resolveItemMultiColumnLayout({
+        template: templateSource,
+        prnLayout: TSC_PRN_LAYOUT_3ACROSS,
+    });
+    const cols = Math.max(1, layout.columns);
+    const jobs = [];
+    for (let i = 0; i < list.length; i += cols) {
+        const row = list.slice(i, i + cols);
+        jobs.push({
+            tspl: composeTsplMultiColumnRow(
+                row.map((r) => r.tspl),
+                layout,
+            ),
+            items: row,
+        });
+    }
+    return jobs;
+}
+
 function batchRenderedPrnLabels(rendered) {
     const items = Array.isArray(rendered) ? rendered : [];
     const jobs = [];
@@ -1133,10 +1155,7 @@ function batchRenderedPrnLabels(rendered) {
         }
         const row = [];
         while (row.length < layout.columns && i < items.length) {
-            const next = items[i];
-            const nextLayout = resolveItemMultiColumnLayout(next);
-            if (nextLayout.columns !== layout.columns) break;
-            row.push(next);
+            row.push(items[i]);
             i += 1;
         }
         jobs.push({
@@ -1347,11 +1366,15 @@ function buildLabelTemplateVars(piece, hw, profile, template) {
             ? String(Math.round(Number(piece.fixed_price)))
             : '';
     const barcodeFull = String(piece.barcode || '').trim().toUpperCase();
+    const tpl = String(template || '');
+    const threeAcross = /\bCOLUMNS\s+[2-9]/i.test(tpl);
+    const productName = String(piece.product_name || piece.item_code || piece.style_code || '').trim();
     return {
         barcode: barcodeFull,
-        barcode_short: barcodeFull.length > 13 ? barcodeFull.slice(0, 13) : barcodeFull,
+        barcode_short: barcodeFull.length > 10 ? barcodeFull.slice(-10) : barcodeFull,
+        product_name_short: threeAcross && productName.length > 12 ? productName.slice(0, 12) : productName,
         qr_code: tsplQrContent(piece.barcode),
-        product_name: String(piece.product_name || piece.item_code || piece.style_code || '').trim(),
+        product_name: productName,
         style_code: String(piece.style_code || piece.product_name || '').trim(),
         item_code: String(piece.item_code || '').trim(),
         sku: String(piece.sku || '').trim(),
@@ -3216,6 +3239,7 @@ module.exports = {
     columnPitchDotsFromSheet,
     composeTsplMultiColumnRow,
     batchRenderedPrnLabels,
+    batchThreeAcrossLabelRows,
     fixTsplQrcodeCommands,
     labelHeightMmFromTspl,
     tsplQrContent,

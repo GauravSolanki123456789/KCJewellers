@@ -3219,11 +3219,16 @@ function registerStockPieceRoutes(app, deps) {
                 });
             }
 
+            const isThreeAcross =
+                erpPrint.normalizeTscPrnLayout(prnTemplateName) === erpPrint.TSC_PRN_LAYOUT_3ACROSS;
+            const prnReady = prepared.filter((r) => r.tspl);
+            const threeAcrossTemplate =
+                printFormats.labelPrnTemplate3Across || erpPrint.DEFAULT_LABEL_PRN_3ACROSS;
             const jobs = usePrn
-                ? erpPrint.batchRenderedPrnLabels(prepared.filter((r) => r.tspl))
-                : prepared
-                      .filter((r) => r.tspl)
-                      .map((r) => ({ tspl: r.tspl, items: [r] }));
+                ? isThreeAcross
+                    ? erpPrint.batchThreeAcrossLabelRows(prnReady, threeAcrossTemplate)
+                    : erpPrint.batchRenderedPrnLabels(prnReady)
+                : prnReady.map((r) => ({ tspl: r.tspl, items: [r] }));
 
             const results = [];
             for (const row of prepared) {

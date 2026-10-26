@@ -101,13 +101,13 @@ SET PARTIAL_CUTTER OFF
 SET TEAR ON
 CLS
 CODEPAGE 1252
-TEXT 4,6,"ROMAN.TTF",0,1,5,"{{product_name}}"
-TEXT 4,22,"ROMAN.TTF",0,1,5,"GWT:{{gross_weight}}"
-TEXT 4,38,"ROMAN.TTF",0,1,5,"NWT:{{net_weight}}"
-TEXT 4,54,"ROMAN.TTF",0,1,5,"Pcs:{{pcs_label}}"
-TEXT 92,6,"ROMAN.TTF",0,1,5,"{{barcode_short}}"
-QRCODE 92,22,L,2,A,0,"{{qr_code}}"
-TEXT 92,68,"ROMAN.TTF",0,1,5,"{{company_code}}"
+TEXT 3,4,"ROMAN.TTF",0,1,5,"{{product_name_short}}"
+TEXT 3,18,"ROMAN.TTF",0,1,5,"GWT:{{gross_weight}}"
+TEXT 3,32,"ROMAN.TTF",0,1,5,"NWT:{{net_weight}}"
+TEXT 3,46,"ROMAN.TTF",0,1,5,"Pcs:{{pcs_label}}"
+TEXT 68,4,"ROMAN.TTF",0,1,5,"{{barcode_short}}"
+QRCODE 68,18,L,2,A,0,"{{qr_code}}"
+TEXT 68,56,"ROMAN.TTF",0,1,5,"{{company_code}}"
 PRINT 1,1
 `.trim()
 

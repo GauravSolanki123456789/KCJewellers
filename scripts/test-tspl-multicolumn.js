@@ -43,6 +43,18 @@ assert.strictEqual(jobs.length, 2)
 assert.strictEqual(jobs[0].items.length, 3)
 assert.strictEqual(jobs[1].items.length, 1)
 
+const forced = erpPrint.batchThreeAcrossLabelRows(
+  [
+    { tspl: a },
+    { tspl: b },
+    { tspl: c },
+  ],
+  three,
+)
+assert.strictEqual(forced.length, 1)
+assert.strictEqual(forced[0].items.length, 3)
+assert.ok((forced[0].tspl.match(/^PRINT /m) || []).length === 1)
+
 const singleJobs = erpPrint.batchRenderedPrnLabels([{ tspl: jewelry, template: jewelry }])
 assert.strictEqual(singleJobs.length, 1)
 assert.ok(singleJobs[0].tspl.includes('SIZE 92.5 mm, 15 mm'))

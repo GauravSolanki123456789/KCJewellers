@@ -7,6 +7,7 @@ import {
   normalizeComPort,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
+import { normalizeTscPrnLayout, TSC_PRN_LAYOUT_3ACROSS } from '@/lib/erp-print-templates'
 import {
   getLocalPrintAgentInfo,
   localPrintAgentUnreachableMessage,
@@ -89,12 +90,15 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
   const printerProfile = getPrinterProfileById(hardware, opts.printerProfileId)
 
   const workstation = loadWorkstationSelection()
-  const prnTemplateName =
+  let prnTemplateName =
     workstation.prnTemplateName || printerProfile?.prnTemplateName || null
+  if (!prnTemplateName && printerProfile?.name && /3.?across/i.test(printerProfile.name)) {
+    prnTemplateName = TSC_PRN_LAYOUT_3ACROSS
+  }
   const body: Record<string, unknown> = {
     printer_profile_id: opts.printerProfileId || printerProfile?.id,
+    prn_template_name: normalizeTscPrnLayout(prnTemplateName || 'standard'),
   }
-  if (prnTemplateName) body.prn_template_name = prnTemplateName
   if (opts.batchId) body.batch_id = opts.batchId
   if (opts.pieceIds?.length) body.piece_ids = opts.pieceIds
   if (opts.pieceOverrides && Object.keys(opts.pieceOverrides).length) {
