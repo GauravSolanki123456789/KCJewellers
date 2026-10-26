@@ -65,34 +65,35 @@ export function getAttachedVariants(product: ItemWithVariants): Item[] {
 
 /** One grid card per `design_group` when multiple size rows share a variant family. */
 export function collapseGiftingVariantRows(products: Item[]): ItemWithVariants[] {
-  const singles: ItemWithVariants[] = []
   const byGroup = new Map<string, Item[]>()
-
   for (const p of products) {
     const groupKey = getVariantGroupKey(p)
     const hasSize = String(p.size ?? '').trim() !== ''
-    const shouldGroup = groupKey && hasSize
-    if (!shouldGroup) {
-      singles.push(p)
-      continue
-    }
+    if (!(groupKey && hasSize)) continue
     const bucket = byGroup.get(groupKey) ?? []
     bucket.push(p)
     byGroup.set(groupKey, bucket)
   }
 
-  const grouped: ItemWithVariants[] = []
-  for (const list of byGroup.values()) {
-    const variants = sortSizeVariants(list)
-    if (variants.length === 1) {
-      grouped.push(variants[0])
-    } else {
-      const lead = variants[0]
-      grouped.push({ ...lead, variants })
+  const seenGroups = new Set<string>()
+  const out: ItemWithVariants[] = []
+  for (const p of products) {
+    const groupKey = getVariantGroupKey(p)
+    const hasSize = String(p.size ?? '').trim() !== ''
+    if (groupKey && hasSize) {
+      if (seenGroups.has(groupKey)) continue
+      seenGroups.add(groupKey)
+      const variants = sortSizeVariants(byGroup.get(groupKey) ?? [])
+      if (variants.length <= 1) {
+        out.push(variants[0] || p)
+      } else {
+        out.push({ ...variants[0], variants })
+      }
+      continue
     }
+    out.push(p)
   }
-
-  return [...singles, ...grouped]
+  return out
 }
 
 export function variantMatchesBarcode(variant: Item, barcode: string): boolean {

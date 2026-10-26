@@ -326,14 +326,15 @@ export function groupSharedCatalogPricingRows(
   rows: SharedCatalogPricingRow[],
 ): SharedCatalogGroupedRow[] {
   const groupBuckets = new Map<string, SharedCatalogPricingRow[]>()
-  for (const row of rows) {
+
+  rows.forEach((row) => {
     const groupKey = getVariantGroupKey(row.item)
     const hasSize = String(row.item.size ?? '').trim() !== ''
-    if (!groupKey || !hasSize) continue
+    if (!(groupKey && hasSize)) return
     const bucket = groupBuckets.get(groupKey) ?? []
     bucket.push(row)
     groupBuckets.set(groupKey, bucket)
-  }
+  })
 
   for (const [groupKey, list] of groupBuckets) {
     groupBuckets.set(

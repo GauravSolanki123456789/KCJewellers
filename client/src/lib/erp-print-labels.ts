@@ -2,6 +2,7 @@ import axios from '@/lib/axios'
 import {
   getPrinterProfileById,
   isTvsLp46LabelProfile,
+  loadWorkstationSelection,
   migrateHardwareSettings,
   normalizeComPort,
   type ErpHardwareSettings,
@@ -82,9 +83,13 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
   const hardware = await resolveHardware(opts.hardware)
   const printerProfile = getPrinterProfileById(hardware, opts.printerProfileId)
 
+  const workstation = loadWorkstationSelection()
+  const prnTemplateName =
+    workstation.prnTemplateName || printerProfile?.prnTemplateName || null
   const body: Record<string, unknown> = {
     printer_profile_id: opts.printerProfileId || printerProfile?.id,
   }
+  if (prnTemplateName) body.prn_template_name = prnTemplateName
   if (opts.batchId) body.batch_id = opts.batchId
   if (opts.pieceIds?.length) body.piece_ids = opts.pieceIds
   if (opts.pieceOverrides && Object.keys(opts.pieceOverrides).length) {

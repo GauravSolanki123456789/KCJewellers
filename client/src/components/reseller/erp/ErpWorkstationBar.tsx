@@ -5,6 +5,8 @@ import axios from '@/lib/axios'
 import {
   getPrinterProfileById,
   getScaleProfileById,
+  isTvsLp46LabelProfile,
+  isZebraLabelProfile,
   loadWorkstationSelection,
   migrateHardwareSettings,
   printerProfileSummary,
@@ -12,6 +14,7 @@ import {
   type ErpHardwareSettings,
   type ErpWorkstationSelection,
 } from '@/lib/erp-hardware'
+import { tscPrnLayoutLabel } from '@/lib/erp-print-templates'
 import { migratePrintFormats } from '@/lib/erp-print-templates'
 import {
   ERP_QUOTE_OUTPUT_HINTS,
@@ -98,6 +101,38 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
             ))}
           </select>
         </label>
+
+        {printer?.labelFormat === 'prn' &&
+        !isZebraLabelProfile(printer) &&
+        !isTvsLp46LabelProfile(printer) ? (
+          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
+            TSC label layout on this PC
+            <select
+              className={`${erpInputCls} mt-1.5`}
+              value={value.prnTemplateName || printer.prnTemplateName || 'standard'}
+              onChange={(e) =>
+                patch({
+                  ...value,
+                  prnTemplateName: e.target.value || null,
+                })
+              }
+            >
+              <option value="standard">Standard jewelry tag</option>
+              <option value="tsc-3across">3-across sheet</option>
+            </select>
+            <span className="mt-1.5 block text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+              Saved on this browser only. Shop printer default:{' '}
+              <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/80">
+                {tscPrnLayoutLabel(printer.prnTemplateName)}
+              </strong>
+              . Edit the PRN in{' '}
+              <Link href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
+                Print formats
+              </Link>
+              . Changing 3-across does not change the jewelry-tag PRN.
+            </span>
+          </label>
+        ) : null}
 
         <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70">
           Weighing scale

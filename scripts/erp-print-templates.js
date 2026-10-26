@@ -85,6 +85,52 @@ PRINT 1,1
 /** Legacy alias — silver standard layout. */
 const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER;
 
+/**
+ * TSC 3-across sheet (same TTP-244, different media).
+ * Layout numbers live in the PRN (COLUMNS, COLUMN_PITCH, SIZE, GAP, x,y) — not in JS.
+ */
+const DEFAULT_LABEL_PRN_3ACROSS = `
+COLUMNS 3
+COLUMN_PITCH 34.7 mm
+SIZE 104 mm, 22 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 8,14,"ROMAN.TTF",0,1,7,"{{product_name}}"
+TEXT 8,38,"ROMAN.TTF",0,1,7,"G {{gross_weight}}  N {{net_weight}}"
+BARCODE 8,58,"128",72,1,0,1,2,"{{barcode}}"
+TEXT 8,142,"ROMAN.TTF",0,1,6,"{{barcode}}"
+TEXT 8,162,"ROMAN.TTF",0,1,6,"{{company_code}}"
+PRINT 1,1
+`.trim();
+
+const TSC_PRN_LAYOUT_STANDARD = 'standard';
+const TSC_PRN_LAYOUT_3ACROSS = 'tsc-3across';
+
+function normalizeTscPrnLayout(raw) {
+    const s = String(raw || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_');
+    if (
+        s === 'tsc_3across' ||
+        s === 'tsc3across' ||
+        s === '3across' ||
+        s === '3_across' ||
+        s === 'three_across'
+    ) {
+        return TSC_PRN_LAYOUT_3ACROSS;
+    }
+    return TSC_PRN_LAYOUT_STANDARD;
+}
+
 /** Zebra GC420t — single-line ZPL (.prn export). Do not run TSPL line-break repair on this. */
 const DEFAULT_LABEL_ZPL =
     'CT~~CD,~CC^~CT~^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ^XA^MMT^PW280^LL0120^LS0^BY1,3,46^FT9,97^BCN,,N,N^FD{{barcode}}^FS^FT25,33^A0N,14,14^FH^FD{{product_name}}^FS^FT20,50^A0N,17,16^FH^FD{{company_code}}^FS^FT156,40^A0N,23,24^FH^FDWT:{{gross_weight}}^FS^FT158,68^A0N,23,24^FH^FDPCS:{{pcs_label}}^FS^FT150,102^A0N,23,24^FH^FDMY925 {{net_weight}}^FS^FT157,120^A0N,22,21^FH^FDInc:{{size}}^FS^FT20,120^A0N,23,21^FH^FD{{barcode}}^FS^PQ1,0,1,Y^XZ';
@@ -403,6 +449,30 @@ function migrateLabelPrnRules(printFormats) {
         .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 }
 
+function migrateLabelPrn3AcrossRules(printFormats) {
+    const pf = printFormats || {};
+    const raw = pf.labelPrn3AcrossRules;
+    if (!Array.isArray(raw) || !raw.length) return [];
+    return raw
+        .map((rule) => ({
+            id: String(rule.id || newRuleId()),
+            name: String(rule.name || 'Label rule').trim() || 'Label rule',
+            enabled: rule.enabled !== false,
+            priority: Number(rule.priority) || 0,
+            metalTypes: Array.isArray(rule.metalTypes)
+                ? rule.metalTypes.map((t) => String(t).trim()).filter(Boolean)
+                : [],
+            requireAny: normalizeLabelRuleFieldList(rule.requireAny),
+            requireAll: normalizeLabelRuleFieldList(rule.requireAll),
+            requireNone: normalizeLabelRuleFieldList(rule.requireNone),
+            template: normalizePrnTemplateWithFallback(
+                rule.template || pf.labelPrnTemplate3Across || DEFAULT_LABEL_PRN_3ACROSS,
+                DEFAULT_LABEL_PRN_3ACROSS,
+            ),
+        }))
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+}
+
 function migrateLabelZebraPrnRules(printFormats) {
     const pf = printFormats || {};
     const raw = pf.labelZebraPrnRules;
@@ -438,8 +508,34 @@ function normalizeLabelTemplate(raw, engine) {
     return normalizePrnTemplate(preserved);
 }
 
-function resolveLabelPrnTemplate(piece, printFormats) {
+function resolveLabelPrnTemplate(piece, printFormats, profile, prnTemplateName) {
     const pf = printFormats || {};
+    const layout = normalizeTscPrnLayout(prnTemplateName || profile?.prnTemplateName);
+    if (layout === TSC_PRN_LAYOUT_3ACROSS) {
+        const rules = migrateLabelPrn3AcrossRules(pf);
+        for (const rule of rules) {
+            if (ruleMatchesPiece(piece, rule)) {
+                return {
+                    template: normalizePrnTemplateWithFallback(
+                        rule.template || pf.labelPrnTemplate3Across || DEFAULT_LABEL_PRN_3ACROSS,
+                        DEFAULT_LABEL_PRN_3ACROSS,
+                    ),
+                    ruleId: rule.id,
+                    ruleName: rule.name,
+                    prnLayout: layout,
+                };
+            }
+        }
+        return {
+            template: normalizePrnTemplateWithFallback(
+                pf.labelPrnTemplate3Across || DEFAULT_LABEL_PRN_3ACROSS,
+                DEFAULT_LABEL_PRN_3ACROSS,
+            ),
+            ruleId: null,
+            ruleName: 'TSC 3-across',
+            prnLayout: layout,
+        };
+    }
     const rules = migrateLabelPrnRules(pf);
     for (const rule of rules) {
         if (ruleMatchesPiece(piece, rule)) {
@@ -447,6 +543,7 @@ function resolveLabelPrnTemplate(piece, printFormats) {
                 template: normalizePrnTemplate(rule.template || pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
                 ruleId: rule.id,
                 ruleName: rule.name,
+                prnLayout: TSC_PRN_LAYOUT_STANDARD,
             };
         }
     }
@@ -454,6 +551,7 @@ function resolveLabelPrnTemplate(piece, printFormats) {
         template: normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN),
         ruleId: null,
         ruleName: 'Default',
+        prnLayout: TSC_PRN_LAYOUT_STANDARD,
     };
 }
 
@@ -644,6 +742,17 @@ function applyBillTemplatePreservation(raw, fallback) {
 
 function migratePrintFormats(raw) {
     const pf = { ...(raw || {}) };
+    if (pf.labelPrnTemplate3Across != null && String(pf.labelPrnTemplate3Across).trim()) {
+        pf.labelPrnTemplate3Across = normalizePrnTemplateWithFallback(
+            pf.labelPrnTemplate3Across,
+            DEFAULT_LABEL_PRN_3ACROSS,
+        );
+    } else if (pf.labelPrnTemplate3Across == null || !String(pf.labelPrnTemplate3Across).trim()) {
+        pf.labelPrnTemplate3Across = DEFAULT_LABEL_PRN_3ACROSS;
+    }
+    if (Array.isArray(pf.labelPrn3AcrossRules) && pf.labelPrn3AcrossRules.length) {
+        pf.labelPrn3AcrossRules = migrateLabelPrn3AcrossRules(pf);
+    }
     if (pf.billTemplate?.trim()) {
         pf.billTemplate = applyBillTemplatePreservation(pf.billTemplate, DEFAULT_BILL_TEMPLATE);
     } else {
@@ -804,6 +913,189 @@ function normalizePrnTemplate(raw) {
     return preserved;
 }
 
+function normalizePrnTemplateWithFallback(raw, fallback) {
+    const preserved = fixSplitTemplatePlaceholders(preservePrnTemplate(raw));
+    if (!preserved.trim()) return fallback || DEFAULT_LABEL_PRN;
+    if (isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved);
+    if (
+        /mmGAP|ONCLS|PEEL OFFSET|CUTTER OFFSET|1252TEXT/i.test(preserved) ||
+        (preserved.length > 80 && !preserved.includes('\n'))
+    ) {
+        return fixSplitTemplatePlaceholders(repairCorruptedPrnTemplate(preserved));
+    }
+    return preserved;
+}
+
+const TSPL_LAYOUT_DIRECTIVE_RE =
+    /^(COLUMNS|COLUMN_PITCH|COLUMN_GAP|LABEL_WIDTH|LABEL_HEIGHT|DPI)\b/i;
+const TSPL_DRAW_CMD_RE =
+    /^(TEXT|BARCODE|QRCODE|BITMAP|PUTBMP|BOX|BAR|BLOCK|CIRCLE|ELLIPSE|ERASE|DMATRIX|PDF417|AZTEC|CODABLOCK|MAXICODE|TLC39)\b/i;
+const TSPL_HEADER_CMD_RE =
+    /^(SIZE|GAP|DIRECTION|REFERENCE|OFFSET|SET|CODEPAGE|CLS|SPEED|DENSITY|SHIFT)\b/i;
+
+function tsplDotsPerMm(dpi) {
+    const n = Number(dpi);
+    if (Number.isFinite(n) && n >= 150) return n / 25.4;
+    return 8;
+}
+
+function parseTsplLengthToDots(raw, dpi) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const mm = s.match(/^(-?[\d.]+)\s*mm$/i);
+    if (mm) {
+        const v = parseFloat(mm[1]);
+        if (!Number.isFinite(v)) return null;
+        return Math.round(v * tsplDotsPerMm(dpi));
+    }
+    const n = Number(s);
+    return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function isTsplLayoutDirective(line) {
+    return TSPL_LAYOUT_DIRECTIVE_RE.test(String(line || '').trim());
+}
+
+function stripTsplLayoutDirectives(tspl) {
+    return String(tspl || '')
+        .split('\n')
+        .filter((line) => !isTsplLayoutDirective(line))
+        .join('\n');
+}
+
+function parseTsplMultiColumnLayout(tspl) {
+    const lines = String(tspl || '').split('\n');
+    let columns = 1;
+    let columnPitchDots = null;
+    let dpi = 203;
+    for (const line of lines) {
+        const t = line.trim();
+        const col = t.match(/^COLUMNS\s+(\d+)/i);
+        if (col) {
+            const n = parseInt(col[1], 10);
+            if (Number.isFinite(n) && n > 0) columns = Math.min(12, n);
+            continue;
+        }
+        const dpiM = t.match(/^DPI\s+(\d+)/i);
+        if (dpiM) {
+            const n = parseInt(dpiM[1], 10);
+            if (Number.isFinite(n) && n >= 150) dpi = n;
+            continue;
+        }
+        const pitch = t.match(/^COLUMN_PITCH\s+(.+)$/i);
+        if (pitch) {
+            columnPitchDots = parseTsplLengthToDots(pitch[1], dpi);
+        }
+    }
+    if (columns <= 1) {
+        return { columns: 1, columnPitchDots: 0, dpi };
+    }
+    if (!(columnPitchDots > 0)) {
+        const widthMm = labelWidthMmFromTspl(tspl);
+        if (widthMm && columns > 0) {
+            columnPitchDots = Math.round((widthMm / columns) * tsplDotsPerMm(dpi));
+        } else {
+            columnPitchDots = Math.round(34.7 * tsplDotsPerMm(dpi));
+        }
+    }
+    return { columns, columnPitchDots, dpi };
+}
+
+function shiftTsplDrawX(body, dxDots) {
+    const dx = Math.round(Number(dxDots) || 0);
+    if (!dx) return body;
+    return String(body || '')
+        .split('\n')
+        .map((line) => {
+            const t = line.trim();
+            if (!TSPL_DRAW_CMD_RE.test(t)) return line;
+            return line.replace(/^(\s*[A-Z]+)(\s+)(-?\d+)(\s*,)/i, (_, cmd, sp, x, comma) => {
+                return `${cmd}${sp}${Number(x) + dx}${comma}`;
+            });
+        })
+        .join('\n');
+}
+
+function splitTsplLabelParts(tspl) {
+    const lines = String(tspl || '').split('\n');
+    const header = [];
+    const body = [];
+    const trailer = [];
+    let seenDraw = false;
+    for (const line of lines) {
+        const t = line.trim();
+        if (!t) {
+            if (seenDraw) body.push(line);
+            else header.push(line);
+            continue;
+        }
+        if (isTsplLayoutDirective(t)) continue;
+        if (/^PRINT\b/i.test(t)) {
+            trailer.push(line);
+            continue;
+        }
+        if (!seenDraw && (TSPL_HEADER_CMD_RE.test(t) || /^REM\b/i.test(t))) {
+            header.push(line);
+            continue;
+        }
+        seenDraw = true;
+        if (/^CLS\b/i.test(t)) continue;
+        body.push(line);
+    }
+    if (!trailer.length) trailer.push('PRINT 1,1');
+    return { header: header.join('\n').trim(), body: body.join('\n').trim(), trailer: trailer.join('\n').trim() };
+}
+
+function composeTsplMultiColumnRow(tsplList, layout) {
+    const list = (tsplList || []).filter(Boolean);
+    if (!list.length) return '';
+    const cols = Math.max(1, Number(layout?.columns) || 1);
+    const pitch = Math.max(0, Number(layout?.columnPitchDots) || 0);
+    const first = splitTsplLabelParts(list[0]);
+    if (cols <= 1 || !pitch) {
+        return stripTsplLayoutDirectives(list[0]).trim();
+    }
+    const bodies = list.slice(0, cols).map((tspl, idx) => {
+        const parts = splitTsplLabelParts(tspl);
+        return shiftTsplDrawX(parts.body, idx * pitch);
+    });
+    return [first.header, ...bodies, first.trailer].filter(Boolean).join('\n').trim();
+}
+
+function batchRenderedPrnLabels(rendered) {
+    const items = Array.isArray(rendered) ? rendered : [];
+    const jobs = [];
+    let i = 0;
+    while (i < items.length) {
+        const cur = items[i];
+        const layout = parseTsplMultiColumnLayout(cur.template || cur.tspl || '');
+        if (layout.columns <= 1) {
+            jobs.push({
+                tspl: stripTsplLayoutDirectives(cur.tspl || ''),
+                items: [cur],
+            });
+            i += 1;
+            continue;
+        }
+        const row = [];
+        while (row.length < layout.columns && i < items.length) {
+            const next = items[i];
+            const nextLayout = parseTsplMultiColumnLayout(next.template || next.tspl || '');
+            if (nextLayout.columns !== layout.columns) break;
+            row.push(next);
+            i += 1;
+        }
+        jobs.push({
+            tspl: composeTsplMultiColumnRow(
+                row.map((r) => r.tspl),
+                layout,
+            ),
+            items: row,
+        });
+    }
+    return jobs;
+}
+
 function labelHeightMmFromTspl(tspl) {
     const m = String(tspl || '').match(/SIZE\s+[\d.]+\s*mm\s*,\s*([\d.]+)\s*mm/i);
     if (!m) return null;
@@ -905,7 +1197,9 @@ function formatTsplLineEndings(tspl, windowsPrinterName) {
         }
         return out;
     }
-    const body = fixTsplQrcodeCommands(stripBareSetLines(normalizePrnTemplate(tspl)));
+    const body = fixTsplQrcodeCommands(
+        stripBareSetLines(stripTsplLayoutDirectives(normalizePrnTemplate(tspl))),
+    );
     return `${body.split('\n').join('\r\n')}\r\n`;
 }
 
@@ -1051,14 +1345,14 @@ function renderPrnLabel(template, piece, hw, profile) {
     return renderTemplate(tpl, vars);
 }
 
-function renderPrnLabelForPiece(piece, hw, profile, printFormats) {
+function renderPrnLabelForPiece(piece, hw, profile, printFormats, prnTemplateName) {
     const isZebra = isZebraLabelProfile(profile);
     const isTvs = !isZebra && isTvsLp46LabelProfile(profile);
     const resolved = isZebra
         ? resolveLabelZebraPrnTemplate(piece, printFormats)
         : isTvs
           ? resolveLabelTvsLp46PrnTemplate(piece, printFormats)
-          : resolveLabelPrnTemplate(piece, printFormats);
+          : resolveLabelPrnTemplate(piece, printFormats, profile, prnTemplateName);
     const vars = buildLabelTemplateVars(piece, hw, profile, resolved.template);
     const tspl = renderTemplate(resolved.template, vars, {
         plainText: isZebra || isZplLabelTemplate(resolved.template),
@@ -2697,16 +2991,25 @@ function shouldUsePrnTemplate(profile, printFormats) {
 
 module.exports = {
     DEFAULT_LABEL_PRN,
+    DEFAULT_LABEL_PRN_3ACROSS,
     DEFAULT_LABEL_ZPL,
     DEFAULT_LABEL_PRN_GOLD,
     DEFAULT_LABEL_PRN_SILVER,
     DEFAULT_LABEL_PRN_SILVER_EXTRAS,
+    TSC_PRN_LAYOUT_STANDARD,
+    TSC_PRN_LAYOUT_3ACROSS,
+    normalizeTscPrnLayout,
     DEFAULT_BILL_TEMPLATE,
     DEFAULT_ESTIMATE_TEMPLATE_GOLD,
     DEFAULT_ESTIMATE_TEMPLATE_SILVER,
     LABEL_RULE_FIELD_KEYS,
     normalizePrnTemplate,
+    normalizePrnTemplateWithFallback,
     formatTsplLineEndings,
+    stripTsplLayoutDirectives,
+    parseTsplMultiColumnLayout,
+    composeTsplMultiColumnRow,
+    batchRenderedPrnLabels,
     fixTsplQrcodeCommands,
     labelHeightMmFromTspl,
     tsplQrContent,
@@ -2716,6 +3019,7 @@ module.exports = {
     resolveLabelPrnTemplate,
     resolveLabelZebraPrnTemplate,
     migrateLabelPrnRules,
+    migrateLabelPrn3AcrossRules,
     migrateLabelZebraPrnRules,
     isZplLabelTemplate,
     isZebraLabelProfile,

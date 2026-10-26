@@ -16,6 +16,7 @@ import {
   DEFAULT_ESTIMATE_TEMPLATE_GOLD,
   DEFAULT_ESTIMATE_TEMPLATE_SILVER,
   DEFAULT_LABEL_PRN,
+  DEFAULT_LABEL_PRN_3ACROSS,
   DEFAULT_LABEL_ZPL,
   DEFAULT_LABEL_PRN_BOX,
   DEFAULT_LABEL_PRN_GOLD,
@@ -31,6 +32,7 @@ import {
   migratePrintFormats,
   newRuleId,
   normalizePrnTemplate,
+  normalizePrnTemplateOrFallback,
   preserveBillTemplate,
   preservePrnTemplate,
   suggestPrnPlaceholders,
@@ -113,16 +115,26 @@ export function ErpPrintFormatsWorkspace() {
   const [savedLedgerMetal, setSavedLedgerMetal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'label' | 'labelTvs' | 'labelZebra' | 'bill' | 'estimate'>('label')
+  const [tab, setTab] = useState<
+    'label' | 'label3Across' | 'labelTvs' | 'labelZebra' | 'bill' | 'estimate'
+  >('label')
   const labelZebra = tab === 'labelZebra'
   const labelTvs = tab === 'labelTvs'
+  const label3Across = tab === 'label3Across'
   const labelRulesKey = labelZebra
     ? 'labelZebraPrnRules'
     : labelTvs
       ? 'labelTvsLp46PrnRules'
-      : 'labelPrnRules'
-  const labelRules =
-    labelZebra ? pf.labelZebraPrnRules : labelTvs ? pf.labelTvsLp46PrnRules : pf.labelPrnRules
+      : label3Across
+        ? 'labelPrn3AcrossRules'
+        : 'labelPrnRules'
+  const labelRules = labelZebra
+    ? pf.labelZebraPrnRules
+    : labelTvs
+      ? pf.labelTvsLp46PrnRules
+      : label3Across
+        ? pf.labelPrn3AcrossRules
+        : pf.labelPrnRules
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const ruleFileRef = useRef<HTMLInputElement>(null)
@@ -149,10 +161,18 @@ export function ErpPrintFormatsWorkspace() {
       const payload = migratePrintFormats({
         ...pf,
         labelPrnTemplate: normalizePrnTemplate(pf.labelPrnTemplate),
+        labelPrnTemplate3Across: normalizePrnTemplateOrFallback(
+          pf.labelPrnTemplate3Across,
+          DEFAULT_LABEL_PRN_3ACROSS,
+        ),
         labelTvsLp46PrnTemplate: normalizePrnTemplate(pf.labelTvsLp46PrnTemplate),
         labelPrnRules: (pf.labelPrnRules || []).map((rule) => ({
           ...rule,
           template: normalizePrnTemplate(rule.template),
+        })),
+        labelPrn3AcrossRules: (pf.labelPrn3AcrossRules || []).map((rule) => ({
+          ...rule,
+          template: normalizePrnTemplateOrFallback(rule.template, DEFAULT_LABEL_PRN_3ACROSS),
         })),
         labelZebraPrnTemplate: formatZplForEditor(pf.labelZebraPrnTemplate || DEFAULT_LABEL_ZPL),
         labelZebraPrnRules: (pf.labelZebraPrnRules || []).map((rule) => ({
@@ -237,10 +257,16 @@ export function ErpPrintFormatsWorkspace() {
       requireAny: presets.requireAny || [],
       requireAll: presets.requireAll || [],
       requireNone: presets.requireNone || [],
-      template: templates[preset || 'blank'] || DEFAULT_LABEL_PRN,
+      template: label3Across
+        ? DEFAULT_LABEL_PRN_3ACROSS
+        : templates[preset || 'blank'] || DEFAULT_LABEL_PRN,
     }
     const key = labelRulesKey
-    const fallbackTpl = labelZebra ? DEFAULT_LABEL_ZPL : DEFAULT_LABEL_PRN
+    const fallbackTpl = labelZebra
+      ? DEFAULT_LABEL_ZPL
+      : label3Across
+        ? DEFAULT_LABEL_PRN_3ACROSS
+        : DEFAULT_LABEL_PRN
     const ruleWithTpl = {
       ...rule,
       template: labelZebra ? preserveZplTemplate(fallbackTpl) : rule.template,
@@ -271,6 +297,28 @@ export function ErpPrintFormatsWorkspace() {
         labelTvsLp46PrnRules: buildDefaultLabelPrnRules(p.labelTvsLp46PrnTemplate || p.labelPrnTemplate),
       }))
       setExpandedRuleId('gold')
+      return
+    }
+    if (label3Across) {
+      if ((pf.labelPrn3AcrossRules || []).length) return
+      const id = newRuleId()
+      setPf((p) => ({
+        ...p,
+        labelPrn3AcrossRules: [
+          {
+            id,
+            name: 'TSC 3-across',
+            enabled: true,
+            priority: 10,
+            metalTypes: [],
+            requireAny: [],
+            requireAll: [],
+            requireNone: [],
+            template: p.labelPrnTemplate3Across || DEFAULT_LABEL_PRN_3ACROSS,
+          },
+        ],
+      }))
+      setExpandedRuleId(id)
       return
     }
     if ((pf.labelPrnRules || []).length) return
@@ -319,6 +367,11 @@ export function ErpPrintFormatsWorkspace() {
       return
     }
     const converted = suggestPrnPlaceholders(raw)
+    if (label3Across) {
+      setPf((p) => ({ ...p, labelPrnTemplate3Across: converted, labelUsePrn: true }))
+      setTab('label3Across')
+      return
+    }
     setPf((p) => ({ ...p, labelPrnTemplate: converted, labelUsePrn: true }))
     setTab('label')
   }
@@ -338,6 +391,18 @@ export function ErpPrintFormatsWorkspace() {
           >
             <Tag className="mr-1 inline size-4" />
             Label (TSC)
+          </button>
+          <button
+            type="button"
+            className={`min-h-[40px] flex-1 rounded-xl text-sm font-semibold ${
+              tab === 'label3Across'
+                ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+            }`}
+            onClick={() => setTab('label3Across')}
+          >
+            <Tag className="mr-1 inline size-4" />
+            Label (TSC 3-across)
           </button>
           <button
             type="button"
@@ -480,7 +545,7 @@ export function ErpPrintFormatsWorkspace() {
         </div>
       </div>
 
-      {tab === 'label' || tab === 'labelTvs' || tab === 'labelZebra' ? (
+      {tab === 'label' || tab === 'label3Across' || tab === 'labelTvs' || tab === 'labelZebra' ? (
         <>
           <div className={erpCardCls}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -489,7 +554,9 @@ export function ErpPrintFormatsWorkspace() {
                   ? 'Zebra label template (ZPL / EPL / .prn)'
                   : labelTvs
                     ? 'TVS LP46 NEO TPS label PRN template'
-                    : 'TSC label PRN template'}
+                    : label3Across
+                      ? 'TSC 3-across label PRN template'
+                      : 'TSC label PRN template'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -516,7 +583,9 @@ export function ErpPrintFormatsWorkspace() {
                         ? { ...p, labelZebraPrnTemplate: DEFAULT_LABEL_ZPL }
                         : labelTvs
                           ? { ...p, labelTvsLp46PrnTemplate: DEFAULT_LABEL_PRN }
-                          : { ...p, labelPrnTemplate: DEFAULT_LABEL_PRN },
+                          : label3Across
+                            ? { ...p, labelPrnTemplate3Across: DEFAULT_LABEL_PRN_3ACROSS }
+                            : { ...p, labelPrnTemplate: DEFAULT_LABEL_PRN },
                     )
                   }
                 >
@@ -549,8 +618,19 @@ export function ErpPrintFormatsWorkspace() {
                 ? 'Use this template for Zebra/USB labels (GC420t — Hardware label format must be ZPL)'
                 : labelTvs
                   ? 'Use this PRN template for TVS LP46 NEO TPS (TSPL — set matching Windows printer name in Hardware)'
-                  : 'Use this PRN template for barcode labels (TTP-244)'}
+                  : label3Across
+                    ? 'Use this PRN for 3-across TSC sheets (Hardware → label layout TSC 3-across)'
+                    : 'Use this PRN template for barcode labels (TTP-244)'}
             </label>
+            {label3Across ? (
+              <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+                Edit <code className="font-mono">COLUMNS</code>,{' '}
+                <code className="font-mono">COLUMN_PITCH</code>, <code className="font-mono">SIZE</code>,{' '}
+                <code className="font-mono">GAP</code> and every TEXT/BARCODE x,y here. Those numbers are sent to
+                the printer as written — they are not hardcoded. Same TSC as the jewelry-tag PRN; this layout is
+                stored separately so changing it does not affect the standard tag.
+              </p>
+            ) : null}
             {labelZebra ? (
               <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
                 Use ERP placeholders like <code className="font-mono">{`{{barcode}}`}</code>,{' '}
@@ -562,6 +642,7 @@ export function ErpPrintFormatsWorkspace() {
             ) : null}
             {!labelZebra &&
             !labelTvs &&
+            !label3Across &&
             isPrnTemplateLikelyCorrupted(pf.labelPrnTemplate) ? (
               <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                 Line breaks in this PRN look corrupted (commands glued together). TSC needs one command per line.
@@ -587,7 +668,9 @@ export function ErpPrintFormatsWorkspace() {
                   ? pf.labelZebraPrnTemplate || ''
                   : labelTvs
                     ? pf.labelTvsLp46PrnTemplate || ''
-                    : pf.labelPrnTemplate || ''
+                    : label3Across
+                      ? pf.labelPrnTemplate3Across || ''
+                      : pf.labelPrnTemplate || ''
               }
               onChange={(e) =>
                 setPf((p) =>
@@ -595,7 +678,9 @@ export function ErpPrintFormatsWorkspace() {
                     ? { ...p, labelZebraPrnTemplate: e.target.value }
                     : labelTvs
                       ? { ...p, labelTvsLp46PrnTemplate: e.target.value }
-                      : { ...p, labelPrnTemplate: e.target.value },
+                      : label3Across
+                        ? { ...p, labelPrnTemplate3Across: e.target.value }
+                        : { ...p, labelPrnTemplate: e.target.value },
                 )
               }
               onBlur={() => {
@@ -611,6 +696,15 @@ export function ErpPrintFormatsWorkspace() {
                       ...p,
                       labelTvsLp46PrnTemplate: normalizePrnTemplate(
                         p.labelTvsLp46PrnTemplate || DEFAULT_LABEL_PRN,
+                      ),
+                    }
+                  }
+                  if (label3Across) {
+                    return {
+                      ...p,
+                      labelPrnTemplate3Across: normalizePrnTemplateOrFallback(
+                        p.labelPrnTemplate3Across,
+                        DEFAULT_LABEL_PRN_3ACROSS,
                       ),
                     }
                   }
@@ -632,7 +726,9 @@ export function ErpPrintFormatsWorkspace() {
                   ? 'Zebra smart label rules'
                   : labelTvs
                     ? 'TVS LP46 smart label rules'
-                    : 'Smart label rules'}
+                    : label3Across
+                      ? 'TSC 3-across smart label rules'
+                      : 'Smart label rules'}
               </p>
               <div className="flex flex-wrap gap-2">
                 {!labelRules?.length ? (
@@ -642,22 +738,26 @@ export function ErpPrintFormatsWorkspace() {
                   </button>
                 ) : (
                   <>
-                    <button type="button" className={erpBtnGhost} onClick={() => addRule('gold')}>
-                      <Plus className="size-4" />
-                      Gold
-                    </button>
-                    <button type="button" className={erpBtnGhost} onClick={() => addRule('silver')}>
-                      <Plus className="size-4" />
-                      Silver
-                    </button>
-                    <button type="button" className={erpBtnGhost} onClick={() => addRule('silver-extras')}>
-                      <Plus className="size-4" />
-                      Silver extras
-                    </button>
-                    <button type="button" className={erpBtnGhost} onClick={() => addRule('box')}>
-                      <Plus className="size-4" />
-                      In box
-                    </button>
+                    {!label3Across ? (
+                      <>
+                        <button type="button" className={erpBtnGhost} onClick={() => addRule('gold')}>
+                          <Plus className="size-4" />
+                          Gold
+                        </button>
+                        <button type="button" className={erpBtnGhost} onClick={() => addRule('silver')}>
+                          <Plus className="size-4" />
+                          Silver
+                        </button>
+                        <button type="button" className={erpBtnGhost} onClick={() => addRule('silver-extras')}>
+                          <Plus className="size-4" />
+                          Silver extras
+                        </button>
+                        <button type="button" className={erpBtnGhost} onClick={() => addRule('box')}>
+                          <Plus className="size-4" />
+                          In box
+                        </button>
+                      </>
+                    ) : null}
                     <button type="button" className={erpBtnGhost} onClick={() => addRule('blank')}>
                       <Plus className="size-4" />
                       Custom

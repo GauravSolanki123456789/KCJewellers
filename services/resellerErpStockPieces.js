@@ -3147,91 +3147,123 @@ function registerStockPieceRoutes(app, deps) {
                 return merged;
             }
 
+            const prnTemplateName = req.body.prn_template_name || profile?.prnTemplateName || null;
             const hasPrnSource =
                 printFormats.labelPrnTemplate ||
+                printFormats.labelPrnTemplate3Across ||
                 (Array.isArray(printFormats.labelPrnRules) && printFormats.labelPrnRules.length) ||
+                (Array.isArray(printFormats.labelPrn3AcrossRules) &&
+                    printFormats.labelPrn3AcrossRules.length) ||
                 erpPrint.DEFAULT_LABEL_PRN;
 
-            const results = [];
+            const winPrinterName = profile?.windowsPrinter?.name || null;
+            const prepared = [];
             for (const p of pieces) {
                 const piece = mergePieceOverrides(p);
                 const itemData = buildLabelItemData(piece, hw, profile);
                 if (profile?.labelFormat === 'prn' && !hasPrnSource) {
-                    results.push({
+                    prepared.push({
+                        piece,
                         barcode: p.barcode,
                         piece_id: p.id,
-                        printed: false,
                         error: 'PRN template missing — set it in Print formats.',
                     });
                     continue;
                 }
                 let tspl;
                 let labelRuleName = null;
-                const winPrinterName = profile?.windowsPrinter?.name || null;
+                let template = '';
                 if (usePrn) {
-                    const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, printFormats);
-                    tspl = erpPrint.formatTsplLineEndings(rendered.tspl, winPrinterName);
-                    labelRuleName = rendered.ruleName;
-                } else if (erpPrint.isZebraLabelProfile(profile)) {
-                    const rendered = erpPrint.renderPrnLabelForPiece(piece, hw, profile, {
-                        ...printFormats,
-                        labelZebraPrnTemplate:
-                            printFormats.labelZebraPrnTemplate || erpPrint.DEFAULT_LABEL_ZPL,
-                        labelUseZebraPrn: true,
-                    });
-                    tspl = erpPrint.formatTsplLineEndings(rendered.tspl, winPrinterName);
-                    labelRuleName = rendered.ruleName;
-                } else {
-                    tspl = erpPrint.formatTsplLineEndings(
-                        labelPrinter.generateTSPLLabel(itemData),
-                        winPrinterName,
+                    const rendered = erpPrint.renderPrnLabelForPiece(
+                        piece,
+                        hw,
+                        profile,
+                        printFormats,
+                        prnTemplateName,
                     );
+                    tspl = rendered.tspl;
+                    labelRuleName = rendered.ruleName;
+                    template = rendered.template || '';
+                } else if (erpPrint.isZebraLabelProfile(profile)) {
+                    const rendered = erpPrint.renderPrnLabelForPiece(
+                        piece,
+                        hw,
+                        profile,
+                        {
+                            ...printFormats,
+                            labelZebraPrnTemplate:
+                                printFormats.labelZebraPrnTemplate || erpPrint.DEFAULT_LABEL_ZPL,
+                            labelUseZebraPrn: true,
+                        },
+                    );
+                    tspl = rendered.tspl;
+                    labelRuleName = rendered.ruleName;
+                    template = rendered.template || '';
+                } else {
+                    tspl = labelPrinter.generateTSPLLabel(itemData);
                 }
+                prepared.push({
+                    piece,
+                    barcode: p.barcode,
+                    piece_id: p.id,
+                    tspl,
+                    template,
+                    labelRuleName,
+                });
+            }
+
+            const jobs = usePrn
+                ? erpPrint.batchRenderedPrnLabels(prepared.filter((r) => r.tspl))
+                : prepared
+                      .filter((r) => r.tspl)
+                      .map((r) => ({ tspl: r.tspl, items: [r] }));
+
+            const results = [];
+            for (const row of prepared) {
+                if (row.error) {
+                    results.push({
+                        barcode: row.barcode,
+                        piece_id: row.piece_id,
+                        printed: false,
+                        error: row.error,
+                    });
+                }
+            }
+            for (const job of jobs) {
+                const formatted = erpPrint.formatTsplLineEndings(job.tspl, winPrinterName);
+                let printed = false;
+                let sendError = null;
+                let clientPrint = false;
+                let clientPrintMode = null;
                 if (printerConfig?.type === 'serial') {
-                    results.push({
-                        barcode: p.barcode,
-                        piece_id: p.id,
-                        printed: false,
-                        clientPrint: true,
-                        clientPrintMode: 'serial',
-                        tspl,
-                        labelRuleName,
-                    });
+                    clientPrint = true;
+                    clientPrintMode = 'serial';
                 } else if (printerConfig?.type === 'usb') {
-                    results.push({
-                        barcode: p.barcode,
-                        piece_id: p.id,
-                        printed: false,
-                        clientPrint: true,
-                        clientPrintMode: 'usb',
-                        tspl,
-                        labelRuleName,
-                    });
+                    clientPrint = true;
+                    clientPrintMode = 'usb';
                 } else if (printerConfig?.type === 'network' && printerConfig.address) {
                     try {
-                        await labelPrinter.sendRawToPrinter(tspl, printerConfig);
-                        results.push({ barcode: p.barcode, piece_id: p.id, printed: true, labelRuleName });
+                        await labelPrinter.sendRawToPrinter(formatted, printerConfig);
+                        printed = true;
                     } catch (err) {
-                        results.push({
-                            barcode: p.barcode,
-                            piece_id: p.id,
-                            printed: false,
-                            error: err.message,
-                            tspl,
-                            clientPrint: true,
-                            labelRuleName,
-                        });
+                        sendError = err.message;
+                        clientPrint = true;
                     }
                 } else {
-                    results.push({
-                        barcode: p.barcode,
-                        piece_id: p.id,
-                        printed: false,
-                        tspl,
-                        clientPrint: !!tspl,
-                        labelRuleName,
-                    });
+                    clientPrint = true;
                 }
+                job.items.forEach((item, idx) => {
+                    results.push({
+                        barcode: item.barcode,
+                        piece_id: item.piece_id,
+                        printed,
+                        error: idx === 0 ? sendError || undefined : undefined,
+                        clientPrint,
+                        clientPrintMode,
+                        tspl: idx === 0 ? formatted : undefined,
+                        labelRuleName: item.labelRuleName,
+                    });
+                });
             }
             const clientPrintRequired = results.some((r) => r.clientPrint);
             res.json({
@@ -3275,6 +3307,7 @@ function registerStockPieceRoutes(app, deps) {
             const printerConfig = profileToPrinterConfig(profile);
             const itemData = buildTestLabelItemData(hw, profile);
             const usePrn = erpPrint.shouldUsePrnTemplate(profile, printFormats);
+            const prnTemplateName = req.body.prn_template_name || profile?.prnTemplateName || null;
             let tspl;
             if (usePrn && erpPrint.isZebraLabelProfile(profile)) {
                 const rendered = erpPrint.renderPrnLabelForPiece(
@@ -3290,13 +3323,14 @@ function registerStockPieceRoutes(app, deps) {
                 );
                 tspl = rendered.tspl;
             } else if (usePrn) {
-                const prnTemplate = erpPrint.normalizePrnTemplate(
-                    printFormats.labelPrnTemplate || erpPrint.DEFAULT_LABEL_PRN,
+                const rendered = erpPrint.renderPrnLabelForPiece(
+                    { barcode: itemData.barcode, product_name: itemData.productName },
+                    hw,
+                    profile,
+                    printFormats,
+                    prnTemplateName,
                 );
-                tspl = erpPrint.renderTemplate(
-                    prnTemplate,
-                    erpPrint.buildLabelTemplateVarsFromItemData(itemData, prnTemplate),
-                );
+                tspl = rendered.tspl;
             } else if (erpPrint.isZebraLabelProfile(profile)) {
                 tspl = labelPrinter.generateZPLLabel(itemData);
             } else {

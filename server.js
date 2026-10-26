@@ -8320,7 +8320,8 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 ws.id AS subcategory_id,
                 ws.name AS subcategory_name,
                 ws.slug AS subcategory_slug,
-                COALESCE(ws.sort_order, 0)::int AS subcategory_sort_order
+                COALESCE(ws.sort_order, 0)::int AS subcategory_sort_order,
+                ws.design_group_order
             FROM web_products wp
             JOIN web_subcategories ws ON ws.id = wp.subcategory_id
             JOIN web_categories wc ON wc.id = ws.category_id

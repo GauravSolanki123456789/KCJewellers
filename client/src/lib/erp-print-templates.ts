@@ -82,6 +82,61 @@ PRINT 1,1
 /** Standard silver label — also the default fallback template. */
 export const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER
 
+/**
+ * TSC 3-across sheet (same TTP-244, different media).
+ * COLUMNS / COLUMN_PITCH / SIZE / GAP and every TEXT/BARCODE x,y live in this PRN —
+ * edit them in Print formats. Software only tiles by COLUMNS × COLUMN_PITCH.
+ */
+export const DEFAULT_LABEL_PRN_3ACROSS = `
+COLUMNS 3
+COLUMN_PITCH 34.7 mm
+SIZE 104 mm, 22 mm
+GAP 3 mm, 0 mm
+DIRECTION 0,0
+REFERENCE 0,0
+OFFSET 0 mm
+SET PEEL OFF
+SET CUTTER OFF
+SET PARTIAL_CUTTER OFF
+SET TEAR ON
+CLS
+CODEPAGE 1252
+TEXT 8,14,"ROMAN.TTF",0,1,7,"{{product_name}}"
+TEXT 8,38,"ROMAN.TTF",0,1,7,"G {{gross_weight}}  N {{net_weight}}"
+BARCODE 8,58,"128",72,1,0,1,2,"{{barcode}}"
+TEXT 8,142,"ROMAN.TTF",0,1,6,"{{barcode}}"
+TEXT 8,162,"ROMAN.TTF",0,1,6,"{{company_code}}"
+PRINT 1,1
+`.trim()
+
+export const TSC_PRN_LAYOUT_STANDARD = 'standard'
+export const TSC_PRN_LAYOUT_3ACROSS = 'tsc-3across'
+
+export type TscPrnLayoutId = typeof TSC_PRN_LAYOUT_STANDARD | typeof TSC_PRN_LAYOUT_3ACROSS
+
+export function normalizeTscPrnLayout(raw?: string | null): TscPrnLayoutId {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  if (
+    s === 'tsc_3across' ||
+    s === 'tsc3across' ||
+    s === '3across' ||
+    s === '3_across' ||
+    s === 'three_across'
+  ) {
+    return TSC_PRN_LAYOUT_3ACROSS
+  }
+  return TSC_PRN_LAYOUT_STANDARD
+}
+
+export function tscPrnLayoutLabel(raw?: string | null): string {
+  return normalizeTscPrnLayout(raw) === TSC_PRN_LAYOUT_3ACROSS
+    ? 'TSC 3-across'
+    : 'Standard TSC'
+}
+
 /** Zebra GC420t sample — multiline ZPL (same commands as one-line export). */
 export const DEFAULT_LABEL_ZPL = `CT~~CD,~CC^~CT~
 ^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ
@@ -367,6 +422,9 @@ export type ErpPrintFormatsSettings = {
   labelTvsLp46PrnTemplate?: string
   labelTvsLp46PrnRules?: LabelPrnRule[]
   labelUseTvsLp46Prn?: boolean
+  /** Separate TSC 3-across sheet PRN — never overwrites the standard jewelry-tag PRN. */
+  labelPrnTemplate3Across?: string
+  labelPrn3AcrossRules?: LabelPrnRule[]
   billTemplate?: string
   estimateTemplateGold?: string
   estimateTemplateSilver?: string
@@ -546,6 +604,19 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
   const pf: ErpPrintFormatsSettings = { ...(raw || {}) }
   pf.labelPrnTemplate = normalizePrnTemplate(pf.labelPrnTemplate || DEFAULT_LABEL_PRN)
   pf.labelPrnRules = migrateLabelPrnRules(pf)
+  pf.labelPrnTemplate3Across = normalizePrnTemplateOrFallback(
+    pf.labelPrnTemplate3Across,
+    DEFAULT_LABEL_PRN_3ACROSS,
+  )
+  if (Array.isArray(pf.labelPrn3AcrossRules) && pf.labelPrn3AcrossRules.length) {
+    pf.labelPrn3AcrossRules = pf.labelPrn3AcrossRules.map((rule) => ({
+      ...rule,
+      template: normalizePrnTemplateOrFallback(
+        rule.template || pf.labelPrnTemplate3Across,
+        DEFAULT_LABEL_PRN_3ACROSS,
+      ),
+    }))
+  }
   pf.labelTvsLp46PrnTemplate = normalizePrnTemplate(
     pf.labelTvsLp46PrnTemplate || pf.labelPrnTemplate || DEFAULT_LABEL_PRN,
   )
@@ -706,8 +777,15 @@ function repairCorruptedPrnTemplate(raw: string): string {
 
 /** Restore TSPL line breaks when server sanitize collapsed multi-line PRN. */
 export function normalizePrnTemplate(raw: string | null | undefined): string {
+  return normalizePrnTemplateOrFallback(raw, DEFAULT_LABEL_PRN)
+}
+
+export function normalizePrnTemplateOrFallback(
+  raw: string | null | undefined,
+  fallback: string,
+): string {
   const preserved = fixSplitTemplatePlaceholders(preservePrnTemplate(raw))
-  if (!preserved.trim()) return DEFAULT_LABEL_PRN
+  if (!preserved.trim()) return fallback
   if (isZplLabelTemplate(preserved)) return preserveZplTemplate(preserved)
   if (isPrnTemplateLikelyCorrupted(preserved)) {
     return fixSplitTemplatePlaceholders(repairCorruptedPrnTemplate(preserved))

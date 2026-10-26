@@ -11,6 +11,7 @@
    'description',
    'body',
    'labelPrnTemplate',
+  'labelPrnTemplate3Across',
   'billTemplate',
   'estimateTemplateGold',
   'estimateTemplateSilver',

@@ -21,6 +21,7 @@ export type ErpPrinterProfile = {
   companyCode?: string
   /** TSPL (default) or PRN template when you upload formats later */
   labelFormat?: 'tspl' | 'prn' | 'zpl' | 'tvs'
+  /** `standard` (jewelry tag) or `tsc-3across` — same TSC printer, different PRN. */
   prnTemplateName?: string
   isDefault?: boolean
 }
@@ -65,6 +66,8 @@ export type ErpWorkstationSelection = {
   scaleProfileId: string | null
   /** When set, overrides shop default for Generate quote on this PC. */
   quoteOutputMode?: ErpQuoteOutputMode | null
+  /** This-PC TSC PRN layout override (`standard` | `tsc-3across`). */
+  prnTemplateName?: string | null
 }
 
 export const DEFAULT_SERIAL: ErpSerialSettings = {
@@ -236,6 +239,7 @@ export function loadWorkstationSelection(): ErpWorkstationSelection {
       printerProfileId: parsed.printerProfileId || null,
       scaleProfileId: parsed.scaleProfileId || null,
       quoteOutputMode: parsed.quoteOutputMode ?? null,
+      prnTemplateName: parsed.prnTemplateName || null,
     }
   } catch {
     return { printerProfileId: null, scaleProfileId: null }
@@ -248,14 +252,20 @@ export function saveWorkstationSelection(sel: ErpWorkstationSelection) {
 }
 
 export function printerProfileSummary(p: ErpPrinterProfile): string {
+  const layout =
+    p.labelFormat === 'prn' && p.prnTemplateName
+      ? p.prnTemplateName === 'tsc-3across' || /3.?across/i.test(p.prnTemplateName)
+        ? ' · 3-across'
+        : ''
+      : ''
   if (p.connection === 'network') {
-    return `${p.network?.host || '—'}:${p.network?.port || 9100}`
+    return `${p.network?.host || '—'}:${p.network?.port || 9100}${layout}`
   }
   if (p.connection === 'usb') {
     const hint = p.windowsPrinter?.portHint ? ` · ${p.windowsPrinter.portHint}` : ''
-    return `USB · ${p.windowsPrinter?.name || DEFAULT_WINDOWS_USB_PRINTER.name}${hint}`
+    return `USB · ${p.windowsPrinter?.name || DEFAULT_WINDOWS_USB_PRINTER.name}${hint}${layout}`
   }
-  if (p.serial) return serialSettingsLabel(p.serial)
+  if (p.serial) return `${serialSettingsLabel(p.serial)}${layout}`
   return 'Serial — not configured'
 }
 

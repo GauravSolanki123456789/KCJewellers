@@ -168,6 +168,7 @@ export async function printClientTsplLabels(
 ): Promise<number> {
   const clientTspl = results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)
   if (!clientTspl.length) return 0
+  const labelCount = results.filter((r) => r.clientPrint).length || clientTspl.length
 
   const profile = hw ? getPrinterProfileById(hw, printerProfileId) : null
   const mode =
@@ -179,7 +180,8 @@ export async function printClientTsplLabels(
 
   if (mode === 'usb') {
     const printerName = resolveWindowsPrinterName(hw, printerProfileId, apiProfile)
-    return printViaLocalAgent(clientTspl, printerName)
+    await printViaLocalAgent(clientTspl, printerName)
+    return labelCount
   }
 
   if (!webSerialSupported()) {
@@ -200,7 +202,7 @@ export async function printClientTsplLabels(
 
   try {
     await sendTsplBatchOverSerial(port, clientTspl)
-    return clientTspl.length
+    return labelCount
   } finally {
     /* keep serial port open for next labels */
   }

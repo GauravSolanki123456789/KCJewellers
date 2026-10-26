@@ -291,6 +291,24 @@ export function ErpHardwareWorkspace() {
     setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
   }
 
+  const addTsc3Across = () => {
+    const existingTsc = (hw.printerProfiles || []).find(
+      (p) => p.labelFormat === 'prn' && p.connection === 'usb',
+    )
+    const p: ErpPrinterProfile = {
+      id: newProfileId(),
+      name: 'TSC 3-across',
+      connection: 'usb',
+      windowsPrinter: existingTsc?.windowsPrinter
+        ? { ...existingTsc.windowsPrinter }
+        : { name: 'TSC TTP-244 Pro', portHint: 'USB001' },
+      labelFormat: 'prn',
+      prnTemplateName: 'tsc-3across',
+      isDefault: false,
+    }
+    setHw((h) => ({ ...h, printerProfiles: [...(h.printerProfiles || []), p] }))
+  }
+
   const removePrinter = (id: string) => {
     setHw((h) => {
       const next = (h.printerProfiles || []).filter((p) => p.id !== id)
@@ -355,7 +373,7 @@ export function ErpHardwareWorkspace() {
         }
         const res = await axios.post<{ tspl?: string; error?: string }>(
           '/api/reseller/erp/print/test-label',
-          { printer_profile_id: profile.id },
+          { printer_profile_id: profile.id, prn_template_name: profile.prnTemplateName || null },
         )
         if (!res.data.tspl) throw new Error(res.data.error || 'No test label generated')
         const printerName = resolveWindowsPrinterName(null, profile.id, {
@@ -376,7 +394,7 @@ export function ErpHardwareWorkspace() {
         const port = await connectLabelPrinter(serial, true)
         const res = await axios.post<{ tspl?: string; error?: string }>(
           '/api/reseller/erp/print/test-label',
-          { printer_profile_id: profile.id },
+          { printer_profile_id: profile.id, prn_template_name: profile.prnTemplateName || null },
         )
         if (!res.data.tspl) throw new Error(res.data.error || 'No test label generated')
         await sendTsplOverSerial(port, res.data.tspl)
@@ -386,7 +404,11 @@ export function ErpHardwareWorkspace() {
 
       const res = await axios.post<{ printed?: boolean; message?: string; error?: string }>(
         '/api/reseller/erp/print/test-label',
-        { printer_profile_id: profile.id, send_to_printer: true },
+        {
+          printer_profile_id: profile.id,
+          send_to_printer: true,
+          prn_template_name: profile.prnTemplateName || null,
+        },
       )
       if (res.data.error) throw new Error(res.data.error)
       setTestMsg(res.data.message || 'Test label sent to network printer.')
@@ -679,6 +701,9 @@ export function ErpHardwareWorkspace() {
           <button type="button" className={erpBtnGhost} onClick={addTvsLp46Neo}>
             + TVS LP46 NEO
           </button>
+          <button type="button" className={erpBtnGhost} onClick={addTsc3Across}>
+            + TSC 3-across
+          </button>
           <button type="button" className={erpBtnPrimary} onClick={addPrinter}>
             <Plus className="size-4" />
             Add printer
@@ -785,6 +810,28 @@ export function ErpHardwareWorkspace() {
                   ) : null}
                 </label>
               </div>
+              {p.labelFormat === 'prn' &&
+              !/Zebra|GC420|EPL/i.test(`${p.name} ${p.windowsPrinter?.name || ''}`) ? (
+                <label className="mt-3 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                  TSC PRN layout
+                  <select
+                    className={`${erpInputCls} mt-1 max-w-xl`}
+                    value={
+                      p.prnTemplateName === 'tsc-3across' || /3.?across/i.test(p.prnTemplateName || '')
+                        ? 'tsc-3across'
+                        : 'standard'
+                    }
+                    onChange={(e) =>
+                      updatePrinter(p.id, {
+                        prnTemplateName: e.target.value === 'tsc-3across' ? 'tsc-3across' : 'standard',
+                      })
+                    }
+                  >
+                    <option value="standard">Standard jewelry tag (Print formats → Label TSC)</option>
+                    <option value="tsc-3across">3-across sheet (Print formats → Label TSC 3-across)</option>
+                  </select>
+                </label>
+              ) : null}
 
               {p.connection === 'network' ? (
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">

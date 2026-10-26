@@ -170,7 +170,13 @@ function compareCatalogProductRows(a, b) {
     const mtoB = b.make_to_order_only ? 1 : 0;
     if (mtoA !== mtoB) return mtoA - mtoB;
 
-    const saved = normalizeDesignGroupOrder(a.design_group_order ?? b.design_group_order);
+    const sameSub =
+        a.subcategory_id != null &&
+        b.subcategory_id != null &&
+        String(a.subcategory_id) === String(b.subcategory_id);
+    const saved = sameSub
+        ? normalizeDesignGroupOrder(a.design_group_order ?? b.design_group_order)
+        : [];
     const savedLower = new Set(saved.map((s) => s.toLowerCase()));
     const dgA = String(a.design_group ?? '').trim();
     const dgB = String(b.design_group ?? '').trim();
