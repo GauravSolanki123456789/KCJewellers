@@ -15,9 +15,16 @@ const layout = erpPrint.parseTsplMultiColumnLayout(three)
 assert.strictEqual(layout.columns, 3)
 assert.ok(layout.columnPitchDots > 0)
 
-const a = three.replace('{{barcode}}', 'AAA').replace('{{product_name}}', 'One')
-const b = three.replace('{{barcode}}', 'BBB').replace('{{product_name}}', 'Two')
-const c = three.replace('{{barcode}}', 'CCC').replace('{{product_name}}', 'Three')
+function fillThreeTpl(tpl, barcode, name) {
+  return tpl
+    .replace(/\{\{barcode_short\}\}/g, barcode)
+    .replace(/\{\{barcode\}\}/g, barcode)
+    .replace(/\{\{product_name\}\}/g, name)
+    .replace(/\{\{qr_code\}\}/g, barcode)
+}
+const a = fillThreeTpl(three, 'AAA', 'One')
+const b = fillThreeTpl(three, 'BBB', 'Two')
+const c = fillThreeTpl(three, 'CCC', 'Three')
 const row = erpPrint.composeTsplMultiColumnRow([a, b, c], layout)
 assert.ok(!/^COLUMNS\b/m.test(row), 'COLUMNS directive must be stripped before send')
 assert.ok(!/COLUMN_PITCH/i.test(row))

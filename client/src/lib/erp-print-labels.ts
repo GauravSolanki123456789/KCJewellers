@@ -7,7 +7,12 @@ import {
   normalizeComPort,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
-import { getLocalPrintAgentInfo, localPrintAgentUnreachableMessage } from '@/lib/erp-local-print'
+import {
+  getLocalPrintAgentInfo,
+  localPrintAgentUnreachableMessage,
+  printViaLocalAgent,
+  resolveWindowsPrinterName,
+} from '@/lib/erp-local-print'
 import {
   isLabelPrinterConnected,
   printClientTsplLabels,
@@ -99,15 +104,17 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
 
   const res = await axios.post<{
     results: PrintResult[]
+    tsplJobs?: { tspl: string; barcodes: string[]; pieceCount?: number }[]
     printerConfigured: boolean
     clientPrintRequired?: boolean
     printerProfile?: PrintApiProfile | null
   }>('/api/reseller/erp/print/barcodes', body)
 
   const results = res.data.results || []
+  const tsplJobs = (res.data.tsplJobs || []).filter((j) => j.tspl?.trim())
   const clientTspl = results.filter((r) => r.clientPrint && r.tspl)
 
-  if (clientTspl.length > 0 || res.data.clientPrintRequired) {
+  if (tsplJobs.length > 0 || clientTspl.length > 0 || res.data.clientPrintRequired) {
     const conn = res.data.printerProfile?.connection || printerProfile?.connection
     if (conn === 'usb') {
       const agentInfo = await getLocalPrintAgentInfo()
@@ -128,12 +135,36 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
 
     let count: number
     try {
-      count = await printClientTsplLabels(
-        results,
-        hardware,
-        opts.printerProfileId,
-        res.data.printerProfile,
-      )
+      if (tsplJobs.length > 0 && conn === 'usb') {
+        const printerName = resolveWindowsPrinterName(
+          hardware,
+          opts.printerProfileId,
+          res.data.printerProfile,
+        )
+        count = await printViaLocalAgent(
+          tsplJobs.map((j) => j.tspl),
+          printerName,
+        )
+      } else if (tsplJobs.length > 0 && conn === 'serial') {
+        count = await printClientTsplLabels(
+          tsplJobs.map((j) => ({
+            barcode: j.barcodes[0] || '',
+            clientPrint: true,
+            clientPrintMode: 'serial',
+            tspl: j.tspl,
+          })),
+          hardware,
+          opts.printerProfileId,
+          res.data.printerProfile,
+        )
+      } else {
+        count = await printClientTsplLabels(
+          results,
+          hardware,
+          opts.printerProfileId,
+          res.data.printerProfile,
+        )
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Print failed'
       if (/Raw print failed|Installed Windows printers|OpenPrinter/i.test(msg)) {
@@ -160,7 +191,17 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
         res.data.printerProfile?.windowsPrinter?.name ||
         printerProfile?.windowsPrinter?.name ||
         'TSC TTP-244 Pro'
-      return { ok: true, message: `Printed ${count} label(s) · USB · ${winName}`, printedCount: count }
+      const rowHint =
+        tsplJobs.length === 1 && (tsplJobs[0].pieceCount ?? 0) > 1
+          ? ` · ${tsplJobs[0].pieceCount} tags on one row`
+          : tsplJobs.length > 1
+            ? ` · ${tsplJobs.length} row(s)`
+            : ''
+      return {
+        ok: true,
+        message: `Printed ${count} label job(s) · USB · ${winName}${rowHint}`,
+        printedCount: count,
+      }
     }
 
     const serial = resolvePrinterSerialSettings(hardware, opts.printerProfileId, res.data.printerProfile)

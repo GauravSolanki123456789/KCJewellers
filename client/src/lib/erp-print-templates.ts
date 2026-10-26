@@ -101,13 +101,13 @@ SET PARTIAL_CUTTER OFF
 SET TEAR ON
 CLS
 CODEPAGE 1252
-TEXT 5,10,"ROMAN.TTF",0,1,6,"{{product_name}}"
-TEXT 5,28,"ROMAN.TTF",0,1,6,"GWT: {{gross_weight}}"
-TEXT 5,46,"ROMAN.TTF",0,1,6,"NWT: {{net_weight}}"
-TEXT 5,64,"ROMAN.TTF",0,1,6,"Pcs: {{pcs_label}}"
-TEXT 118,10,"ROMAN.TTF",0,1,6,"{{barcode}}"
-QRCODE 118,28,L,2,A,0,M2,S7,"{{qr_code}}"
-TEXT 118,64,"ROMAN.TTF",0,1,6,"{{company_code}}"
+TEXT 4,6,"ROMAN.TTF",0,1,5,"{{product_name}}"
+TEXT 4,22,"ROMAN.TTF",0,1,5,"GWT:{{gross_weight}}"
+TEXT 4,38,"ROMAN.TTF",0,1,5,"NWT:{{net_weight}}"
+TEXT 4,54,"ROMAN.TTF",0,1,5,"Pcs:{{pcs_label}}"
+TEXT 92,6,"ROMAN.TTF",0,1,5,"{{barcode_short}}"
+QRCODE 92,22,L,2,A,0,"{{qr_code}}"
+TEXT 92,68,"ROMAN.TTF",0,1,5,"{{company_code}}"
 PRINT 1,1
 `.trim()
 
@@ -870,7 +870,13 @@ export function tsplQrContent(raw: string | null | undefined): string {
 /** Sanitize QRCODE payload; keep x/y from the template (do not force 418,68 on small tags). */
 export function fixTsplQrcodeCommands(tspl: string): string {
   const heightMm = labelHeightMmFromTspl(tspl)
+  const widthMm = labelWidthMmFromTspl(tspl)
   const smallTag = heightMm != null && heightMm <= 16
+  const multiColumnSheet =
+    (widthMm != null && widthMm >= 90 && heightMm != null && heightMm <= 30) ||
+    /\bCOLUMNS\s+[2-9]/i.test(tspl)
+  const colWidthDots =
+    multiColumnSheet && widthMm ? Math.round((widthMm / 3) * (203 / 25.4)) : null
   return String(tspl || '')
     .split('\n')
     .map((line) => {
@@ -881,34 +887,29 @@ export function fixTsplQrcodeCommands(tspl: string): string {
       data = tsplQrContent(data)
       if (!data) return ''
       const m = t.match(
-        /^QRCODE\s+(\d+)\s*,\s*(\d+)\s*,\s*([LMQH])\s*,\s*(\d+)\s*,\s*([AMan])\s*,\s*(\d+)/i,
+        /^QRCODE\s+(\d+)\s*,\s*(\d+)\s*,\s*([LMQH])\s*,\s*(\d+)\s*,\s*([AMan])\s*,\s*(\d+)(?:\s*,\s*M2\s*,\s*S7)?/i,
       )
-      const rot = m ? String(m[6] || '180') : '180'
-      let x = m ? parseInt(m[1], 10) : 418
-      let y = m ? parseInt(m[2], 10) : 68
+      const rot = m ? String(m[6] || '0') : '0'
+      let x = m ? parseInt(m[1], 10) : 92
+      let y = m ? parseInt(m[2], 10) : 22
       const ecc = m ? String(m[3] || 'L').toUpperCase() : 'L'
       let cell = m ? parseInt(m[4], 10) || 2 : 2
-      if (smallTag) {
-        cell = Math.min(4, Math.max(1, cell))
-        if (data.length <= 20 && cell < 3) cell = 3
-      } else {
-        cell = Math.min(4, Math.max(2, cell))
+      cell = Math.min(4, Math.max(1, cell))
+      if (smallTag && data.length <= 20 && cell < 2) cell = 2
+      const heightDots = heightMm ? Math.round(heightMm * (203 / 25.4)) : 176
+      const qrDots = tsplQrSizeDots(cell)
+      const margin = 4
+      if (colWidthDots) {
+        const col = Math.max(0, Math.floor(x / colWidthDots))
+        const colStart = col * colWidthDots
+        const colEnd = colStart + colWidthDots - margin
+        if (x + qrDots > colEnd) x = Math.max(colStart + margin, colEnd - qrDots)
+        if (x < colStart + margin) x = colStart + margin
       }
-      if (!m) {
-        x = 418
-        y = 68
+      if (y + qrDots > heightDots - margin) {
+        y = Math.max(margin, heightDots - margin - qrDots)
       }
-      if (smallTag) {
-        const widthMm = labelWidthMmFromTspl(tspl)
-        const heightMm = labelHeightMmFromTspl(tspl)
-        const widthDots = widthMm ? Math.round(widthMm * 8) : 740
-        const heightDots = heightMm ? Math.round(heightMm * 8) : 120
-        const qrDots = tsplQrSizeDots(cell)
-        const margin = cell * 4
-        if (x + qrDots > widthDots - margin) x = Math.max(margin, widthDots - margin - qrDots)
-        if (y + qrDots > heightDots - margin) y = Math.max(margin, heightDots - margin - qrDots)
-      }
-      return `QRCODE ${x},${y},${ecc},${cell},A,${rot},M2,S7,"${data}"`
+      return `QRCODE ${x},${y},${ecc},${cell},A,${rot},"${data}"`
     })
     .filter((line) => line !== '')
     .join('\n')

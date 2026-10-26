@@ -12,6 +12,7 @@ import { ErpManualAddProduct } from '@/components/reseller/erp/ErpManualAddProdu
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
 import {
+  getPrinterProfileById,
   migrateHardwareSettings,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
@@ -431,6 +432,22 @@ export function ErpProductsWorkspace() {
               .sort((a, b) => a.id - b.id)
               .map((p) => p.id)
           : undefined
+      const profile = getPrinterProfileById(hw || {}, workstation.printerProfileId)
+      const layout = workstation.prnTemplateName || profile?.prnTemplateName || 'standard'
+      const multiCount = orderedSelected?.length ?? 0
+      if (
+        multiCount >= 2 &&
+        layout !== 'tsc-3across' &&
+        !/3.?across/i.test(String(layout))
+      ) {
+        const proceed = await appConfirm(
+          `${multiCount} labels will print as ${multiCount} separate rows (only the left tag gets ink) unless this PC is set to TSC 3-across.\n\nGo to Hardware → This workstation → TSC label layout → 3-across sheet, save, then print again.\n\nPrint anyway with the current layout?`,
+        )
+        if (!proceed) {
+          setPrinting(false)
+          return
+        }
+      }
       const result = await printStockLabels({
         batchId: orderedSelected?.length ? undefined : activeBatchId,
         pieceIds: orderedSelected,

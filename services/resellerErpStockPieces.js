@@ -3147,7 +3147,10 @@ function registerStockPieceRoutes(app, deps) {
                 return merged;
             }
 
-            const prnTemplateName = req.body.prn_template_name || profile?.prnTemplateName || null;
+            const prnTemplateName = erpPrint.resolveEffectiveTscPrnLayout(
+                req.body.prn_template_name || profile?.prnTemplateName || null,
+                profile,
+            );
             const hasPrnSource =
                 printFormats.labelPrnTemplate ||
                 printFormats.labelPrnTemplate3Across ||
@@ -3233,8 +3236,14 @@ function registerStockPieceRoutes(app, deps) {
                     });
                 }
             }
+            const tsplJobs = [];
             for (const job of jobs) {
                 const formatted = erpPrint.formatTsplLineEndings(job.tspl, winPrinterName);
+                tsplJobs.push({
+                    tspl: formatted,
+                    barcodes: job.items.map((i) => i.barcode),
+                    pieceCount: job.items.length,
+                });
                 let printed = false;
                 let sendError = null;
                 let clientPrint = false;
@@ -3264,7 +3273,6 @@ function registerStockPieceRoutes(app, deps) {
                         error: idx === 0 ? sendError || undefined : undefined,
                         clientPrint,
                         clientPrintMode,
-                        tspl: idx === 0 ? formatted : undefined,
                         labelRuleName: item.labelRuleName,
                     });
                 });
@@ -3273,6 +3281,7 @@ function registerStockPieceRoutes(app, deps) {
             res.json({
                 success: true,
                 results,
+                tsplJobs,
                 printerConfigured: !!printerConfig?.address,
                 clientPrintRequired,
                 printerProfile: profile
