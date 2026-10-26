@@ -11,11 +11,20 @@ type Props = {
   hint?: string
   value: string
   onChange: (next: string) => void
-  previewKind: 'bill' | 'estimate_gold' | 'estimate_silver'
+  previewKind: 'bill' | 'estimate_gold' | 'estimate_silver' | 'estimate_sheet'
+  extraInserts?: readonly string[]
   onReset?: () => void
 }
 
-export function ErpTemplateEditor({ label, hint, value, onChange, previewKind, onReset }: Props) {
+export function ErpTemplateEditor({
+  label,
+  hint,
+  value,
+  onChange,
+  previewKind,
+  extraInserts,
+  onReset,
+}: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -71,6 +80,21 @@ export function ErpTemplateEditor({ label, hint, value, onChange, previewKind, o
           </button>
         ) : null}
       </div>
+
+      {extraInserts?.length ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {extraInserts.map((token) => (
+            <button
+              key={token}
+              type="button"
+              className="min-h-[32px] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 py-1 font-mono text-[10px] text-[var(--color-jewelry-black,#1a1814)]/75 hover:border-[var(--kc-accent,#c41e3a)]/40"
+              onClick={() => insertAtCursor(`${token}\n`)}
+            >
+              {token}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mb-2 flex flex-wrap gap-1.5">
         {BILL_TEMPLATE_VARS.map((v) => (

@@ -323,6 +323,19 @@ ROUGH ESTIMATE layout (weight, Rate/Gm, MC total,
 CGST/SGST). Silver items omit purity/karat.
 `.trim()
 
+/**
+ * Epson L3310 / cut-sheet estimate. PAPER / MARGIN_MM / FONT_PT / FONT are read by
+ * the print service — edit them here, they are not hardcoded in software.
+ * {{estimate_body}} is the same Marlecha item list used on the 80mm roll.
+ */
+export const DEFAULT_ESTIMATE_SHEET_TEMPLATE = `
+PAPER A5
+MARGIN_MM 10
+FONT_PT 9
+FONT Courier New
+{{estimate_body}}
+`.trim()
+
 export const LABEL_TEMPLATE_VARS = [
   'barcode',
   'qr_code',
@@ -408,6 +421,7 @@ export const BILL_TEMPLATE_VARS = [
   'silver_rate',
   'savings_block',
   'live_silver_rate',
+  'estimate_body',
 ] as const
 
 export type EstimatePrintMode = 'rough' | 'custom'
@@ -428,6 +442,8 @@ export type ErpPrintFormatsSettings = {
   billTemplate?: string
   estimateTemplateGold?: string
   estimateTemplateSilver?: string
+  /** Cut-sheet Epson L3310 estimate — independent of the 80mm thermal Marlecha template. */
+  estimateSheetTemplate?: string
   /** Shop-wide default when staff clicks Generate quote (workstation can override). */
   defaultQuoteOutputMode?: 'pdf' | 'epson' | 'bills_banao' | 'both'
   /** Slab R gold: show MC ₹ on bills/estimates (default). When false, show wastage % like Slab W/F. */
@@ -653,6 +669,11 @@ export function migratePrintFormats(raw: ErpPrintFormatsSettings | null | undefi
     )
   } else {
     pf.estimateTemplateSilver = DEFAULT_ESTIMATE_TEMPLATE_SILVER
+  }
+  if (pf.estimateSheetTemplate?.trim()) {
+    pf.estimateSheetTemplate = preserveBillTemplate(pf.estimateSheetTemplate)
+  } else {
+    pf.estimateSheetTemplate = DEFAULT_ESTIMATE_SHEET_TEMPLATE
   }
   if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf'
   if (pf.labelUsePrn == null) pf.labelUsePrn = true

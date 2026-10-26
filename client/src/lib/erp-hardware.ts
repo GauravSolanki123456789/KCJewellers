@@ -49,6 +49,11 @@ export type ErpHardwareSettings = {
   billsBanaoPrinter?: {
     windowsPrinterName?: string
   }
+  /** Cut-sheet inkjet/laser for estimates (Epson L3310). Separate from TM-m30III thermal. */
+  estimateSheetPrinter?: {
+    windowsPrinterName?: string
+    paperSize?: 'A5' | 'A4' | 'A6' | 'HALFLETTER'
+  }
   scanner?: { mode?: string; suffix?: string }
   /** Posh RFID cloud API — used when admin enables RFID for this reseller. */
   poshRfid?: {
@@ -68,6 +73,8 @@ export type ErpWorkstationSelection = {
   quoteOutputMode?: ErpQuoteOutputMode | null
   /** This-PC TSC PRN layout override (`standard` | `tsc-3across`). */
   prnTemplateName?: string | null
+  /** This-PC Epson estimate printer: thermal 80mm roll vs L3310 cut sheet. */
+  estimatePrinterKind?: 'thermal' | 'sheet' | null
 }
 
 export const DEFAULT_SERIAL: ErpSerialSettings = {
@@ -177,6 +184,15 @@ export function migrateHardwareSettings(raw: ErpHardwareSettings | null | undefi
     }
   }
 
+  if (!hw.estimateSheetPrinter?.windowsPrinterName) {
+    hw.estimateSheetPrinter = {
+      windowsPrinterName: hw.estimateSheetPrinter?.windowsPrinterName || 'Epson L3310 Series',
+      paperSize: hw.estimateSheetPrinter?.paperSize || 'A5',
+    }
+  } else if (!hw.estimateSheetPrinter.paperSize) {
+    hw.estimateSheetPrinter = { ...hw.estimateSheetPrinter, paperSize: 'A5' }
+  }
+
   if (!hw.scaleProfiles?.length) {
     hw.scaleProfiles = [
       {
@@ -240,6 +256,10 @@ export function loadWorkstationSelection(): ErpWorkstationSelection {
       scaleProfileId: parsed.scaleProfileId || null,
       quoteOutputMode: parsed.quoteOutputMode ?? null,
       prnTemplateName: parsed.prnTemplateName || null,
+      estimatePrinterKind:
+        parsed.estimatePrinterKind === 'sheet' || parsed.estimatePrinterKind === 'thermal'
+          ? parsed.estimatePrinterKind
+          : null,
     }
   } catch {
     return { printerProfileId: null, scaleProfileId: null }

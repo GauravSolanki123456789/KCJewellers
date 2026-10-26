@@ -19,6 +19,7 @@ const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.ERP_PRINT_AGENT_PORT || 17888);
 const HOST = '127.0.0.1';
 const PS1 = path.join(__dirname, 'windows-raw-print.ps1');
+const GDI_PS1 = path.join(__dirname, 'windows-gdi-print.ps1');
 
 async function printRaw(printerName, tspl) {
     const tmp = path.join(os.tmpdir(), `kc-erp-label-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.prn`);
@@ -28,6 +29,42 @@ async function printRaw(printerName, tspl) {
             'powershell.exe',
             ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS1, '-PrinterName', printerName, '-FilePath', tmp],
             { timeout: 45000, windowsHide: true },
+        );
+    } finally {
+        try {
+            fs.unlinkSync(tmp);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+async function printDocument({ printerName, text, paper, marginMm, fontPt, fontName }) {
+    const tmp = path.join(os.tmpdir(), `kc-erp-sheet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`);
+    fs.writeFileSync(tmp, String(text || ''), 'utf8');
+    try {
+        await execFileAsync(
+            'powershell.exe',
+            [
+                '-NoProfile',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                GDI_PS1,
+                '-PrinterName',
+                printerName,
+                '-FilePath',
+                tmp,
+                '-Paper',
+                paper || 'A5',
+                '-MarginMm',
+                String(marginMm ?? 10),
+                '-FontPt',
+                String(fontPt ?? 9),
+                '-FontName',
+                fontName || 'Courier New',
+            ],
+            { timeout: 120000, windowsHide: true },
         );
     } finally {
         try {
@@ -90,6 +127,7 @@ const server = http.createServer(async (req, res) => {
                 supportsReceipt: true,
                 supportsLabels: true,
                 supportsTally: true,
+                supportsDocument: true,
             }),
         );
         return;
@@ -168,6 +206,34 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message || 'Receipt print failed' }));
+        }
+        return;
+    }
+
+    if (req.method === 'POST' && req.url === '/print-document') {
+        try {
+            const body = await readBody(req);
+            const payload = JSON.parse(body || '{}');
+            const printerName = String(payload.printerName || 'Epson L3310 Series').trim();
+            const text = String(payload.text || '');
+            if (!text.trim()) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'No sheet text' }));
+                return;
+            }
+            await printDocument({
+                printerName,
+                text,
+                paper: String(payload.paper || 'A5'),
+                marginMm: Number(payload.marginMm) || 10,
+                fontPt: Number(payload.fontPt) || 9,
+                fontName: String(payload.fontName || 'Courier New'),
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, count: 1, printerName, kind: 'document' }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message || 'Sheet print failed' }));
         }
         return;
     }

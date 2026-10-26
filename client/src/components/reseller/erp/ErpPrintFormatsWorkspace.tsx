@@ -15,6 +15,7 @@ import {
   DEFAULT_BILL_TEMPLATE,
   DEFAULT_ESTIMATE_TEMPLATE_GOLD,
   DEFAULT_ESTIMATE_TEMPLATE_SILVER,
+  DEFAULT_ESTIMATE_SHEET_TEMPLATE,
   DEFAULT_LABEL_PRN,
   DEFAULT_LABEL_PRN_3ACROSS,
   DEFAULT_LABEL_ZPL,
@@ -182,6 +183,7 @@ export function ErpPrintFormatsWorkspace() {
         billTemplate: preserveBillTemplate(pf.billTemplate),
         estimateTemplateGold: preserveBillTemplate(pf.estimateTemplateGold),
         estimateTemplateSilver: preserveBillTemplate(pf.estimateTemplateSilver),
+        estimateSheetTemplate: preserveBillTemplate(pf.estimateSheetTemplate),
       })
       await axios.put('/api/reseller/erp/settings', {
         settings: { printFormats: payload, jewelleryLedgerMetalEnabled },
@@ -1171,6 +1173,23 @@ export function ErpPrintFormatsWorkspace() {
             value={pf.estimateTemplateSilver || ''}
             onChange={(estimateTemplateSilver) => setPf((p) => ({ ...p, estimateTemplateSilver }))}
             onReset={() => setPf((p) => ({ ...p, estimateTemplateSilver: DEFAULT_ESTIMATE_TEMPLATE_SILVER }))}
+          />
+
+          <ErpTemplateEditor
+            label="Epson sheet estimate (L3310 / A5)"
+            hint="Used only when this PC is set to Cut-sheet (L3310) in Hardware → This workstation. Does not change the 80mm TM-m30III Marlecha roll. First lines PAPER / MARGIN_MM / FONT_PT / FONT set paper size (not hardcoded). {{estimate_body}} is the same item list as the thermal Marlecha estimate, including multiple scanned products."
+            previewKind="estimate_sheet"
+            extraInserts={[
+              'PAPER A5',
+              'PAPER A4',
+              'PAPER A6',
+              'MARGIN_MM 10',
+              'FONT_PT 9',
+              'FONT Courier New',
+            ]}
+            value={pf.estimateSheetTemplate || DEFAULT_ESTIMATE_SHEET_TEMPLATE}
+            onChange={(estimateSheetTemplate) => setPf((p) => ({ ...p, estimateSheetTemplate }))}
+            onReset={() => setPf((p) => ({ ...p, estimateSheetTemplate: DEFAULT_ESTIMATE_SHEET_TEMPLATE }))}
           />
         </>
       )}

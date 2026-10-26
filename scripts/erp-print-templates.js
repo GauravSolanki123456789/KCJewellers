@@ -682,6 +682,14 @@ ROUGH ESTIMATE layout (weight, Rate/Gm, MC total,
 CGST/SGST). Silver items omit purity/karat.
 `.trim();
 
+const DEFAULT_ESTIMATE_SHEET_TEMPLATE = `
+PAPER A5
+MARGIN_MM 10
+FONT_PT 9
+FONT Courier New
+{{estimate_body}}
+`.trim();
+
 function preserveBillTemplate(raw) {
     return preservePrnTemplate(raw);
 }
@@ -773,6 +781,11 @@ function migratePrintFormats(raw) {
         );
     } else {
         pf.estimateTemplateSilver = DEFAULT_ESTIMATE_TEMPLATE_SILVER;
+    }
+    if (pf.estimateSheetTemplate?.trim()) {
+        pf.estimateSheetTemplate = preserveBillTemplate(pf.estimateSheetTemplate);
+    } else {
+        pf.estimateSheetTemplate = DEFAULT_ESTIMATE_SHEET_TEMPLATE;
     }
     if (!pf.defaultQuoteOutputMode) pf.defaultQuoteOutputMode = 'pdf';
     if (pf.goldSlabRShowMc == null) pf.goldSlabRShowMc = true;
@@ -2848,7 +2861,11 @@ function buildRoughEstimateBody(bill, printFormats, rates) {
 }
 
 function buildSampleBillForPreview(kind) {
-    const isSilver = kind === 'estimate_silver' || kind === 'silver';
+    const isSilver =
+        kind === 'estimate_silver' ||
+        kind === 'silver' ||
+        kind === 'estimate_sheet' ||
+        kind === 'sheet';
     const rateSlab = isSilver ? 'R' : 'R';
     return {
         shop_name: 'B N MARLECHA SILVER',
@@ -2881,6 +2898,40 @@ function buildSampleBillForPreview(kind) {
                       lineTotalInr: 118500,
                       qty: 1,
                   },
+                  ...(kind === 'estimate_sheet' || kind === 'sheet'
+                      ? [
+                            {
+                                barcode: '386512',
+                                sku: 'SILVER GIFT ITEMS',
+                                style_code: 'GIFT',
+                                product_name: 'SILVER GIFT ITEMS',
+                                metal_type: 'SILVER',
+                                weightGm: 18.25,
+                                purity: 80,
+                                mc_rate: 7,
+                                mc_rate_slab_r: 0,
+                                mc_type: 'MC/GM',
+                                ratePerGram: 245,
+                                lineTotalInr: 6456,
+                                qty: 1,
+                            },
+                            {
+                                barcode: '514983',
+                                sku: 'SILVER GIFT ITEMS',
+                                style_code: 'GIFT',
+                                product_name: 'SILVER GIFT ITEMS',
+                                metal_type: 'SILVER',
+                                weightGm: 45.5,
+                                purity: 80,
+                                mc_rate: 7,
+                                mc_rate_slab_r: 0,
+                                mc_type: 'MC/GM',
+                                ratePerGram: 245,
+                                lineTotalInr: 14253,
+                                qty: 1,
+                            },
+                        ]
+                      : []),
               ]
             : [
                   {
@@ -2899,6 +2950,84 @@ function buildSampleBillForPreview(kind) {
                       qty: 1,
                   },
               ],
+    };
+}
+
+function parseEstimateSheetLayout(raw) {
+    let paper = 'A5';
+    let marginMm = 10;
+    let fontPt = 9;
+    let fontName = 'Courier New';
+    const bodyLines = [];
+    for (const line of String(raw || '').split('\n')) {
+        const t = line.trim();
+        const paperM = t.match(/^PAPER\s+(\S+)/i);
+        if (paperM) {
+            paper = String(paperM[1] || 'A5').toUpperCase();
+            continue;
+        }
+        const marginM = t.match(/^MARGIN_MM\s+([\d.]+)/i);
+        if (marginM) {
+            const n = parseFloat(marginM[1]);
+            if (Number.isFinite(n) && n >= 0) marginMm = n;
+            continue;
+        }
+        const fontPtM = t.match(/^FONT_PT\s+([\d.]+)/i);
+        if (fontPtM) {
+            const n = parseFloat(fontPtM[1]);
+            if (Number.isFinite(n) && n >= 6) fontPt = n;
+            continue;
+        }
+        const fontM = t.match(/^FONT\s+(.+)$/i);
+        if (fontM) {
+            fontName = String(fontM[1] || '').trim() || 'Courier New';
+            continue;
+        }
+        bodyLines.push(line);
+    }
+    if (!['A4', 'A5', 'A6', 'LETTER', 'HALFLETTER', 'HALLETTER'].includes(paper)) {
+        paper = 'A5';
+    }
+    if (paper === 'HALLETTER') paper = 'HALFLETTER';
+    return { paper, marginMm, fontPt, fontName, body: bodyLines.join('\n').trim() };
+}
+
+function resolveEstimateSheetPrinterName(hw) {
+    const sp = hw?.estimateSheetPrinter || {};
+    const name = sp.windowsPrinterName || 'Epson L3310 Series';
+    return String(name).trim() || 'Epson L3310 Series';
+}
+
+function renderEstimateSheet(bill, printFormats, rates, hw) {
+    const pf = migratePrintFormats(printFormats);
+    const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
+    const rateSlab = String(session.rateSlab || 'R').toUpperCase();
+    bill = enrichBillLinesForEstimatePrint(bill, rateSlab);
+    const printRates = enrichPrintRatesFromBill(bill, rates);
+    const layout = parseEstimateSheetLayout(pf.estimateSheetTemplate || DEFAULT_ESTIMATE_SHEET_TEMPLATE);
+    const paperFallback = String(hw?.estimateSheetPrinter?.paperSize || '').toUpperCase();
+    if (paperFallback && !/\bPAPER\b/i.test(String(pf.estimateSheetTemplate || ''))) {
+        if (['A4', 'A5', 'A6', 'LETTER', 'HALFLETTER'].includes(paperFallback)) {
+            layout.paper = paperFallback;
+        }
+    }
+    const marlecha = buildRoughEstimateCopy(bill, printFormats, printRates, false);
+    let body = layout.body;
+    if (!body || /\{\{\s*estimate_body\s*\}\}/i.test(body)) {
+        body = String(body || '{{estimate_body}}').replace(/\{\{\s*estimate_body\s*\}\}/gi, marlecha);
+    }
+    if (/\{\{/.test(body)) {
+        const vars = buildBillTemplateVars(bill, printFormats, printRates);
+        vars.estimate_body = marlecha;
+        body = renderTemplate(body, vars, { plainText: true });
+    }
+    return {
+        text: String(body || marlecha).replace(/\r\n/g, '\n').trim(),
+        paper: layout.paper,
+        marginMm: layout.marginMm,
+        fontPt: layout.fontPt,
+        fontName: layout.fontName,
+        windowsPrinterName: resolveEstimateSheetPrinterName(hw),
     };
 }
 
@@ -2922,6 +3051,11 @@ function renderEstimateEscPos(bill, printFormats, rates) {
 
 function previewTemplateText(template, bill, printFormats, rates) {
     const vars = buildBillTemplateVars(bill, printFormats, rates);
+    try {
+        vars.estimate_body = buildRoughEstimateCopy(bill, printFormats, rates, false);
+    } catch {
+        vars.estimate_body = vars.estimate_body || '';
+    }
     return renderTemplate(template || DEFAULT_BILL_TEMPLATE, vars, { plainText: true });
 }
 
@@ -3002,6 +3136,7 @@ module.exports = {
     DEFAULT_BILL_TEMPLATE,
     DEFAULT_ESTIMATE_TEMPLATE_GOLD,
     DEFAULT_ESTIMATE_TEMPLATE_SILVER,
+    DEFAULT_ESTIMATE_SHEET_TEMPLATE,
     LABEL_RULE_FIELD_KEYS,
     normalizePrnTemplate,
     normalizePrnTemplateWithFallback,
@@ -3045,6 +3180,9 @@ module.exports = {
     previewTemplateText,
     renderBillEscPos,
     renderEstimateEscPos,
+    renderEstimateSheet,
+    parseEstimateSheetLayout,
+    resolveEstimateSheetPrinterName,
     resolveEstimateTemplateForBill,
     migratePrintFormats,
     preserveBillTemplate,

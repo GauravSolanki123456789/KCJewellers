@@ -181,6 +181,31 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
             </Link>
           </span>
         </label>
+
+        <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
+          Epson estimate printer on this PC
+          <select
+            className={`${erpInputCls} mt-1.5 max-w-md`}
+            value={value.estimatePrinterKind || 'thermal'}
+            onChange={(e) =>
+              patch({
+                ...value,
+                estimatePrinterKind: e.target.value === 'sheet' ? 'sheet' : 'thermal',
+              })
+            }
+          >
+            <option value="thermal">Thermal 80mm (EPSON TM-m30III Receipt)</option>
+            <option value="sheet">Cut-sheet (Epson L3310 / A5 paper)</option>
+          </select>
+          <span className="mt-1.5 block text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+            Saved on this browser only. Thermal uses the working Marlecha roll. Sheet uses the L3310
+            inkjet and the sheet template in{' '}
+            <Link href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
+              Print formats
+            </Link>
+            . Printer names are set in Hardware.
+          </span>
+        </label>
       </div>
     </div>
   )

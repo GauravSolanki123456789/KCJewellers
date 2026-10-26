@@ -29,11 +29,11 @@ import {
   printViaLocalAgent,
   resolveWindowsPrinterName,
 } from '@/lib/erp-local-print'
-import { printErpTestReceipt, printErpTestReceiptBillsBanao } from '@/lib/erp-billing-print'
+import { printErpTestReceipt, printErpTestReceiptBillsBanao, printErpTestSheet } from '@/lib/erp-billing-print'
 import { kcPoshRfidHealthUrl, kcPoshRfidInventoryUrl } from '@/lib/api-base'
 import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import Image from 'next/image'
-import { Barcode, Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
+import { Barcode, FileText, Loader2, Plus, Printer, Radio, Save, Scale, Trash2, Wifi } from 'lucide-react'
 import {
   DEFAULT_STOCK_BARCODE_DIGIT_COUNT,
   DEFAULT_STOCK_BARCODE_PREFIX,
@@ -160,6 +160,7 @@ export function ErpHardwareWorkspace() {
   }, [])
   const [epsonTestBusy, setEpsonTestBusy] = useState(false)
   const [billsBanaoTestBusy, setBillsBanaoTestBusy] = useState(false)
+  const [sheetTestBusy, setSheetTestBusy] = useState(false)
   const [stockBarcodePrefix, setStockBarcodePrefix] = useState<StockBarcodePrefixSource>(
     DEFAULT_STOCK_BARCODE_PREFIX,
   )
@@ -1113,6 +1114,83 @@ export function ErpHardwareWorkspace() {
         >
           {epsonTestBusy ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
           Test Epson receipt
+        </button>
+      </div>
+
+      <div className={erpCardCls}>
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+          <FileText className="size-4 text-[var(--kc-accent,#c41e3a)]" />
+          Epson sheet estimate printer (L3310)
+        </div>
+        <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
+          Cut-sheet inkjet for estimates on A5 / small paper. Separate from the TM-m30III 80mm roll — that
+          thermal printer is unchanged. Pick this printer on the workstation that has the L3310, then print
+          from Generate quote. Edit the sheet template in Print formats.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
+            Windows printer name
+            <input
+              className={`${erpInputCls} mt-1 font-mono`}
+              placeholder="Epson L3310 Series"
+              value={hw.estimateSheetPrinter?.windowsPrinterName || ''}
+              onChange={(e) =>
+                setHw((h) => ({
+                  ...h,
+                  estimateSheetPrinter: {
+                    ...h.estimateSheetPrinter,
+                    windowsPrinterName: e.target.value,
+                    paperSize: h.estimateSheetPrinter?.paperSize || 'A5',
+                  },
+                }))
+              }
+            />
+          </label>
+          <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+            Paper size
+            <select
+              className={`${erpInputCls} mt-1`}
+              value={hw.estimateSheetPrinter?.paperSize || 'A5'}
+              onChange={(e) =>
+                setHw((h) => ({
+                  ...h,
+                  estimateSheetPrinter: {
+                    ...h.estimateSheetPrinter,
+                    windowsPrinterName: h.estimateSheetPrinter?.windowsPrinterName || 'Epson L3310 Series',
+                    paperSize: e.target.value as NonNullable<
+                      ErpHardwareSettings['estimateSheetPrinter']
+                    >['paperSize'],
+                  },
+                }))
+              }
+            >
+              <option value="A5">A5 (148 × 210 mm) — recommended</option>
+              <option value="A4">A4</option>
+              <option value="A6">A6</option>
+              <option value="HALFLETTER">Half letter (5.5 × 8.5 in)</option>
+            </select>
+          </label>
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
+          If the template includes a <code className="font-mono">PAPER</code> line, that size is used. Otherwise
+          this dropdown is used. Save hardware after changing.
+        </p>
+        <button
+          type="button"
+          className={`${erpBtnPrimary} mt-3`}
+          disabled={sheetTestBusy}
+          onClick={() => {
+            setSheetTestBusy(true)
+            void printErpTestSheet()
+              .then((msg) => setTestMsg(msg))
+              .catch((e) =>
+                setTestMsg(e instanceof Error ? e.message : 'L3310 sheet test print failed'),
+              )
+              .finally(() => setSheetTestBusy(false))
+          }}
+        >
+          {sheetTestBusy ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+          Test L3310 sheet
         </button>
       </div>
 

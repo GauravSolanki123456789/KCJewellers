@@ -75,6 +75,7 @@ import {
   normalizeQuoteOutputMode,
   printErpEstimateThermal,
   printErpEstimateThermalBillsBanao,
+  printErpEstimateSheet,
   resolveQuoteOutputMode,
   resolveQuoteOutputModeForSlab,
   type ErpQuoteOutputMode,
@@ -520,11 +521,19 @@ export function ErpBillingWorkspace() {
 
   const generateQuoteButtonLabel = useMemo(() => {
     const prefix = editingBillId ? 'Update & ' : 'Generate '
-    if (quoteOutputMode === 'epson') return `${prefix}Epson estimate`
+    if (quoteOutputMode === 'epson') {
+      return workstation.estimatePrinterKind === 'sheet'
+        ? `${prefix}Epson sheet estimate`
+        : `${prefix}Epson estimate`
+    }
     if (quoteOutputMode === 'bills_banao') return `${prefix}Bills Banao estimate`
-    if (quoteOutputMode === 'both') return `${prefix}quote (PDF + Epson)`
+    if (quoteOutputMode === 'both') {
+      return workstation.estimatePrinterKind === 'sheet'
+        ? `${prefix}quote (PDF + sheet)`
+        : `${prefix}quote (PDF + Epson)`
+    }
     return `${prefix}PDF estimate`
-  }, [editingBillId, quoteOutputMode])
+  }, [editingBillId, quoteOutputMode, workstation.estimatePrinterKind])
 
   const tableCols = useMemo(
     () =>
@@ -2322,14 +2331,19 @@ export function ErpBillingWorkspace() {
 
     try {
       if (wantsEpson) {
+        const usesSheet = workstation.estimatePrinterKind === 'sheet'
         try {
-          const msg = await printErpEstimateThermal(bill.id)
+          const msg = usesSheet
+            ? await printErpEstimateSheet(bill.id)
+            : await printErpEstimateThermal(bill.id)
           alert(msg)
         } catch (e) {
           const errMsg =
             (e as Error)?.message ||
             (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-            'Could not print estimate on Epson — start the local print agent on this PC and check Hardware → Epson billing printer.'
+            (usesSheet
+              ? 'Could not print on Epson L3310 — recopy erp-print-service (include windows-gdi-print.ps1), restart START-KC-Label-Print.bat, and check Hardware → Epson sheet estimate printer.'
+              : 'Could not print estimate on Epson — start the local print agent on this PC and check Hardware → Epson billing printer.')
           if (!wantsPdf) {
             alert(errMsg)
             return
@@ -3201,7 +3215,9 @@ export function ErpBillingWorkspace() {
                           void generateQuote('epson')
                         }}
                       >
-                        Epson estimate
+                        {workstation.estimatePrinterKind === 'sheet'
+                          ? 'Epson sheet estimate (L3310)'
+                          : 'Epson estimate'}
                       </button>
                     </li>
                     <li>

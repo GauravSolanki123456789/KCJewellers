@@ -13,7 +13,7 @@ export const ERP_QUOTE_OUTPUT_LABELS: Record<ErpQuoteOutputMode, string> = {
 
 export const ERP_QUOTE_OUTPUT_HINTS: Record<ErpQuoteOutputMode, string> = {
   pdf: 'Download / share the photo quotation PDF.',
-  epson: 'Print a thermal estimate on the billing Epson (no PDF).',
+  epson: 'Print an estimate on this PC Epson (80mm thermal or L3310 sheet — pick in This workstation).',
   bills_banao: 'Print a thermal estimate on the portable Bills Banao printer (Slab R).',
   both: 'Print on Epson and open the PDF share sheet.',
 }
@@ -57,4 +57,5 @@ export function resolveQuoteOutputModeForSlab(
 export {
   printErpEstimateThermal,
   printErpEstimateThermalBillsBanao,
+  printErpEstimateSheet,
 } from '@/lib/erp-billing-print'

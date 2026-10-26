@@ -2950,7 +2950,39 @@ function registerResellerErpRoutes(app, deps) {
                 }
             }
             const hw = settings.hardware || {};
+            const printFormats = settings.printFormats || {};
             const printerKind = String(req.body?.printer || req.query?.printer || 'epson').toLowerCase();
+            const sheetKind =
+                printerKind === 'epson_sheet' ||
+                printerKind === 'sheet' ||
+                printerKind === 'l3310' ||
+                printerKind === 'epson_l3310';
+            if (sheetKind) {
+                const sampleBill = erpPrint.buildSampleBillForPreview('estimate_silver');
+                const rates = { gold: 13200, silver: 270 };
+                const sheet = erpPrint.renderEstimateSheet(sampleBill, printFormats, rates, hw);
+                const paperOverride = String(req.body.paper_size || '').trim().toUpperCase();
+                const tmpl = String(printFormats.estimateSheetTemplate || '');
+                if (
+                    ['A4', 'A5', 'A6', 'LETTER', 'HALFLETTER'].includes(paperOverride) &&
+                    !/\bPAPER\b/i.test(tmpl)
+                ) {
+                    sheet.paper = paperOverride;
+                }
+                return res.json({
+                    printed: false,
+                    requiresClientPrint: true,
+                    clientPrint: true,
+                    printKind: 'sheet',
+                    sheetText: `KC ERP — L3310 sheet test\n\n${sheet.text}`,
+                    paper: sheet.paper,
+                    marginMm: sheet.marginMm,
+                    fontPt: sheet.fontPt,
+                    fontName: sheet.fontName,
+                    windowsPrinterName: sheet.windowsPrinterName,
+                    message: `Sheet test ready for ${sheet.windowsPrinterName} on this PC.`,
+                });
+            }
             const windowsPrinterName =
                 printerKind === 'bills_banao' || printerKind === 'billsbanao'
                     ? erpPrint.resolveBillsBanaoWindowsPrinterName(hw)
@@ -2991,6 +3023,15 @@ function registerResellerErpRoutes(app, deps) {
             const printFormats = settings.printFormats || {};
             const sampleBill = erpPrint.buildSampleBillForPreview(kind);
             const rates = { gold: 13200, silver: 270 };
+            if (kind === 'estimate_sheet' || kind === 'sheet') {
+                const sheet = erpPrint.renderEstimateSheet(
+                    sampleBill,
+                    { ...printFormats, estimateSheetTemplate: template },
+                    rates,
+                    settings.hardware || {},
+                );
+                return res.json({ preview: sheet.text });
+            }
             const preview = erpPrint.previewTemplateText(template, sampleBill, printFormats, rates);
             res.json({ preview });
         } catch (e) {
@@ -3116,9 +3157,40 @@ function registerResellerErpRoutes(app, deps) {
                 gold: session.goldPerG ?? session.gold_per_g ?? null,
                 silver: session.silverPerG ?? session.silver_per_g ?? null,
             };
-            const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
             const mode = String(req.body.mode || req.body.delivery || 'client').toLowerCase();
             const printerKind = String(req.body.printer || 'epson').toLowerCase();
+            const sheetKind =
+                printerKind === 'epson_sheet' ||
+                printerKind === 'sheet' ||
+                printerKind === 'l3310' ||
+                printerKind === 'epson_l3310';
+
+            if (sheetKind) {
+                const sheet = erpPrint.renderEstimateSheet(bill, printFormats, rates, hw);
+                const paperOverride = String(req.body.paper_size || '').trim().toUpperCase();
+                const tmpl = String(printFormats.estimateSheetTemplate || '');
+                if (
+                    ['A4', 'A5', 'A6', 'LETTER', 'HALFLETTER'].includes(paperOverride) &&
+                    !/\bPAPER\b/i.test(tmpl)
+                ) {
+                    sheet.paper = paperOverride;
+                }
+                return res.json({
+                    printed: false,
+                    requiresClientPrint: true,
+                    clientPrint: true,
+                    printKind: 'sheet',
+                    sheetText: sheet.text,
+                    paper: sheet.paper,
+                    marginMm: sheet.marginMm,
+                    fontPt: sheet.fontPt,
+                    fontName: sheet.fontName,
+                    windowsPrinterName: sheet.windowsPrinterName,
+                    message: `Sheet estimate ready for ${sheet.windowsPrinterName} on this PC.`,
+                });
+            }
+
+            const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
             const windowsPrinterName =
                 printerKind === 'bills_banao' || printerKind === 'billsbanao'
                     ? erpPrint.resolveBillsBanaoWindowsPrinterName(hw)

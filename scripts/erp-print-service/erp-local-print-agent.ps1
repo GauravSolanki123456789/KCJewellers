@@ -9,6 +9,7 @@ $HostAddr = '127.0.0.1'
 $Prefix = "http://${HostAddr}:$Port/"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RawPrintPs1 = Join-Path $ScriptDir 'windows-raw-print.ps1'
+$GdiPrintPs1 = Join-Path $ScriptDir 'windows-gdi-print.ps1'
 
 function Write-CorsHeaders($Response) {
     # Required when https://kcjewellers.co.in calls http://127.0.0.1 (Chrome Private Network Access).
@@ -120,6 +121,47 @@ function Invoke-RawPrintBinary([string]$PrinterName, [string]$EscPosBase64) {
             $list = if ($installed.Count) { ($installed -join ', ') } else { 'none' }
             $detail = if ($stderr.Trim()) { $stderr.Trim() } else { "Exit code $($p.ExitCode)" }
             throw "Receipt print failed ($resolved). Installed printers: $list. $detail"
+        }
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-GdiPrint(
+    [string]$PrinterName,
+    [string]$Text,
+    [string]$Paper,
+    [double]$MarginMm,
+    [double]$FontPt,
+    [string]$FontName
+) {
+    $names = Get-InstalledPrinterNames
+    $resolved = $PrinterName
+    if ($names -notcontains $PrinterName) {
+        foreach ($n in $names) {
+            if ($n -match 'L3310|L-3310|EcoTank|L3250|L3210|L3110') { $resolved = $n; break }
+        }
+    }
+    $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $tmp = Join-Path $env:TEMP "kc-erp-sheet-$(Get-Date -Format 'yyyyMMddHHmmss')-$suffix.txt"
+    [System.IO.File]::WriteAllText($tmp, [string]$Text, [System.Text.Encoding]::UTF8)
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $safeFont = $FontName.Replace('"', '')
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$GdiPrintPs1`" -PrinterName `"$resolved`" -FilePath `"$tmp`" -Paper `"$Paper`" -MarginMm $MarginMm -FontPt $FontPt -FontName `"$safeFont`""
+        $psi.RedirectStandardError = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $stderr = $p.StandardError.ReadToEnd()
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            $list = if ($names.Count) { ($names -join ', ') } else { 'none' }
+            $detail = if ($stderr.Trim()) { $stderr.Trim() } else { "Exit code $($p.ExitCode)" }
+            throw "Sheet print failed ($resolved). Installed printers: $list. $detail"
         }
     } finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
@@ -319,6 +361,7 @@ function Handle-Request($Context) {
             supportsReceipt = $true
             supportsLabels = $true
             supportsTally = $true
+            supportsDocument = $true
         }
         return
     }
@@ -374,6 +417,45 @@ function Handle-Request($Context) {
         return
     }
 
+    if ($request.HttpMethod -eq 'POST' -and $path -eq '/print-document') {
+        try {
+            if (-not (Test-Path -LiteralPath $GdiPrintPs1)) {
+                Send-JsonResponse $Context 500 @{
+                    ok = $false
+                    error = 'windows-gdi-print.ps1 missing. Recopy the full erp-print-service folder and restart START-KC-Label-Print.bat.'
+                }
+                return
+            }
+            $body = Read-RequestBody $request
+            $payload = @{}
+            if ($body) { $payload = $body | ConvertFrom-Json }
+            $printerName = [string]($payload.printerName)
+            if (-not $printerName.Trim()) { $printerName = 'Epson L3310 Series' }
+            $text = [string]($payload.text)
+            if (-not $text.Trim()) {
+                Send-JsonResponse $Context 400 @{ ok = $false; error = 'No sheet text' }
+                return
+            }
+            $paper = [string]($payload.paper)
+            if (-not $paper.Trim()) { $paper = 'A5' }
+            $marginMm = 10
+            if ($payload.marginMm -ne $null) {
+                try { $marginMm = [double]$payload.marginMm } catch { $marginMm = 10 }
+            }
+            $fontPt = 9
+            if ($payload.fontPt -ne $null) {
+                try { $fontPt = [double]$payload.fontPt } catch { $fontPt = 9 }
+            }
+            $fontName = [string]($payload.fontName)
+            if (-not $fontName.Trim()) { $fontName = 'Courier New' }
+            Invoke-GdiPrint $printerName $text $paper $marginMm $fontPt $fontName
+            Send-JsonResponse $Context 200 @{ ok = $true; count = 1; printerName = $printerName; kind = 'document' }
+        } catch {
+            Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message }
+        }
+        return
+    }
+
     if ($request.HttpMethod -eq 'POST' -and $path -eq '/print') {
         try {
             $body = Read-RequestBody $request
@@ -422,7 +504,7 @@ Write-Host ' KC ERP Print Service'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Labels: TSC / TVS LP46 / Zebra GC420t · Receipts: EPSON TM-m30III Receipt · Tally export'
+Write-Host ' Labels: TSC / TVS LP46 / Zebra · Receipts: EPSON TM-m30III · Sheet estimates: Epson L3310 · Tally'
 Write-Host ' If ERP shows amber but this window is open: Chrome → lock icon → Allow Local network for this site.'
 Write-Host ' Run CHECK-TSC-Printer.bat if TSC labels fail.'
 Write-Host ' Press Ctrl+C to stop.'
