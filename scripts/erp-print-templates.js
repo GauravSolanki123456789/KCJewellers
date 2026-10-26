@@ -117,10 +117,18 @@ const TSC_PRN_LAYOUT_STANDARD = 'standard';
 const TSC_PRN_LAYOUT_3ACROSS = 'tsc-3across';
 
 function resolveEffectiveTscPrnLayout(prnTemplateName, profile) {
-    return (
-        normalizeTscPrnLayout(prnTemplateName || profile?.prnTemplateName || '') ||
-        TSC_PRN_LAYOUT_STANDARD
-    );
+    const fromBody = prnTemplateName ? normalizeTscPrnLayout(prnTemplateName) : null;
+    const fromProfile = profile?.prnTemplateName
+        ? normalizeTscPrnLayout(profile.prnTemplateName)
+        : null;
+    const nameHint =
+        profile?.name && /3.?across/i.test(profile.name) ? TSC_PRN_LAYOUT_3ACROSS : null;
+
+    if (fromBody === TSC_PRN_LAYOUT_3ACROSS) return TSC_PRN_LAYOUT_3ACROSS;
+    if (fromProfile === TSC_PRN_LAYOUT_3ACROSS || nameHint === TSC_PRN_LAYOUT_3ACROSS) {
+        return TSC_PRN_LAYOUT_3ACROSS;
+    }
+    return fromBody || fromProfile || TSC_PRN_LAYOUT_STANDARD;
 }
 
 function normalizeTscPrnLayout(raw) {

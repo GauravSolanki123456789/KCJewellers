@@ -139,6 +139,28 @@ export function tscPrnLayoutLabel(raw?: string | null): string {
     : 'Standard TSC'
 }
 
+/** Workstation override + printer profile — profile 3-across wins over a stale "standard" PC override. */
+export function resolvePrintPrnLayout(
+  workstation: { prnTemplateName?: string | null },
+  printerProfile: { prnTemplateName?: string | null; name?: string } | null | undefined,
+): TscPrnLayoutId {
+  const ws = workstation.prnTemplateName ? normalizeTscPrnLayout(workstation.prnTemplateName) : null
+  const fromProfile = printerProfile?.prnTemplateName
+    ? normalizeTscPrnLayout(printerProfile.prnTemplateName)
+    : null
+  const nameHint =
+    printerProfile?.name && /3.?across/i.test(printerProfile.name)
+      ? TSC_PRN_LAYOUT_3ACROSS
+      : null
+
+  if (ws === TSC_PRN_LAYOUT_3ACROSS) return TSC_PRN_LAYOUT_3ACROSS
+  if (fromProfile === TSC_PRN_LAYOUT_3ACROSS || nameHint === TSC_PRN_LAYOUT_3ACROSS) {
+    return TSC_PRN_LAYOUT_3ACROSS
+  }
+  if (ws) return ws
+  return fromProfile || TSC_PRN_LAYOUT_STANDARD
+}
+
 /** Zebra GC420t sample — multiline ZPL (same commands as one-line export). */
 export const DEFAULT_LABEL_ZPL = `CT~~CD,~CC^~CT~
 ^XA~TA000~JSN^LT0^MNW^MTT^PON^PMN^LH0,0^JMA^PR2,2~SD15^JUS^LRN^CI0^XZ

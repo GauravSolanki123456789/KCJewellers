@@ -92,7 +92,15 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
           <select
             className={`${erpInputCls} mt-1.5`}
             value={value.printerProfileId || printer?.id || ''}
-            onChange={(e) => patch({ ...value, printerProfileId: e.target.value || null })}
+            onChange={(e) => {
+              const id = e.target.value || null
+              const p = id ? getPrinterProfileById(hw, id) : null
+              patch({
+                ...value,
+                printerProfileId: id,
+                prnTemplateName: p?.prnTemplateName || null,
+              })
+            }}
           >
             {(hw.printerProfiles || []).map((p) => (
               <option key={p.id} value={p.id}>
@@ -121,7 +129,11 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
               <option value="tsc-3across">3-across sheet</option>
             </select>
             <span className="mt-1.5 block text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-              Saved on this browser only. Shop printer default:{' '}
+              Saved on this browser only. For 3-across sheets, choose the{' '}
+              <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/80">
+                TSC 3-across
+              </strong>{' '}
+              printer above (or set layout to 3-across). Profile default:{' '}
               <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/80">
                 {tscPrnLayoutLabel(printer.prnTemplateName)}
               </strong>

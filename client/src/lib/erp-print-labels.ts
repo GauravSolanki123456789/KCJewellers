@@ -7,7 +7,10 @@ import {
   normalizeComPort,
   type ErpHardwareSettings,
 } from '@/lib/erp-hardware'
-import { normalizeTscPrnLayout, TSC_PRN_LAYOUT_3ACROSS } from '@/lib/erp-print-templates'
+import {
+  resolvePrintPrnLayout,
+  TSC_PRN_LAYOUT_3ACROSS,
+} from '@/lib/erp-print-templates'
 import {
   getLocalPrintAgentInfo,
   localPrintAgentUnreachableMessage,
@@ -90,14 +93,10 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
   const printerProfile = getPrinterProfileById(hardware, opts.printerProfileId)
 
   const workstation = loadWorkstationSelection()
-  let prnTemplateName =
-    workstation.prnTemplateName || printerProfile?.prnTemplateName || null
-  if (!prnTemplateName && printerProfile?.name && /3.?across/i.test(printerProfile.name)) {
-    prnTemplateName = TSC_PRN_LAYOUT_3ACROSS
-  }
+  const prnLayout = resolvePrintPrnLayout(workstation, printerProfile)
   const body: Record<string, unknown> = {
     printer_profile_id: opts.printerProfileId || printerProfile?.id,
-    prn_template_name: normalizeTscPrnLayout(prnTemplateName || 'standard'),
+    prn_template_name: prnLayout,
   }
   if (opts.batchId) body.batch_id = opts.batchId
   if (opts.pieceIds?.length) body.piece_ids = opts.pieceIds
@@ -198,9 +197,14 @@ export async function printStockLabels(opts: PrintStockLabelsOptions): Promise<P
       const rowHint =
         tsplJobs.length === 1 && (tsplJobs[0].pieceCount ?? 0) > 1
           ? ` · ${tsplJobs[0].pieceCount} tags on one row`
-          : tsplJobs.length > 1
-            ? ` · ${tsplJobs.length} row(s)`
-            : ''
+          : tsplJobs.length > 1 &&
+              (opts.pieceIds?.length ?? 0) >= 2 &&
+              tsplJobs.length === (opts.pieceIds?.length ?? 0) &&
+              prnLayout !== TSC_PRN_LAYOUT_3ACROSS
+            ? ` · ${tsplJobs.length} separate rows — pick “TSC 3-across” printer or 3-across layout on This workstation`
+            : tsplJobs.length > 1
+              ? ` · ${tsplJobs.length} row(s)`
+              : ''
       return {
         ok: true,
         message: `Printed ${count} label job(s) · USB · ${winName}${rowHint}`,
