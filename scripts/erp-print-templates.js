@@ -91,7 +91,7 @@ const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER;
  */
 const DEFAULT_LABEL_PRN_3ACROSS = `
 COLUMNS 3
-COLUMN_PITCH 34.7 mm
+COLUMN_PITCH 34.67 mm
 SIZE 104 mm, 22 mm
 GAP 3 mm, 0 mm
 DIRECTION 0,0
@@ -103,11 +103,13 @@ SET PARTIAL_CUTTER OFF
 SET TEAR ON
 CLS
 CODEPAGE 1252
-TEXT 8,14,"ROMAN.TTF",0,1,7,"{{product_name}}"
-TEXT 8,38,"ROMAN.TTF",0,1,7,"G {{gross_weight}}  N {{net_weight}}"
-BARCODE 8,58,"128",72,1,0,1,2,"{{barcode}}"
-TEXT 8,142,"ROMAN.TTF",0,1,6,"{{barcode}}"
-TEXT 8,162,"ROMAN.TTF",0,1,6,"{{company_code}}"
+TEXT 5,10,"ROMAN.TTF",0,1,6,"{{product_name}}"
+TEXT 5,28,"ROMAN.TTF",0,1,6,"GWT: {{gross_weight}}"
+TEXT 5,46,"ROMAN.TTF",0,1,6,"NWT: {{net_weight}}"
+TEXT 5,64,"ROMAN.TTF",0,1,6,"Pcs: {{pcs_label}}"
+TEXT 118,10,"ROMAN.TTF",0,1,6,"{{barcode}}"
+QRCODE 118,28,L,2,A,0,M2,S7,"{{qr_code}}"
+TEXT 118,64,"ROMAN.TTF",0,1,6,"{{company_code}}"
 PRINT 1,1
 `.trim();
 
@@ -976,6 +978,15 @@ function stripTsplLayoutDirectives(tspl) {
         .join('\n');
 }
 
+function columnPitchDotsFromSheet(tspl, columns, dpi) {
+    const cols = Math.max(1, Number(columns) || 1);
+    const widthMm = labelWidthMmFromTspl(tspl);
+    if (widthMm && cols > 0) {
+        return Math.round((widthMm / cols) * tsplDotsPerMm(dpi));
+    }
+    return Math.round(34.67 * tsplDotsPerMm(dpi));
+}
+
 function parseTsplMultiColumnLayout(tspl) {
     const lines = String(tspl || '').split('\n');
     let columns = 1;
@@ -1004,14 +1015,34 @@ function parseTsplMultiColumnLayout(tspl) {
         return { columns: 1, columnPitchDots: 0, dpi };
     }
     if (!(columnPitchDots > 0)) {
-        const widthMm = labelWidthMmFromTspl(tspl);
-        if (widthMm && columns > 0) {
-            columnPitchDots = Math.round((widthMm / columns) * tsplDotsPerMm(dpi));
-        } else {
-            columnPitchDots = Math.round(34.7 * tsplDotsPerMm(dpi));
-        }
+        columnPitchDots = columnPitchDotsFromSheet(tspl, columns, dpi);
     }
     return { columns, columnPitchDots, dpi };
+}
+
+function resolveItemMultiColumnLayout(item) {
+    const sources = [
+        item?.template,
+        item?.tspl,
+        normalizeTscPrnLayout(item?.prnLayout) === TSC_PRN_LAYOUT_3ACROSS
+            ? DEFAULT_LABEL_PRN_3ACROSS
+            : '',
+    ];
+    for (const src of sources) {
+        const text = String(src || '').trim();
+        if (!text) continue;
+        const layout = parseTsplMultiColumnLayout(text);
+        if (layout.columns > 1) {
+            if (!(layout.columnPitchDots > 0)) {
+                layout.columnPitchDots = columnPitchDotsFromSheet(text, layout.columns, layout.dpi);
+            }
+            return layout;
+        }
+    }
+    if (normalizeTscPrnLayout(item?.prnLayout) === TSC_PRN_LAYOUT_3ACROSS) {
+        return parseTsplMultiColumnLayout(DEFAULT_LABEL_PRN_3ACROSS);
+    }
+    return { columns: 1, columnPitchDots: 0, dpi: 203 };
 }
 
 function shiftTsplDrawX(body, dxDots) {
@@ -1063,7 +1094,10 @@ function composeTsplMultiColumnRow(tsplList, layout) {
     const list = (tsplList || []).filter(Boolean);
     if (!list.length) return '';
     const cols = Math.max(1, Number(layout?.columns) || 1);
-    const pitch = Math.max(0, Number(layout?.columnPitchDots) || 0);
+    let pitch = Math.max(0, Number(layout?.columnPitchDots) || 0);
+    if (cols > 1 && !pitch) {
+        pitch = columnPitchDotsFromSheet(list[0], cols, layout?.dpi || 203);
+    }
     const first = splitTsplLabelParts(list[0]);
     if (cols <= 1 || !pitch) {
         return stripTsplLayoutDirectives(list[0]).trim();
@@ -1072,7 +1106,7 @@ function composeTsplMultiColumnRow(tsplList, layout) {
         const parts = splitTsplLabelParts(tspl);
         return shiftTsplDrawX(parts.body, idx * pitch);
     });
-    return [first.header, ...bodies, first.trailer].filter(Boolean).join('\n').trim();
+    return [first.header, 'CLS', ...bodies, first.trailer].filter(Boolean).join('\n').trim();
 }
 
 function batchRenderedPrnLabels(rendered) {
@@ -1081,7 +1115,7 @@ function batchRenderedPrnLabels(rendered) {
     let i = 0;
     while (i < items.length) {
         const cur = items[i];
-        const layout = parseTsplMultiColumnLayout(cur.template || cur.tspl || '');
+        const layout = resolveItemMultiColumnLayout(cur);
         if (layout.columns <= 1) {
             jobs.push({
                 tspl: stripTsplLayoutDirectives(cur.tspl || ''),
@@ -1093,7 +1127,7 @@ function batchRenderedPrnLabels(rendered) {
         const row = [];
         while (row.length < layout.columns && i < items.length) {
             const next = items[i];
-            const nextLayout = parseTsplMultiColumnLayout(next.template || next.tspl || '');
+            const nextLayout = resolveItemMultiColumnLayout(next);
             if (nextLayout.columns !== layout.columns) break;
             row.push(next);
             i += 1;
@@ -1259,10 +1293,23 @@ function formatOptionalNumber(piece, field, decimals = 2) {
     return n.toFixed(decimals);
 }
 
+function firstPositivePieceWeight(piece, fields) {
+    for (const field of fields) {
+        const n = Number(piece?.[field]);
+        if (Number.isFinite(n) && n > 0) return n.toFixed(3);
+    }
+    return '';
+}
+
 function formatLabelWeight(piece, field) {
-    const n = Number(piece?.[field]);
-    if (!Number.isFinite(n) || n <= 0) return '';
-    return n.toFixed(3);
+    if (field === 'gross_weight') {
+        return (
+            firstPositivePieceWeight(piece, ['gross_weight', 'avg_weight', 'net_weight']) || ''
+        );
+    }
+    return (
+        firstPositivePieceWeight(piece, ['avg_weight', 'net_weight', 'gross_weight']) || ''
+    );
 }
 
 /** PCS line for label templates — only when {{pcs_label}} is present in the template. */
@@ -1366,6 +1413,10 @@ function renderPrnLabelForPiece(piece, hw, profile, printFormats, prnTemplateNam
         : isTvs
           ? resolveLabelTvsLp46PrnTemplate(piece, printFormats)
           : resolveLabelPrnTemplate(piece, printFormats, profile, prnTemplateName);
+    const tplLayout = parseTsplMultiColumnLayout(resolved.template || '');
+    if (tplLayout.columns > 1 && resolved.prnLayout !== TSC_PRN_LAYOUT_3ACROSS) {
+        resolved.prnLayout = TSC_PRN_LAYOUT_3ACROSS;
+    }
     const vars = buildLabelTemplateVars(piece, hw, profile, resolved.template);
     const tspl = renderTemplate(resolved.template, vars, {
         plainText: isZebra || isZplLabelTemplate(resolved.template),
@@ -3143,6 +3194,8 @@ module.exports = {
     formatTsplLineEndings,
     stripTsplLayoutDirectives,
     parseTsplMultiColumnLayout,
+    resolveItemMultiColumnLayout,
+    columnPitchDotsFromSheet,
     composeTsplMultiColumnRow,
     batchRenderedPrnLabels,
     fixTsplQrcodeCommands,

@@ -40,4 +40,30 @@ const singleJobs = erpPrint.batchRenderedPrnLabels([{ tspl: jewelry, template: j
 assert.strictEqual(singleJobs.length, 1)
 assert.ok(singleJobs[0].tspl.includes('SIZE 92.5 mm, 15 mm'))
 
+const layoutOnly = erpPrint.resolveItemMultiColumnLayout({
+  prnLayout: 'tsc-3across',
+  template: '',
+  tspl: a,
+})
+assert.strictEqual(layoutOnly.columns, 3)
+
+const userTpl = `
+COLUMNS 3
+COLUMN_PITCH 34.7 mm
+SIZE 104 mm, 22 mm
+GAP 3 mm, 0 mm
+CLS
+TEXT 10,15,"ROMAN.TTF",0,1,8,"{{product_name}}"
+TEXT 135,15,"ROMAN.TTF",0,1,8,"{{barcode}}"
+PRINT 1,1
+`.trim()
+const u1 = userTpl.replace('{{product_name}}', 'A').replace('{{barcode}}', 'IDOLS-1')
+const u2 = userTpl.replace('{{product_name}}', 'B').replace('{{barcode}}', 'IDOLS-2')
+const u3 = userTpl.replace('{{product_name}}', 'C').replace('{{barcode}}', 'IDOLS-3')
+const userRow = erpPrint.composeTsplMultiColumnRow([u1, u2, u3], erpPrint.parseTsplMultiColumnLayout(userTpl))
+assert.ok(userRow.includes('IDOLS-1'))
+assert.ok(userRow.includes('IDOLS-2'))
+assert.ok(userRow.includes('IDOLS-3'))
+assert.ok(!userRow.includes('{{'))
+
 console.log('test-tspl-multicolumn: ok')

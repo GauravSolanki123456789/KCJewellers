@@ -166,7 +166,9 @@ export async function printClientTsplLabels(
     windowsPrinter?: { name?: string }
   } | null,
 ): Promise<number> {
-  const clientTspl = results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)
+  const clientTspl = [
+    ...new Set(results.filter((r) => r.clientPrint && r.tspl).map((r) => r.tspl as string)),
+  ]
   if (!clientTspl.length) return 0
   const labelCount = results.filter((r) => r.clientPrint).length || clientTspl.length
 

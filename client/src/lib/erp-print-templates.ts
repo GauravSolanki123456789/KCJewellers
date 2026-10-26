@@ -89,7 +89,7 @@ export const DEFAULT_LABEL_PRN = DEFAULT_LABEL_PRN_SILVER
  */
 export const DEFAULT_LABEL_PRN_3ACROSS = `
 COLUMNS 3
-COLUMN_PITCH 34.7 mm
+COLUMN_PITCH 34.67 mm
 SIZE 104 mm, 22 mm
 GAP 3 mm, 0 mm
 DIRECTION 0,0
@@ -101,11 +101,13 @@ SET PARTIAL_CUTTER OFF
 SET TEAR ON
 CLS
 CODEPAGE 1252
-TEXT 8,14,"ROMAN.TTF",0,1,7,"{{product_name}}"
-TEXT 8,38,"ROMAN.TTF",0,1,7,"G {{gross_weight}}  N {{net_weight}}"
-BARCODE 8,58,"128",72,1,0,1,2,"{{barcode}}"
-TEXT 8,142,"ROMAN.TTF",0,1,6,"{{barcode}}"
-TEXT 8,162,"ROMAN.TTF",0,1,6,"{{company_code}}"
+TEXT 5,10,"ROMAN.TTF",0,1,6,"{{product_name}}"
+TEXT 5,28,"ROMAN.TTF",0,1,6,"GWT: {{gross_weight}}"
+TEXT 5,46,"ROMAN.TTF",0,1,6,"NWT: {{net_weight}}"
+TEXT 5,64,"ROMAN.TTF",0,1,6,"Pcs: {{pcs_label}}"
+TEXT 118,10,"ROMAN.TTF",0,1,6,"{{barcode}}"
+QRCODE 118,28,L,2,A,0,M2,S7,"{{qr_code}}"
+TEXT 118,64,"ROMAN.TTF",0,1,6,"{{company_code}}"
 PRINT 1,1
 `.trim()
 

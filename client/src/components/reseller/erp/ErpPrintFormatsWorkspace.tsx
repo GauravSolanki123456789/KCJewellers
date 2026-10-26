@@ -630,7 +630,11 @@ export function ErpPrintFormatsWorkspace() {
                 <code className="font-mono">COLUMN_PITCH</code>, <code className="font-mono">SIZE</code>,{' '}
                 <code className="font-mono">GAP</code> and every TEXT/BARCODE x,y here. Those numbers are sent to
                 the printer as written — they are not hardcoded. Same TSC as the jewelry-tag PRN; this layout is
-                stored separately so changing it does not affect the standard tag.
+                stored separately so changing it does not affect the standard tag. On each PC that prints 3-across
+                sheets, set Hardware → This workstation → TSC label layout to{' '}
+                <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/80">3-across sheet</strong>{' '}
+                (or use a printer profile with that layout). Select 3 products and print once — they appear left,
+                middle, and right on one row.
               </p>
             ) : null}
             {labelZebra ? (

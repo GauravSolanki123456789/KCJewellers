@@ -3173,6 +3173,7 @@ function registerStockPieceRoutes(app, deps) {
                 let tspl;
                 let labelRuleName = null;
                 let template = '';
+                let prnLayout = null;
                 if (usePrn) {
                     const rendered = erpPrint.renderPrnLabelForPiece(
                         piece,
@@ -3184,6 +3185,7 @@ function registerStockPieceRoutes(app, deps) {
                     tspl = rendered.tspl;
                     labelRuleName = rendered.ruleName;
                     template = rendered.template || '';
+                    prnLayout = rendered.prnLayout || null;
                 } else if (erpPrint.isZebraLabelProfile(profile)) {
                     const rendered = erpPrint.renderPrnLabelForPiece(
                         piece,
@@ -3199,6 +3201,7 @@ function registerStockPieceRoutes(app, deps) {
                     tspl = rendered.tspl;
                     labelRuleName = rendered.ruleName;
                     template = rendered.template || '';
+                    prnLayout = rendered.prnLayout || null;
                 } else {
                     tspl = labelPrinter.generateTSPLLabel(itemData);
                 }
@@ -3209,6 +3212,7 @@ function registerStockPieceRoutes(app, deps) {
                     tspl,
                     template,
                     labelRuleName,
+                    prnLayout,
                 });
             }
 
