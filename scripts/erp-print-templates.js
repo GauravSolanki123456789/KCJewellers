@@ -1206,14 +1206,10 @@ function tsplColumnWidthDots(tspl, columnsHint) {
     return null;
 }
 
-/** Sanitize QRCODE payload; keep x/y from the template (do not force 418,68 on small tags). */
+/** Sanitize QRCODE payload only — keep x/y/cell/rotation from the PRN (auto nudge clipped rotated QRs). */
 function fixTsplQrcodeCommands(tspl) {
     const heightMm = labelHeightMmFromTspl(tspl);
-    const widthMm = labelWidthMmFromTspl(tspl);
     const smallTag = heightMm != null && heightMm <= 16;
-    const sheetCols = parseTsplMultiColumnLayout(tspl).columns;
-    const multiColumnSheet = sheetCols > 1 || (widthMm != null && widthMm >= 90 && heightMm != null && heightMm <= 30);
-    const colWidthDots = multiColumnSheet ? tsplColumnWidthDots(tspl, sheetCols > 1 ? sheetCols : 3) : null;
     return String(tspl || '')
         .split('\n')
         .map((line) => {
@@ -1227,26 +1223,15 @@ function fixTsplQrcodeCommands(tspl) {
                 /^QRCODE\s+(\d+)\s*,\s*(\d+)\s*,\s*([LMQH])\s*,\s*(\d+)\s*,\s*([AMan])\s*,\s*(\d+)(?:\s*,\s*M2\s*,\s*S7)?/i,
             );
             const rot = m ? String(m[6] || '0') : '0';
-            let x = m ? parseInt(m[1], 10) : 92;
-            let y = m ? parseInt(m[2], 10) : 22;
+            const x = m ? parseInt(m[1], 10) : 92;
+            const y = m ? parseInt(m[2], 10) : 22;
             const ecc = m ? String(m[3] || 'L').toUpperCase() : 'L';
             let cell = m ? parseInt(m[4], 10) || 2 : 2;
             cell = Math.min(4, Math.max(1, cell));
             if (smallTag && data.length <= 20 && cell < 2) cell = 2;
-            const heightDots = heightMm ? Math.round(heightMm * tsplDotsPerMm(203)) : 176;
-            const qrDots = tsplQrSizeDots(cell);
-            const margin = 4;
-            if (colWidthDots) {
-                const col = Math.max(0, Math.floor(x / colWidthDots));
-                const colStart = col * colWidthDots;
-                const colEnd = colStart + colWidthDots - margin;
-                if (x + qrDots > colEnd) x = Math.max(colStart + margin, colEnd - qrDots);
-                if (x < colStart + margin) x = colStart + margin;
-            }
-            if (y + qrDots > heightDots - margin) {
-                y = Math.max(margin, heightDots - margin - qrDots);
-            }
-            return `QRCODE ${x},${y},${ecc},${cell},A,${rot},"${data}"`;
+            const hasModel = /,\s*M2\s*,\s*S7/i.test(t);
+            const modelSuffix = hasModel ? ',M2,S7' : ',M2,S7';
+            return `QRCODE ${x},${y},${ecc},${cell},A,${rot}${modelSuffix},"${data}"`;
         })
         .filter((line) => line !== '')
         .join('\n');
