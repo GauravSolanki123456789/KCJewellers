@@ -261,7 +261,14 @@ export function ErpUsersWorkspace() {
               <select
                 className={`${erpInputCls} mt-1`}
                 value={form.role}
-                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as 'admin' | 'staff' }))}
+                onChange={(e) => {
+                  const role = e.target.value as 'admin' | 'staff'
+                  setForm((f) => ({
+                    ...f,
+                    role,
+                    fullAccess: role === 'admin' && !editId ? true : f.fullAccess,
+                  }))
+                }}
               >
                 <option value="staff">Employee</option>
                 <option value="admin">Admin</option>
@@ -295,15 +302,13 @@ export function ErpUsersWorkspace() {
                 checked={form.canSaveBill}
                 onChange={(e) => setForm((f) => ({ ...f, canSaveBill: e.target.checked }))}
                 className="mt-1"
-                disabled={form.role === 'admin'}
               />
               <span>
                 <span className="block text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                   Allow Save bill (Scan &amp; Bill)
                 </span>
                 <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                  When off, staff can still create estimates and quotes but cannot post a completed sales bill. Admins
-                  always retain Save bill.
+                  When off, this user can still create estimates and quotes but cannot post a completed sales bill.
                 </span>
               </span>
             </label>

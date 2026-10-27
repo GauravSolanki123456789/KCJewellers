@@ -86,7 +86,10 @@ export function ErpOperatorsAdminPanel({ resellerUserId }: { resellerUserId: num
               <span className="text-slate-200">
                 {op.displayName}{' '}
                 <span className="font-mono text-slate-500">@{op.username}</span>
-                <span className="ml-1 text-slate-500">· {op.role === 'admin' ? 'Admin' : 'Employee'}</span>
+                <span className="ml-1 text-slate-500">
+                  · {op.role === 'admin' ? 'Admin' : 'Employee'}
+                  {op.fullAccess ? ' · All modules' : ''}
+                </span>
               </span>
               <button
                 type="button"

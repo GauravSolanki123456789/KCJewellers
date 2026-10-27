@@ -337,7 +337,7 @@ function routingGate() {
         if (!op) {
             return res.status(401).json({ error: 'ERP sign-in required', code: 'ERP_OPERATOR_REQUIRED' });
         }
-        if (!operatorCanAccessModule(op, ROUTING_MODULE) && op.role !== 'admin' && !op.fullAccess) {
+        if (!operatorCanAccessModule(op, ROUTING_MODULE)) {
             return res.status(403).json({ error: 'No access to metal routing module' });
         }
         req.erpOperator = op;
@@ -346,7 +346,7 @@ function routingGate() {
 }
 
 function isAdminOp(op) {
-    return op && (op.role === 'admin' || op.fullAccess);
+    return op && !!op.fullAccess;
 }
 
 async function loadOperatorFlags(query, userId, operatorId) {

@@ -740,24 +740,24 @@ export function ErpCustomerRoutingWorkspace() {
                 Schedule follow-up
               </label>
               {followUpWanted ? (
-                <div className="grid gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-50,#faf9f7)] p-3 sm:grid-cols-2">
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                <div className="grid gap-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3 shadow-sm sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                       Follow-up date
-                    </label>
+                    </span>
                     <input
                       type="date"
-                      className={`${erpInputCls} mt-1 w-full`}
+                      className={`${erpInputCls} mt-1.5 w-full`}
                       value={followUpDate}
                       onChange={(e) => setFollowUpDate(e.target.value)}
                     />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                       Mode
-                    </label>
+                    </span>
                     <select
-                      className={`${erpInputCls} mt-1 w-full`}
+                      className={`${erpInputCls} mt-1.5 w-full`}
                       value={followUpMode}
                       onChange={(e) => setFollowUpMode(e.target.value)}
                     >
@@ -766,13 +766,13 @@ export function ErpCustomerRoutingWorkspace() {
                       <option value="visit">Visit</option>
                       <option value="reminder">Reminder</option>
                     </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
                       Priority
-                    </label>
+                    </span>
                     <select
-                      className={`${erpInputCls} mt-1 w-full`}
+                      className={`${erpInputCls} mt-1.5 w-full`}
                       value={followUpPriority}
                       onChange={(e) =>
                         setFollowUpPriority(e.target.value as 'high' | 'medium' | 'low')
@@ -782,15 +782,18 @@ export function ErpCustomerRoutingWorkspace() {
                       <option value="medium">Medium</option>
                       <option value="low">Low</option>
                     </select>
-                  </div>
-                  <div className="sm:col-span-2">
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                      Follow-up notes (optional)
+                    </span>
                     <input
-                      className={erpInputCls}
-                      placeholder="Follow-up notes (optional)"
+                      className={`${erpInputCls} mt-1.5 w-full`}
+                      placeholder="Notes for the follow-up call or visit"
                       value={followUpRemarks}
                       onChange={(e) => setFollowUpRemarks(e.target.value)}
                     />
-                  </div>
+                  </label>
                 </div>
               ) : null}
             </div>

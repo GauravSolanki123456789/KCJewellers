@@ -93,7 +93,7 @@ function ErpHubContent() {
           const mods = listErpModulesForHub({
             canAccess: canAccessModule,
             jainavUnlocked: shadowUnlocked,
-            isAdminOperator: operator?.role === 'admin',
+            isAdminOperator: operator?.fullAccess,
             navVisibility,
           }).filter((m) => m.group === group.id)
           if (!mods.length) return null

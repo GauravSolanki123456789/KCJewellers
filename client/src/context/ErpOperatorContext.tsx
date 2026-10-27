@@ -119,22 +119,17 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
   const canAccessModule = useCallback(
     (moduleId: string) => {
       if (!operator) return false
-      if (moduleId === 'erp-users') return operator.role === 'admin'
-      if (moduleId === 'offline') {
-        if (operator.role === 'admin' || operator.fullAccess) return true
-        return operatorHasModule(operator.allowedModules, 'offline')
-      }
-      if (operator.role === 'admin' || operator.fullAccess) return true
+      if (operator.fullAccess) return true
+      if (moduleId === 'offline') return operatorHasModule(operator.allowedModules, 'offline')
       return operatorHasModule(operator.allowedModules, moduleId)
     },
     [operator],
   )
 
-  const canDeleteRecords = operator?.role === 'admin' && shadowUnlocked
+  const canDeleteRecords = !!operator?.fullAccess && shadowUnlocked
 
   const canSaveBill = useMemo(() => {
     if (!operator) return true
-    if (operator.role === 'admin') return true
     return operator.canSaveBill !== false
   }, [operator])
 

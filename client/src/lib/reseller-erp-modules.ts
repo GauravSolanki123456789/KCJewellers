@@ -526,22 +526,12 @@ export function isJainavModule(mod: ResellerErpModule | null, navVisibility?: Er
 export function listErpModulesForHub(opts: {
   canAccess: (id: ResellerErpModuleId | string) => boolean
   jainavUnlocked: boolean
+  /** @deprecated Use module permissions only; kept for call-site compatibility */
   isAdminOperator?: boolean
   navVisibility?: ErpNavVisibility | null
 }): ResellerErpModule[] {
-  const isAdmin = opts.isAdminOperator === true
-  if (isAdmin) {
-    return RESELLER_ERP_MODULES.filter((m) => {
-      if (m.id === 'shadow') return false
-      if (m.adminOnly && !isAdmin) return false
-      if (!opts.canAccess(m.id)) return false
-      if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) return false
-      return true
-    })
-  }
   return RESELLER_ERP_MODULES.filter((m) => {
     if (m.id === 'shadow') return false
-    if (m.adminOnly && !isAdmin) return false
     if (!opts.canAccess(m.id)) return false
     if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) return false
     return true
@@ -551,15 +541,13 @@ export function listErpModulesForHub(opts: {
 export function listErpQuickNavModules(opts: {
   canAccess: (id: ResellerErpModuleId | string) => boolean
   jainavUnlocked: boolean
+  /** @deprecated Use module permissions only */
   isAdminOperator?: boolean
   navVisibility?: ErpNavVisibility | null
 }): ResellerErpModule[] {
-  const isAdmin = opts.isAdminOperator === true
   const ids = new Set<string>()
   for (const m of RESELLER_ERP_MODULES) {
     if (m.id === 'shadow') continue
-    if (m.id === 'erp-users' && !isAdmin) continue
-    if (m.adminOnly && !isAdmin) continue
     if (!opts.canAccess(m.id)) continue
     if (isJainavModule(m, opts.navVisibility) && !opts.jainavUnlocked) continue
     ids.add(m.id)

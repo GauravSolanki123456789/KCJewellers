@@ -33,11 +33,10 @@ export function ErpQuickNav() {
   const { shadowUnlocked, lockShadow, operator, canAccessModule } = useErpOperator()
   const { navVisibility } = useErpNavVisibility()
   const active = activeModuleId(pathname)
-  const isAdmin = operator?.role === 'admin'
   const mods = listErpQuickNavModules({
     canAccess: canAccessModule,
     jainavUnlocked: shadowUnlocked,
-    isAdminOperator: isAdmin,
+    isAdminOperator: operator?.fullAccess,
     navVisibility,
   })
 

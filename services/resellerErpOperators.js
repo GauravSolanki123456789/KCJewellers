@@ -92,14 +92,12 @@ function getSessionOperator(req) {
 function operatorCanSaveSalesBill(req) {
     const op = getSessionOperator(req);
     if (!op) return true;
-    if (op.role === 'admin') return true;
     return op.canSaveBill !== false;
 }
 
 function operatorCanAccessModule(op, moduleId) {
     if (!op) return false;
-    if (op.role === 'admin' || op.fullAccess) return true;
-    if (moduleId === 'erp-users') return op.role === 'admin';
+    if (op.fullAccess) return true;
     const target = normalizeModuleId(moduleId);
     return (op.allowedModules || []).some((m) => normalizeModuleId(m) === target);
 }
@@ -122,8 +120,8 @@ function requireErpOperatorSession() {
 function requireJainavUnlockedAdmin() {
     return (req, res, next) => {
         const op = getSessionOperator(req);
-        if (!op || op.role !== 'admin') {
-            return res.status(403).json({ error: 'Delete requires an admin operator in Jainav mode.' });
+        if (!op || !op.fullAccess) {
+            return res.status(403).json({ error: 'Delete requires a full-access operator in Jainav mode.' });
         }
         if (!req.session?.shadowUnlocked) {
             return res.status(403).json({ error: 'Delete is only available after unlocking Jainav mode.' });
@@ -135,8 +133,8 @@ function requireJainavUnlockedAdmin() {
 function requireErpOperatorAdmin() {
     return (req, res, next) => {
         const op = getSessionOperator(req);
-        if (!op || op.role !== 'admin') {
-            return res.status(403).json({ error: 'ERP admin access required' });
+        if (!op || !operatorCanAccessModule(op, 'erp-users')) {
+            return res.status(403).json({ error: 'ERP staff login management access required' });
         }
         req.erpOperator = op;
         next();
@@ -325,7 +323,7 @@ function registerOperatorRoutes(app, deps) {
                 username: fresh.username,
                 displayName: fresh.displayName,
                 role: fresh.role,
-                allowedModules: fresh.fullAccess || fresh.role === 'admin' ? ALL_MODULE_IDS : fresh.allowedModules,
+                allowedModules: fresh.fullAccess ? ALL_MODULE_IDS : fresh.allowedModules,
                 fullAccess: fresh.fullAccess,
                 shadowAccess: fresh.shadowAccess,
                 canSaveBill: fresh.canSaveBill !== false,
