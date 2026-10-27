@@ -345,9 +345,10 @@ export function ErpCustomerRoutingWorkspace() {
     return list.slice(0, 8)
   }, [filteredFloor, floorExpanded])
 
-  const showLiveFloor = role === 'greeter' || role === 'admin'
+  const isRoutingAdmin = role === 'admin' || operator?.role === 'admin'
+  const showLiveFloor = role === 'greeter' || isRoutingAdmin
   const canWorkCounterQueue =
-    role === 'admin' || (boot?.myCounterIds?.length ?? 0) > 0
+    isRoutingAdmin || (boot?.myCounterIds?.length ?? 0) > 0
   const greeterAlsoCounter =
     (boot?.isStoreGreeter || role === 'greeter') && (boot?.myCounterIds?.length ?? 0) > 0
 
@@ -362,9 +363,9 @@ export function ErpCustomerRoutingWorkspace() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/70">
-          <Route className="mr-1 inline size-4" />
-          {role === 'admin'
+        <p className="text-sm font-medium text-[var(--color-jewelry-black,#1a1814)]">
+          <Route className="mr-1 inline size-4 text-[var(--kc-accent,#c41e3a)]" />
+          {isRoutingAdmin
             ? 'Admin — counters, greeter & analytics'
             : role === 'greeter'
               ? greeterAlsoCounter
@@ -546,7 +547,7 @@ export function ErpCustomerRoutingWorkspace() {
         <p className="rounded-xl border border-rose-500/30 bg-rose-50 px-3 py-2 text-sm text-rose-800">{err}</p>
       ) : null}
 
-      {(role === 'greeter' || role === 'admin') && (
+      {(role === 'greeter' || isRoutingAdmin) && (
         <div className={`${erpCardCls} space-y-3`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-semibold text-[var(--color-jewelry-black,#1a1814)]">Route customer</p>
@@ -829,7 +830,7 @@ export function ErpCustomerRoutingWorkspace() {
         <ErpRoutingBillingQueue onMsg={setMsg} onErr={setErr} />
       ) : null}
 
-      {role === 'admin' && (
+      {isRoutingAdmin && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
             {(

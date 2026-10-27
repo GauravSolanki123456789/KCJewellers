@@ -6,7 +6,6 @@ const {
     getSessionOperator,
     operatorCanAccessModule,
     requireJainavUnlockedAdmin,
-    requireErpOperatorAdmin,
 } = require('./resellerErpOperators');
 const {
     loadManagementDashboard,
@@ -167,8 +166,19 @@ async function loadOperatorFlags(query, userId, operatorId) {
     return rows[0] || null;
 }
 
+/** Routing workspace admin (counters, greeter, analytics) — ERP Admin role or full access. */
 function isAdminOp(op) {
-    return op && !!op.fullAccess;
+    return op && (op.role === 'admin' || op.fullAccess);
+}
+
+function routingAdminOnly() {
+    return (req, res, next) => {
+        const op = req.erpOperator;
+        if (!isAdminOp(op)) {
+            return res.status(403).json({ error: 'Customer routing admin access required' });
+        }
+        next();
+    };
 }
 
 async function mapCounterRow(query, userId, row) {
@@ -328,7 +338,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate } = deps;
     const gate = routingGate();
     const jainavDelete = requireJainavUnlockedAdmin();
-    const adminOnly = requireErpOperatorAdmin();
+    const routingAdmin = routingAdminOnly();
 
     ensureCustomerRoutingSchema(pool).catch((e) =>
         console.warn('customer routing schema:', e.message),
@@ -399,7 +409,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         requireJson,
         async (req, res) => {
             try {
@@ -428,7 +438,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         requireJson,
         async (req, res) => {
             try {
@@ -475,7 +485,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         jainavDelete,
         async (req, res) => {
             try {
@@ -497,7 +507,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         requireJson,
         async (req, res) => {
             try {
@@ -989,7 +999,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         async (req, res) => {
             try {
                 const from = String(req.query.from || '').trim().slice(0, 10);
@@ -1020,7 +1030,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         },
     );
 
-    app.get('/api/reseller/erp/customer-routing/live-stations', checkAuth, erpGate, gate, adminOnly, async (req, res) => {
+    app.get('/api/reseller/erp/customer-routing/live-stations', checkAuth, erpGate, gate, routingAdmin, async (req, res) => {
         try {
             const stations = await loadLiveCounterStations(query, req.user.id);
             res.json({ stations });
@@ -1034,7 +1044,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         requireJson,
         async (req, res) => {
             try {
@@ -1071,7 +1081,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         },
     );
 
-    app.get('/api/reseller/erp/customer-routing/analytics', checkAuth, erpGate, gate, adminOnly, async (req, res) => {
+    app.get('/api/reseller/erp/customer-routing/analytics', checkAuth, erpGate, gate, routingAdmin, async (req, res) => {
         try {
             const from = String(req.query.from || '').trim().slice(0, 10);
             const to = String(req.query.to || '').trim().slice(0, 10);
@@ -1406,7 +1416,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         }
     });
 
-    app.get('/api/reseller/erp/customer-routing/follow-ups', checkAuth, erpGate, gate, adminOnly, async (req, res) => {
+    app.get('/api/reseller/erp/customer-routing/follow-ups', checkAuth, erpGate, gate, routingAdmin, async (req, res) => {
         try {
             const status = String(req.query.status || 'open').trim().slice(0, 24);
             const params = [req.user.id];
@@ -1439,7 +1449,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         checkAuth,
         erpGate,
         gate,
-        adminOnly,
+        routingAdmin,
         requireJson,
         async (req, res) => {
             try {
