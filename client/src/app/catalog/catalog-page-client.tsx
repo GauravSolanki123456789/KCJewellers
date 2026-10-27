@@ -43,6 +43,8 @@ import { useCatalogBuilder } from '@/context/CatalogBuilderContext'
 import { CUSTOMER_TIER, type WholesaleUserFields } from '@/lib/customer-tier'
 import { resolveCatalogShareBrand, resolveCatalogShareOrigin } from '@/lib/catalog-share'
 import { isCatalogAdminUser } from '@/lib/is-catalog-admin'
+import { useResellerWebsiteAccessBlock } from '@/hooks/useResellerWebsiteAccess'
+import { ResellerSubscriptionExpiredScreen } from '@/components/ResellerSubscriptionExpiredScreen'
 import CatalogSelectionFab from '@/components/catalog/CatalogSelectionFab'
 import WhatsAppCatalogModal from '@/components/catalog/WhatsAppCatalogModal'
 import {
@@ -355,6 +357,7 @@ export default function CatalogPageClient() {
   const canUseCatalogBuilder =
     auth.isAuthenticated === true &&
     (isCatalogAdminUser(auth.user) || customerTier === CUSTOMER_TIER.RESELLER)
+  const websiteAccessBlock = useResellerWebsiteAccessBlock()
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false)
 
   const [selectedMetal, setSelectedMetal] = useState<MetalKey>('gold')
@@ -1325,6 +1328,17 @@ export default function CatalogPageClient() {
     selectedMetal,
     products.length,
   ])
+
+  if (!isBootstrapping && websiteAccessBlock) {
+    return (
+      <ResellerSubscriptionExpiredScreen
+        access={websiteAccessBlock}
+        audience={customDomainHost && customerTier !== CUSTOMER_TIER.RESELLER ? 'public' : 'reseller'}
+        module="website"
+        brandName={resellerBrandName}
+      />
+    )
+  }
 
   if (isBootstrapping) {
     return (

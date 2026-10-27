@@ -108,6 +108,17 @@ const {
 } = require('./services/digiInvestRates');
 const { registerResellerLoginEmailRoutes } = require('./services/resellerLoginEmails');
 const {
+    ensureResellerSubscriptionColumns,
+    SUBSCRIPTION_COLUMNS_SQL,
+    loadResellerSubscriptions,
+    applySubscriptionBody,
+    attachSubscriptionFields,
+    getWebsiteModuleAccess,
+    compactPublic,
+    denialError,
+    openPayload,
+} = require('./services/resellerSubscription');
+const {
     ensureResellerErpSchema,
     registerResellerErpRoutes,
 } = require('./services/resellerErp');
@@ -958,12 +969,21 @@ app.get('/api/auth/current_user', async (req, res) => {
             }
         }
         let catalogLimits = null;
+        let websiteSubscription = openPayload('website');
+        let erpSubscription = openPayload('erp');
         if (tier === 'RESELLER') {
             try {
                 await ensureSharedCatalogLimitColumns(pool);
                 catalogLimits = await getResellerCatalogLimitStatus(query, resolvedUser.id);
             } catch (e) {
                 console.warn('catalog limits:', e.message);
+            }
+            try {
+                const subs = await loadResellerSubscriptions(query, resolvedUser.id);
+                websiteSubscription = subs.website;
+                erpSubscription = subs.erp;
+            } catch (e) {
+                console.warn('reseller subscription:', e.message);
             }
         }
         res.json({
@@ -1005,6 +1025,18 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_image_search_enabled: resellerImageSearchEnabled,
                 reseller_storefront_website_enabled: resellerStorefrontWebsiteEnabled,
+                reseller_website_subscription: websiteSubscription,
+                reseller_erp_subscription: erpSubscription,
+                reseller_website_from_date: websiteSubscription.from_date,
+                reseller_website_to_date: websiteSubscription.to_date,
+                reseller_website_trial_enabled: websiteSubscription.trial_enabled,
+                reseller_website_trial_from_date: websiteSubscription.trial_from_date,
+                reseller_website_trial_to_date: websiteSubscription.trial_to_date,
+                reseller_erp_from_date: erpSubscription.from_date,
+                reseller_erp_to_date: erpSubscription.to_date,
+                reseller_erp_trial_enabled: erpSubscription.trial_enabled,
+                reseller_erp_trial_from_date: erpSubscription.trial_from_date,
+                reseller_erp_trial_to_date: erpSubscription.trial_to_date,
                 reseller_slab_settings: resellerSlabSettings,
                 referred_by_user_id: resolvedUser.referred_by_user_id ?? null,
                 kc_theme_id: resolvedUser.kc_theme_id != null && String(resolvedUser.kc_theme_id).trim()
@@ -1412,7 +1444,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
             return res.status(400).json({ error: 'domain query parameter required' });
         }
         const rows = await query(
-            `SELECT business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids,
+            `SELECT id, business_name, logo_url, mobile_number, kc_theme_id, allowed_category_ids,
                     COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
                     COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                     COALESCE(reseller_show_mrp_behind_box, false) AS reseller_show_mrp_behind_box,
@@ -1436,6 +1468,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
                 allowed_category_ids: null,
                 allowed_category_metals: null,
                 reseller_invest_enabled: false,
+                website_subscription: compactPublic(openPayload('website')),
             });
         }
         const rawDigits = String(rows[0].mobile_number || '').replace(/\D/g, '');
@@ -1453,6 +1486,13 @@ app.get('/api/public/reseller-branding', async (req, res) => {
             0,
             Math.min(1000, Number(slabSettings?.slab_r?.margin_pct) || 0),
         );
+        let websiteSubscription = compactPublic(openPayload('website'));
+        try {
+            const subs = await loadResellerSubscriptions(query, rows[0].id);
+            websiteSubscription = compactPublic(subs.website);
+        } catch (e) {
+            console.warn('reseller-branding subscription:', e.message);
+        }
         res.json({
             business_name: rows[0].business_name || null,
             logo_url: rows[0].logo_url || null,
@@ -1468,6 +1508,7 @@ app.get('/api/public/reseller-branding', async (req, res) => {
             reseller_hide_prices: !!rows[0].reseller_hide_prices,
             reseller_show_live_stock: !!rows[0].reseller_show_live_stock,
             storefront_website_enabled: !!rows[0].reseller_storefront_website_enabled,
+            website_subscription: websiteSubscription,
         });
     } catch (error) {
         console.error('reseller-branding:', error);
@@ -1904,6 +1945,7 @@ registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJ
 ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
 registerResellerErpRoutes(app, { query, pool, checkAuth, requireJson, getPublicApiBaseUrl });
 ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
+ensureResellerSubscriptionColumns(pool).catch((e) => console.warn('reseller subscription columns:', e.message));
 registerResellerDigiRoutes(app, {
     query,
     pool,
@@ -4335,6 +4377,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
                        COALESCE(reseller_catalog_max_products, 50) AS reseller_catalog_max_products,
                        COALESCE(reseller_catalog_daily_limit, 10) AS reseller_catalog_daily_limit,
+                       ${SUBSCRIPTION_COLUMNS_SQL},
                        reseller_invite_code, referred_by_user_id,
                        created_at, updated_at 
                 FROM users 
@@ -4346,7 +4389,27 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
             `);
         } catch (colError) {
             const msg = colError.message || '';
-            if (msg.includes('reseller_product_uploads_enabled')) {
+            if (msg.includes('reseller_website_') || msg.includes('reseller_erp_from') || msg.includes('reseller_erp_trial')) {
+                await ensureResellerSubscriptionColumns(pool);
+                result = await query(`
+                    SELECT id, google_id, email, name, role, allowed_tabs, permissions, 
+                           account_status, phone_number, mobile_number,
+                           customer_tier, wholesale_making_charge_discount_percent, wholesale_markup_percent,
+                           business_name, custom_domain, logo_url, allowed_category_ids,
+                           COALESCE(allowed_category_metals, '{}'::jsonb) AS allowed_category_metals,
+                           kc_theme_id,
+                           COALESCE(reseller_hide_prices, false) AS reseller_hide_prices,
+                           COALESCE(reseller_product_uploads_enabled, false) AS reseller_product_uploads_enabled,
+                           reseller_invite_code, referred_by_user_id,
+                           created_at, updated_at 
+                    FROM users 
+                    WHERE COALESCE(is_deleted, false) = false
+                    ORDER BY 
+                        CASE WHEN email = 'jaigaurav56789@gmail.com' THEN 0 ELSE 1 END,
+                        role ASC,
+                        created_at DESC
+                `);
+            } else if (msg.includes('reseller_product_uploads_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
@@ -4393,7 +4456,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
             return res.json([]);
         }
         
-        res.json(result);
+        res.json(result.map((row) => attachSubscriptionFields(row)));
     } catch (error) {
         console.error('Error fetching users:', error);
         // Return empty array on error instead of crashing (prevents 500 error)
@@ -4843,6 +4906,10 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             params.push(!!req.body.reseller_storefront_website_enabled);
         }
 
+        const subParamIndex = { value: paramIndex };
+        applySubscriptionBody(req.body, updates, params, subParamIndex);
+        paramIndex = subParamIndex.value;
+
         if (req.body.reseller_invest_manage_enabled !== undefined) {
             updates.push(`reseller_invest_manage_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_invest_manage_enabled);
@@ -5005,6 +5072,9 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_storefront_website_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
+                result = await query(queryText, params);
+            } else if (umsg.includes('reseller_website_') || umsg.includes('reseller_erp_from') || umsg.includes('reseller_erp_trial')) {
+                await ensureResellerSubscriptionColumns(pool);
                 result = await query(queryText, params);
             } else if (umsg.includes('reseller_product_uploads_enabled')) {
                 await pool.query(
@@ -7584,8 +7654,33 @@ function selectionWhatsAppDigitsFromBrochureRow(row) {
  * Body: { selectedProductIds, markupPercentage, discountPercentage, format: 'temporary_web_link'|'pdf', expiresAt?: ISO string }
  * PDF format is handled on the client; this endpoint only persists web links.
  */
+async function resellerWebsiteSubscriptionBlock(userId, tier) {
+    if (String(tier || '').toUpperCase() !== 'RESELLER' || !userId) return null;
+    try {
+        const access = await getWebsiteModuleAccess(query, userId);
+        return access.hasAccess ? null : access;
+    } catch {
+        return null;
+    }
+}
+
+async function assertResellerWebsiteSubscription(req, res) {
+    const tier = String(req.user?.customer_tier || '').toUpperCase();
+    if (tier !== 'RESELLER') return true;
+    try {
+        const access = await getWebsiteModuleAccess(query, req.user.id);
+        if (access.hasAccess) return true;
+        res.status(403).json(denialError(access));
+        return false;
+    } catch (e) {
+        console.warn('website subscription assert:', e.message);
+        return true;
+    }
+}
+
 app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
+        if (!(await assertResellerWebsiteSubscription(req, res))) return;
         const { selectedProductIds, markupPercentage, discountPercentage, format, expiresAt, pricingSlab, wholesaleGoldRatePerG, wholesaleSilverRatePerG, uploadedMcSlabKey } = req.body || {};
         const ids = Array.isArray(selectedProductIds)
             ? [...new Set(selectedProductIds.map((x) => String(x).trim()).filter(Boolean))]
@@ -7970,6 +8065,7 @@ app.get('/api/reseller/shared-catalogs/active', requireSharedCatalogCreator, asy
 /** Append products to an existing shared catalogue link (same UUID, extended product list). */
 app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
+        if (!(await assertResellerWebsiteSubscription(req, res))) return;
         const uuid = String(req.params.uuid || '').trim();
         if (!UUID_RE.test(uuid)) {
             return res.status(400).json({ error: 'Invalid catalog id' });
@@ -8055,6 +8151,7 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
 /** Update wholesale metal rates on an existing shared catalogue (Slab W / F). */
 app.patch('/api/admin/shared-catalog/:uuid/pricing', adminLimiter, requireJson, requireSharedCatalogCreator, async (req, res) => {
     try {
+        if (!(await assertResellerWebsiteSubscription(req, res))) return;
         const uuid = String(req.params.uuid || '').trim();
         if (!UUID_RE.test(uuid)) return res.status(400).json({ error: 'Invalid catalog id' });
 
@@ -8142,9 +8239,11 @@ app.get('/api/public/shared-catalog-meta/:uuid', async (req, res) => {
         }
         const row = rows[0];
         const expiresAt = new Date(row.expires_at);
-        const expired = expiresAt.getTime() <= Date.now();
+        let expired = expiresAt.getTime() <= Date.now();
         const tier = String(row.creator_customer_tier || '').toUpperCase();
         const isResellerCreator = tier === 'RESELLER' && row.created_by_user_id;
+        const ownerBlock = await resellerWebsiteSubscriptionBlock(row.created_by_user_id, row.creator_customer_tier);
+        if (ownerBlock) expired = true;
         const appTheme = await getAppKcThemeId();
         const resellerDefault = await getResellerDefaultKcThemeId();
         let kc_theme_id = appTheme;
@@ -8154,6 +8253,9 @@ app.get('/api/public/shared-catalog-meta/:uuid', async (req, res) => {
         res.setHeader('Cache-Control', 'public, max-age=120, s-maxage=120');
         return res.json({
             expired,
+            subscriptionBlocked: !!ownerBlock,
+            subscriptionStatus: ownerBlock ? ownerBlock.status : null,
+            subscriptionHeadline: ownerBlock ? ownerBlock.public_headline : null,
             creatorBusinessName: isResellerCreator ? row.creator_business_name || null : null,
             creatorLogoUrl: isResellerCreator ? row.creator_logo_url || null : null,
             kc_theme_id,
@@ -8231,10 +8333,15 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
             kc_theme_id = normalizeKcThemeId(row.creator_kc_theme_id, resellerDefaultBrochure);
         }
         const expiresAt = new Date(row.expires_at);
-        if (expiresAt.getTime() <= Date.now()) {
+        const ownerBlock = await resellerWebsiteSubscriptionBlock(row.created_by_user_id, row.creator_customer_tier);
+        if (expiresAt.getTime() <= Date.now() || ownerBlock) {
             return res.json({
                 expired: true,
                 expiresAt: expiresAt.toISOString(),
+                subscriptionBlocked: !!ownerBlock,
+                subscriptionStatus: ownerBlock ? ownerBlock.status : null,
+                subscriptionHeadline: ownerBlock ? ownerBlock.public_headline : null,
+                subscriptionDetail: ownerBlock ? ownerBlock.public_detail : null,
                 markupPercentage: markupPctJson,
                 discountPercentage: discountPctJson,
                 hidePrices,

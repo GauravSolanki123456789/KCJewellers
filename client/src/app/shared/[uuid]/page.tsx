@@ -87,6 +87,7 @@ function mergeSharedBranding(
     hidePrices: domainBranding?.hidePrices ?? false,
     showLiveStock: domainBranding?.showLiveStock ?? false,
     storefrontWebsiteEnabled: domainBranding?.storefrontWebsiteEnabled ?? false,
+    websiteSubscription: domainBranding?.websiteSubscription ?? null,
   };
 }
 

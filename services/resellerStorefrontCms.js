@@ -358,7 +358,14 @@ async function isStorefrontWebsiteEnabledForUserId(userId) {
              FROM users WHERE id = $1 LIMIT 1`,
             [uid],
         );
-        return !!rows[0]?.enabled;
+        if (!rows[0]?.enabled) return false;
+        try {
+            const { getWebsiteModuleAccess } = require('./resellerSubscription');
+            const access = await getWebsiteModuleAccess(query, uid);
+            return access.hasAccess;
+        } catch {
+            return true;
+        }
     } catch (e) {
         const msg = String(e.message || '');
         if (msg.includes('reseller_storefront_website_enabled')) {
@@ -384,7 +391,16 @@ async function getPublishedForDomain(domain) {
             [reseller.id],
         )
     )[0];
-    const websiteEnabled = !!owner?.reseller_storefront_website_enabled;
+    let websiteEnabled = !!owner?.reseller_storefront_website_enabled;
+    if (websiteEnabled) {
+        try {
+            const { getWebsiteModuleAccess } = require('./resellerSubscription');
+            const access = await getWebsiteModuleAccess(query, reseller.id);
+            if (!access.hasAccess) websiteEnabled = false;
+        } catch (e) {
+            console.warn('storefront published subscription:', e.message);
+        }
+    }
     const branding = await brandingForReseller(owner || reseller);
     if (!websiteEnabled) {
         return { site: defaultSite({}), branding, resellerId: reseller.id, websiteEnabled: false };
@@ -405,13 +421,26 @@ async function getPublishedForDomain(domain) {
 function requireStorefrontWebsiteModule() {
     return async (req, res, next) => {
         try {
-            const ok = await isStorefrontWebsiteEnabledForUserId(req.user?.id);
-            if (!ok) {
+            const rows = await query(
+                `SELECT COALESCE(reseller_storefront_website_enabled, false) AS enabled
+                 FROM users WHERE id = $1 LIMIT 1`,
+                [req.user?.id],
+            );
+            if (!rows[0]?.enabled) {
                 return res.status(403).json({
                     error:
                         'Your website module is not enabled. Ask KC admin to turn on “Your website” in your reseller profile.',
                     code: 'STOREFRONT_WEBSITE_DISABLED',
                 });
+            }
+            try {
+                const { getWebsiteModuleAccess, denialError } = require('./resellerSubscription');
+                const access = await getWebsiteModuleAccess(query, req.user.id);
+                if (!access.hasAccess) {
+                    return res.status(403).json(denialError(access));
+                }
+            } catch (subErr) {
+                console.warn('storefront subscription gate:', subErr.message);
             }
             next();
         } catch (error) {

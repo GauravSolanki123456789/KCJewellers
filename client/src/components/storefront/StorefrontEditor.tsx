@@ -712,6 +712,12 @@ export default function StorefrontEditor() {
                   hidePrices: branding.hidePrices,
                   showLiveStock: branding.showLiveStock,
                   storefrontWebsiteEnabled: true,
+                  websiteSubscription: branding.websiteSubscription ?? {
+                    hasAccess: true,
+                    status: 'open',
+                    headline: '',
+                    detail: '',
+                  },
                 }}
                 preview
               />

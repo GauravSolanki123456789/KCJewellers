@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useCustomerTier } from '@/context/CustomerTierContext'
 import { CUSTOMER_TIER } from '@/lib/customer-tier'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
+import type { ResellerModuleAccess } from '@/lib/reseller-subscription'
 
 type UserBranding = {
   business_name?: string | null
@@ -35,6 +36,8 @@ export type EffectiveResellerBranding = {
   showLiveStock: boolean
   /** Custom homepage + Profile → Your website (admin toggle). */
   storefrontWebsiteEnabled: boolean
+  /** Vanity-host website/catalogue subscription (null on KC platform host). */
+  websiteSubscription: Pick<ResellerModuleAccess, 'hasAccess' | 'status' | 'headline' | 'detail'> | null
 }
 
 const defaultBranding: EffectiveResellerBranding = {
@@ -51,6 +54,7 @@ const defaultBranding: EffectiveResellerBranding = {
   hidePrices: false,
   showLiveStock: false,
   storefrontWebsiteEnabled: false,
+  websiteSubscription: null,
 }
 
 const Ctx = createContext<EffectiveResellerBranding>(defaultBranding)
@@ -85,6 +89,7 @@ export function ResellerBrandingProvider({
         hidePrices: initialFromHost.hidePrices ?? false,
         showLiveStock: initialFromHost.showLiveStock ?? false,
         storefrontWebsiteEnabled: initialFromHost.storefrontWebsiteEnabled ?? false,
+        websiteSubscription: initialFromHost.websiteSubscription ?? null,
       }
     }
     if (customerTier === CUSTOMER_TIER.RESELLER && auth.isAuthenticated && user) {
@@ -107,6 +112,7 @@ export function ResellerBrandingProvider({
           hidePrices: false,
           showLiveStock: false,
           storefrontWebsiteEnabled: false,
+          websiteSubscription: null,
         }
       }
     }
@@ -124,6 +130,7 @@ export function ResellerBrandingProvider({
       hidePrices: false,
       showLiveStock: false,
       storefrontWebsiteEnabled: false,
+      websiteSubscription: null,
     }
   }, [initialFromHost, customDomainHost, customerTier, auth.isAuthenticated, user])
 

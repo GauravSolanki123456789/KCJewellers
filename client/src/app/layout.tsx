@@ -33,6 +33,7 @@ import { AppNoticeHost } from "@/components/AppNoticeHost";
 import WhatsAppContactFab from "@/components/WhatsAppContactFab";
 import PdfViewerOverlay from "@/components/shared/PdfViewerOverlay";
 import ResellerAttentionSectionSync from "@/components/ResellerAttentionSectionSync";
+import { ResellerSubscriptionBanner } from "@/components/ResellerSubscriptionBanner";
 import Footer from "@/components/Footer";
 import { getOgImagePath } from "@/lib/og-image";
 
@@ -258,6 +259,7 @@ export default async function RootLayout({
             <Suspense fallback={null}>
               <Navbar />
             </Suspense>
+            <ResellerSubscriptionBanner />
             <ResellerAttentionSectionSync />
             <Suspense fallback={null}>
               <AuthToast />

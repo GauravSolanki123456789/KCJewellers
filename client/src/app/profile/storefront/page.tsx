@@ -8,6 +8,8 @@ import { useCustomerTier } from "@/context/CustomerTierContext";
 import { CUSTOMER_TIER, type WholesaleUserFields } from "@/lib/customer-tier";
 import { PROFILE_PATH } from "@/lib/routes";
 import StorefrontEditor from "@/components/storefront/StorefrontEditor";
+import { isResellerModuleBlocked } from "@/lib/reseller-subscription";
+import { ResellerSubscriptionExpiredScreen } from "@/components/ResellerSubscriptionExpiredScreen";
 
 function StorefrontEditorGate() {
   const auth = useAuth();
@@ -18,6 +20,8 @@ function StorefrontEditorGate() {
   const websiteEnabled = Boolean(
     auth.user && (auth.user as WholesaleUserFields).reseller_storefront_website_enabled,
   );
+  const websiteSub = (auth.user as WholesaleUserFields | undefined)?.reseller_website_subscription;
+  const websiteBlocked = isResellerModuleBlocked(websiteSub);
 
   useEffect(() => {
     if (!auth.hasChecked || !auth.isAuthenticated || !isReseller) return;
@@ -63,6 +67,10 @@ function StorefrontEditorGate() {
         Your website module is not enabled yet. Ask KC admin to turn on “Your website” in your reseller profile.
       </div>
     );
+  }
+
+  if (websiteBlocked) {
+    return <ResellerSubscriptionExpiredScreen access={websiteSub} audience="reseller" module="website" />;
   }
 
   return <StorefrontEditor />;

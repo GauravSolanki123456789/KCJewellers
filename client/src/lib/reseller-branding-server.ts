@@ -5,6 +5,7 @@ import {
   DEFAULT_KC_THEME_ID,
   normalizeKcThemeId,
 } from "@/lib/kc-theme-ids";
+import type { ResellerModuleAccess } from "@/lib/reseller-subscription";
 
 export type PublicResellerBranding = {
   businessName: string | null;
@@ -29,6 +30,8 @@ export type PublicResellerBranding = {
   showLiveStock: boolean;
   /** Admin opt-in: custom homepage + website editor (`users.reseller_storefront_website_enabled`). */
   storefrontWebsiteEnabled: boolean;
+  /** Public compact website/catalogue subscription for this vanity host. */
+  websiteSubscription: Pick<ResellerModuleAccess, 'hasAccess' | 'status' | 'headline' | 'detail'> | null;
 };
 
 function apiBase(): string {
@@ -66,6 +69,12 @@ export async function fetchPublicResellerBranding(
       reseller_hide_prices?: boolean;
       reseller_show_live_stock?: boolean;
       storefront_website_enabled?: boolean;
+      website_subscription?: {
+        hasAccess?: boolean;
+        status?: ResellerModuleAccess['status'];
+        headline?: string;
+        detail?: string;
+      } | null;
     };
     const digits = String(data?.contact_phone || "").replace(/\D/g, "");
     const contactPhoneDigits =
@@ -91,6 +100,14 @@ export async function fetchPublicResellerBranding(
       hidePrices: !!data?.reseller_hide_prices,
       showLiveStock: !!data?.reseller_show_live_stock,
       storefrontWebsiteEnabled: !!data?.storefront_website_enabled,
+      websiteSubscription: data?.website_subscription
+        ? {
+            hasAccess: data.website_subscription.hasAccess !== false,
+            status: data.website_subscription.status || 'open',
+            headline: data.website_subscription.headline || '',
+            detail: data.website_subscription.detail || '',
+          }
+        : { hasAccess: true, status: 'open', headline: '', detail: '' },
     };
   } catch {
     return null;

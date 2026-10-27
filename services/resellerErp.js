@@ -201,7 +201,7 @@ async function ensureResellerErpSchema(pool) {
     await ensureRolSchema(pool);
 }
 
-async function resellerErpEnabled(query, userId) {
+async function resellerErpFlagOn(query, userId) {
     const id = parseInt(String(userId), 10);
     if (!Number.isFinite(id) || id <= 0) return false;
     try {
@@ -219,17 +219,38 @@ async function resellerErpEnabled(query, userId) {
     }
 }
 
+async function resellerErpEnabled(query, userId) {
+    const flagged = await resellerErpFlagOn(query, userId);
+    if (!flagged) return false;
+    try {
+        const { getErpModuleAccess } = require('./resellerSubscription');
+        const access = await getErpModuleAccess(query, userId);
+        return access.hasAccess;
+    } catch {
+        return true;
+    }
+}
+
 function requireResellerErp(query) {
     return async (req, res, next) => {
         try {
             if (!req.user?.id) {
                 return res.status(401).json({ error: 'Sign in required' });
             }
-            const ok = await resellerErpEnabled(query, req.user.id);
-            if (!ok) {
+            const flagged = await resellerErpFlagOn(query, req.user.id);
+            if (!flagged) {
                 return res.status(403).json({
                     error: 'ERP is not enabled for your account. Ask KC admin to turn on ERP software.',
                 });
+            }
+            try {
+                const { getErpModuleAccess, denialError } = require('./resellerSubscription');
+                const access = await getErpModuleAccess(query, req.user.id);
+                if (!access.hasAccess) {
+                    return res.status(403).json(denialError(access));
+                }
+            } catch (subErr) {
+                console.warn('erp subscription gate:', subErr.message);
             }
             next();
         } catch (e) {

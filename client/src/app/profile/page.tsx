@@ -31,6 +31,7 @@ import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 import { CUSTOMER_TIER, hasResellerDigiAccess, type WholesaleUserFields } from '@/lib/customer-tier'
+import { isResellerModuleBlocked } from '@/lib/reseller-subscription'
 import Link from 'next/link'
 import {
   Wallet,
@@ -258,6 +259,9 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_storefront_website_enabled?: boolean }).reseller_storefront_website_enabled,
   )
+  const wholesaleUser = auth.user as WholesaleUserFields | undefined
+  const websiteSubBlocked = isResellerModuleBlocked(wholesaleUser?.reseller_website_subscription)
+  const erpSubBlocked = isResellerModuleBlocked(wholesaleUser?.reseller_erp_subscription)
 
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
@@ -346,7 +350,11 @@ function ProfilePageContent() {
                     href={RESELLER_ERP_PATH}
                     icon={LayoutGrid}
                     title="Jewellery ERP"
-                    subtitle="Billing, customers, stock & ROL, GST, reports & more"
+                    subtitle={
+                      erpSubBlocked
+                        ? wholesaleUser?.reseller_erp_subscription?.headline || 'Expired'
+                        : 'Billing, customers, stock & ROL, GST, reports & more'
+                    }
                     primary={!resellerDigiEnabled}
                   />
                 ) : null}
@@ -410,6 +418,11 @@ function ProfilePageContent() {
                         href={PROFILE_STOREFRONT_PATH}
                         icon={Palette}
                         title="Your website"
+                        subtitle={
+                          websiteSubBlocked
+                            ? wholesaleUser?.reseller_website_subscription?.headline || 'Expired'
+                            : undefined
+                        }
                         primary
                       />
                     ) : null}

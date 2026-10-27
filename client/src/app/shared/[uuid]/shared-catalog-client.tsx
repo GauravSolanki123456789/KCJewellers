@@ -85,6 +85,7 @@ import SharedCatalogSignInModal, {
 } from '@/components/shared-catalog/SharedCatalogSignInModal'
 import { normalizeStoredMobile } from '@/lib/international-mobile'
 import { formatLiveStockLabel, parseProductStockQty } from '@/lib/live-stock'
+import { ResellerSubscriptionExpiredScreen } from '@/components/ResellerSubscriptionExpiredScreen'
 
 const MAX_PIECE_QTY = 99
 
@@ -947,6 +948,23 @@ export default function SharedCatalogClient({
   }
 
   if (payload && 'expired' in payload && payload.expired) {
+    if ('subscriptionBlocked' in payload && payload.subscriptionBlocked) {
+      return (
+        <ResellerSubscriptionExpiredScreen
+          audience="public"
+          module="website"
+          brandName={brandLabel}
+          access={{
+            status: (payload.subscriptionStatus as 'trial_over' | 'expired' | 'not_started') || 'expired',
+            headline: payload.subscriptionHeadline || 'Subscription expired',
+            detail: payload.subscriptionDetail || '',
+            public_headline: payload.subscriptionHeadline || 'Subscription expired',
+            public_detail: payload.subscriptionDetail || '',
+            label: 'Website & catalogue',
+          }}
+        />
+      )
+    }
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 text-center text-slate-100">
         <div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl backdrop-blur-sm">

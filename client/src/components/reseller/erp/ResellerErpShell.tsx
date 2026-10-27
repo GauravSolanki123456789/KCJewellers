@@ -11,18 +11,24 @@ import { useEffect } from 'react'
 import { ErpOperatorBar } from '@/components/reseller/erp/ErpOperatorLogin'
 import { ErpQuickNav } from '@/components/reseller/erp/ErpQuickNav'
 import { registerErpOfflineSw, refreshOfflineSnapshotIfStale } from '@/lib/erp-offline-store'
+import { isResellerModuleBlocked, type ResellerModuleAccess } from '@/lib/reseller-subscription'
+import { ResellerSubscriptionExpiredScreen } from '@/components/ResellerSubscriptionExpiredScreen'
 
 export function useResellerErpAccess() {
   const auth = useAuth()
   const { customerTier, tierReady } = useCustomerTier()
   const authReady = auth.hasChecked === true
-  const enabled = Boolean(
+  const user = auth.user as WholesaleUserFields | undefined
+  const flagged = Boolean(
     auth.isAuthenticated &&
       auth.user &&
       customerTier === CUSTOMER_TIER.RESELLER &&
-      (auth.user as WholesaleUserFields).reseller_erp_enabled,
+      user?.reseller_erp_enabled,
   )
-  return { auth, customerTier, tierReady, authReady, enabled }
+  const subscription = (user?.reseller_erp_subscription || null) as ResellerModuleAccess | null
+  const subscriptionBlocked = flagged && isResellerModuleBlocked(subscription)
+  const enabled = flagged && !subscriptionBlocked
+  return { auth, customerTier, tierReady, authReady, enabled, flagged, subscription, subscriptionBlocked }
 }
 
 export function ResellerErpShell({
@@ -86,7 +92,8 @@ export function ResellerErpShell({
 }
 
 export function ResellerErpAccessGate({ children }: { children: ReactNode }) {
-  const { auth, customerTier, tierReady, authReady, enabled } = useResellerErpAccess()
+  const { auth, customerTier, tierReady, authReady, enabled, flagged, subscription, subscriptionBlocked } =
+    useResellerErpAccess()
 
   if (!authReady || !tierReady) {
     return (
@@ -119,6 +126,10 @@ export function ResellerErpAccessGate({ children }: { children: ReactNode }) {
         </Link>
       </div>
     )
+  }
+
+  if (flagged && subscriptionBlocked) {
+    return <ResellerSubscriptionExpiredScreen access={subscription} audience="reseller" module="erp" />
   }
 
   if (!enabled) {

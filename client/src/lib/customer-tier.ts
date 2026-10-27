@@ -60,6 +60,10 @@ export type WholesaleUserFields = {
   reseller_enhanced_pictures_enabled?: boolean
   /** Admin enables custom homepage + Profile → Your website. */
   reseller_storefront_website_enabled?: boolean
+  /** Website/catalogue subscription window (from `/api/auth/current_user`). */
+  reseller_website_subscription?: import('@/lib/reseller-subscription').ResellerModuleAccess | null
+  /** ERP subscription window (from `/api/auth/current_user`). */
+  reseller_erp_subscription?: import('@/lib/reseller-subscription').ResellerModuleAccess | null
 }
 
 export function normalizeCustomerTier(raw: string | undefined | null): CustomerTier {

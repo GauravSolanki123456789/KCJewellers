@@ -37,6 +37,12 @@ import {
 import {
   ResellerCatalogSlabSettingsPanel,
 } from '@/components/reseller/ResellerCatalogSlabSettingsPanel'
+import {
+  emptySubscriptionPeriod,
+  ResellerSubscriptionPeriodPanel,
+  subscriptionPeriodFromUser,
+  type SubscriptionPeriodValue,
+} from '@/components/admin/ResellerSubscriptionPeriodPanel'
 
 type AdminUser = {
   id: number
@@ -83,6 +89,16 @@ type AdminUser = {
   reseller_image_search_enabled?: boolean
   /** Admin enables custom homepage + website editor on reseller domain. */
   reseller_storefront_website_enabled?: boolean
+  reseller_website_from_date?: string | null
+  reseller_website_to_date?: string | null
+  reseller_website_trial_enabled?: boolean
+  reseller_website_trial_from_date?: string | null
+  reseller_website_trial_to_date?: string | null
+  reseller_erp_from_date?: string | null
+  reseller_erp_to_date?: string | null
+  reseller_erp_trial_enabled?: boolean
+  reseller_erp_trial_from_date?: string | null
+  reseller_erp_trial_to_date?: string | null
   reseller_invite_code?: string | null
   referred_by_user_id?: number | null
   reseller_slab_settings?: ResellerSlabSettings | null
@@ -201,6 +217,8 @@ function B2BAdminContent() {
     reseller_invite_code: '',
     reseller_catalog_max_products: '50',
     reseller_catalog_daily_limit: '10',
+    websiteSub: emptySubscriptionPeriod() as SubscriptionPeriodValue,
+    erpSub: emptySubscriptionPeriod() as SubscriptionPeriodValue,
     ...emptyResellerSlabForm(),
   })
   const [themeCatalog, setThemeCatalog] = useState<ThemePick[]>([])
@@ -298,6 +316,20 @@ function B2BAdminContent() {
         reseller_catalog_daily_limit: String(
           resellerModalUser.reseller_catalog_daily_limit ?? 10,
         ),
+        websiteSub: subscriptionPeriodFromUser({
+          from_date: resellerModalUser.reseller_website_from_date,
+          to_date: resellerModalUser.reseller_website_to_date,
+          trial_enabled: resellerModalUser.reseller_website_trial_enabled,
+          trial_from_date: resellerModalUser.reseller_website_trial_from_date,
+          trial_to_date: resellerModalUser.reseller_website_trial_to_date,
+        }),
+        erpSub: subscriptionPeriodFromUser({
+          from_date: resellerModalUser.reseller_erp_from_date,
+          to_date: resellerModalUser.reseller_erp_to_date,
+          trial_enabled: resellerModalUser.reseller_erp_trial_enabled,
+          trial_from_date: resellerModalUser.reseller_erp_trial_from_date,
+          trial_to_date: resellerModalUser.reseller_erp_trial_to_date,
+        }),
         ...slabForm,
       })
       setLogoFile(null)
@@ -423,6 +455,16 @@ function B2BAdminContent() {
           0,
           Math.min(1000, parseInt(resellerForm.reseller_catalog_daily_limit, 10) || 10),
         ),
+        reseller_website_from_date: resellerForm.websiteSub.from_date || null,
+        reseller_website_to_date: resellerForm.websiteSub.to_date || null,
+        reseller_website_trial_enabled: resellerForm.websiteSub.trial_enabled,
+        reseller_website_trial_from_date: resellerForm.websiteSub.trial_from_date || null,
+        reseller_website_trial_to_date: resellerForm.websiteSub.trial_to_date || null,
+        reseller_erp_from_date: resellerForm.erpSub.from_date || null,
+        reseller_erp_to_date: resellerForm.erpSub.to_date || null,
+        reseller_erp_trial_enabled: resellerForm.erpSub.trial_enabled,
+        reseller_erp_trial_from_date: resellerForm.erpSub.trial_from_date || null,
+        reseller_erp_trial_to_date: resellerForm.erpSub.trial_to_date || null,
       })
       await load()
       resellerProfileSave.markSaved()
@@ -925,6 +967,30 @@ function B2BAdminContent() {
                       }
                     />
                   </label>
+                </div>
+                <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-100">Subscription dates</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                      Separate windows for website/catalogue (including shared catalogues) and ERP.
+                      After they pay, extend the to date or add days. Existing accounts stay unlimited until
+                      you set dates.
+                    </p>
+                  </div>
+                  <ResellerSubscriptionPeriodPanel
+                    module="website"
+                    title="Website & catalogue"
+                    description="Live catalogue, shared catalogue links, and Your website."
+                    value={resellerForm.websiteSub}
+                    onChange={(websiteSub) => setResellerForm((f) => ({ ...f, websiteSub }))}
+                  />
+                  <ResellerSubscriptionPeriodPanel
+                    module="erp"
+                    title="ERP software"
+                    description="Jewellery ERP workspace only — independent of the catalogue."
+                    value={resellerForm.erpSub}
+                    onChange={(erpSub) => setResellerForm((f) => ({ ...f, erpSub }))}
+                  />
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">

@@ -183,6 +183,10 @@ export type SharedCatalogPublicResponse =
   | ({
       expired: true
       expiresAt: string
+      subscriptionBlocked?: boolean
+      subscriptionStatus?: string | null
+      subscriptionHeadline?: string | null
+      subscriptionDetail?: string | null
       markupPercentage: number
       discountPercentage?: number
       hidePrices?: boolean
