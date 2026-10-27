@@ -27,6 +27,11 @@ const {
 const { normalizeAddressField, resolveAddressFromBody } = require('./erpCustomerAddressFormat');
 const { normalizeCustomerCapsField, normalizeCustomerAddressCaps } = require('./erpCustomerCaps');
 const {
+    attachResolvedCustomerToBillBody,
+    resolveOrCreateErpCustomer,
+    mapCustomerRow,
+} = require('./erpCustomerResolve');
+const {
     registerResellerErpLedgerRoutes,
     createBillAdvanceLedgerEntry,
     createCollectedCashLedgerEntry,
@@ -1251,6 +1256,26 @@ function registerResellerErpRoutes(app, deps) {
         }
     });
 
+    app.post('/api/reseller/erp/customers/resolve', checkAuth, erpGate, requireJson, async (req, res) => {
+        try {
+            const resolved = await resolveOrCreateErpCustomer(query, req.user.id, req.body);
+            if (!resolved) {
+                return res.status(400).json({
+                    error: 'Customer name and a valid 10-digit mobile are required to save a new customer.',
+                });
+            }
+            res.json({
+                success: true,
+                customer: mapCustomer(resolved.customer),
+                created: resolved.created,
+                matched: resolved.matched,
+            });
+        } catch (e) {
+            console.error('erp customer resolve:', e);
+            res.status(500).json({ error: e.message || 'Failed to resolve customer' });
+        }
+    });
+
     app.put('/api/reseller/erp/customers/:id', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
             const id = parseInt(String(req.params.id), 10);
@@ -1663,6 +1688,13 @@ function registerResellerErpRoutes(app, deps) {
                 sessionObj,
             );
             if (noteNarrErr) return res.status(400).json({ error: noteNarrErr });
+            if (['sale', 'estimate'].includes(billType)) {
+                try {
+                    await attachResolvedCustomerToBillBody(query, req.user.id, req.body);
+                } catch (cre) {
+                    console.warn('erp bill customer resolve:', cre.message);
+                }
+            }
             const offlineOpId = trimStr(sessionObj.offlineOpId || req.body.offline_op_id, 80);
             if (offlineOpId) {
                 const officialHit = await query(
@@ -2006,6 +2038,13 @@ function registerResellerErpRoutes(app, deps) {
                 sessionObj,
             );
             if (noteNarrErr) return res.status(400).json({ error: noteNarrErr });
+            if (['sale', 'estimate'].includes(billTypeForTotal)) {
+                try {
+                    await attachResolvedCustomerToBillBody(query, req.user.id, req.body);
+                } catch (cre) {
+                    console.warn('erp bill update customer resolve:', cre.message);
+                }
+            }
             const status = trimStr(req.body.status, 32);
             const stLower = String(status || '').toLowerCase();
             if (

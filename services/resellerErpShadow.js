@@ -172,6 +172,14 @@ async function createShadowBillFromBillingPayload(query, resellerUserId, body, o
             ? ensureSessionNetTotalInr(body, linesRaw)
             : ensureSessionNetTotalInr({ ...body, session: {} }, linesRaw);
     body.session = sessionObj;
+    if (String(body.bill_type || 'sale').toLowerCase() === 'sale') {
+        try {
+            const { attachResolvedCustomerToBillBody } = require('./erpCustomerResolve');
+            await attachResolvedCustomerToBillBody(query, resellerUserId, body);
+        } catch (cre) {
+            console.warn('shadow bill customer resolve:', cre.message);
+        }
+    }
     const billTypeEarly = trimStr(body.bill_type, 32) || 'sale';
     let total = resolveErpBillTotalFromPayload(body, linesRaw, billTypeEarly, {
         shadowSaleUsesCollected: false,

@@ -14,8 +14,11 @@ import {
   fetchRoutingAnalytics,
   fetchRoutingBootstrap,
   fetchVisitTimeline,
+  fetchRoutingFollowUps,
+  completeRoutingFollowUp,
   routeCustomerToCounter,
   setStoreGreeter,
+  type RoutingFollowUp,
   startServingQueueItem,
   updateCounter,
   type FloorVisit,
@@ -83,6 +86,13 @@ export function ErpCustomerRoutingWorkspace() {
   const [billAmount, setBillAmount] = useState('')
   const [purchaseNotes, setPurchaseNotes] = useState('')
   const [noSaleReason, setNoSaleReason] = useState('')
+  const [followUpWanted, setFollowUpWanted] = useState(false)
+  const [followUpDate, setFollowUpDate] = useState('')
+  const [followUpMode, setFollowUpMode] = useState('call')
+  const [followUpPriority, setFollowUpPriority] = useState<'high' | 'medium' | 'low'>('medium')
+  const [followUpRemarks, setFollowUpRemarks] = useState('')
+  const [followUps, setFollowUps] = useState<RoutingFollowUp[]>([])
+  const [followUpsBusy, setFollowUpsBusy] = useState(false)
   const [forwardCounterId, setForwardCounterId] = useState<number | ''>('')
   const [fromDate, setFromDate] = useState(erpDaysAgoIso(7))
   const [toDate, setToDate] = useState(erpTodayIso())
@@ -221,6 +231,16 @@ export function ErpCustomerRoutingWorkspace() {
           outcome === 'forward' || outcome === 'sale_and_forward'
             ? Number(forwardCounterId)
             : undefined,
+        follow_up:
+          followUpWanted && (outcome === 'no_sale' || outcome === 'left_shop')
+            ? {
+                required: true,
+                follow_up_at: followUpDate || undefined,
+                mode: followUpMode,
+                priority: followUpPriority,
+                remarks: followUpRemarks || noSaleReason || undefined,
+              }
+            : undefined,
       })
       setMsg('Interaction logged')
       setActiveQueueId(null)
@@ -228,6 +248,9 @@ export function ErpCustomerRoutingWorkspace() {
       setBillAmount('')
       setPurchaseNotes('')
       setNoSaleReason('')
+      setFollowUpWanted(false)
+      setFollowUpDate('')
+      setFollowUpRemarks('')
       await Promise.all([reloadQueue(), reloadFloor()])
     } catch (e: unknown) {
       const m =
@@ -241,16 +264,33 @@ export function ErpCustomerRoutingWorkspace() {
   const loadAnalytics = async () => {
     setReportBusy(true)
     try {
-      const data = await fetchRoutingAnalytics({
-        from: fromDate,
-        to: toDate,
-        view: reportView,
-      })
+      const [data, openFollowUps] = await Promise.all([
+        fetchRoutingAnalytics({
+          from: fromDate,
+          to: toDate,
+          view: reportView,
+        }),
+        fetchRoutingFollowUps('open').catch(() => [] as RoutingFollowUp[]),
+      ])
       setAnalytics(data)
+      setFollowUps(openFollowUps)
     } catch {
       setErr('Failed to load analytics')
     } finally {
       setReportBusy(false)
+    }
+  }
+
+  const markFollowUpDone = async (id: number, result: string) => {
+    setFollowUpsBusy(true)
+    try {
+      await completeRoutingFollowUp(id, { result: result.trim() || undefined })
+      setFollowUps((list) => list.filter((f) => f.id !== id))
+      setMsg('Follow-up completed')
+    } catch {
+      setErr('Could not update follow-up')
+    } finally {
+      setFollowUpsBusy(false)
     }
   }
 
@@ -632,6 +672,69 @@ export function ErpCustomerRoutingWorkspace() {
                 value={noSaleReason}
                 onChange={(e) => setNoSaleReason(e.target.value)}
               />
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                <input
+                  type="checkbox"
+                  checked={followUpWanted}
+                  onChange={(e) => setFollowUpWanted(e.target.checked)}
+                  className="size-4 accent-[var(--kc-accent,#c41e3a)]"
+                />
+                Schedule follow-up
+              </label>
+              {followUpWanted ? (
+                <div className="grid gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-50,#faf9f7)] p-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Follow-up date
+                    </label>
+                    <input
+                      type="date"
+                      className={`${erpInputCls} mt-1 w-full`}
+                      value={followUpDate}
+                      onChange={(e) => setFollowUpDate(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Mode
+                    </label>
+                    <select
+                      className={`${erpInputCls} mt-1 w-full`}
+                      value={followUpMode}
+                      onChange={(e) => setFollowUpMode(e.target.value)}
+                    >
+                      <option value="call">Call</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="visit">Visit</option>
+                      <option value="reminder">Reminder</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                      Priority
+                    </label>
+                    <select
+                      className={`${erpInputCls} mt-1 w-full`}
+                      value={followUpPriority}
+                      onChange={(e) =>
+                        setFollowUpPriority(e.target.value as 'high' | 'medium' | 'low')
+                      }
+                    >
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input
+                      className={erpInputCls}
+                      placeholder="Follow-up notes (optional)"
+                      value={followUpRemarks}
+                      onChange={(e) => setFollowUpRemarks(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
           {(outcome === 'forward' || outcome === 'sale_and_forward') && (
@@ -824,6 +927,49 @@ export function ErpCustomerRoutingWorkspace() {
                   Load report
                 </button>
               </div>
+              {followUps.length ? (
+                <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                    Open follow-ups ({followUps.length})
+                  </p>
+                  <ul className="mt-2 space-y-2">
+                    {followUps.map((f) => (
+                      <li
+                        key={f.id}
+                        className="flex flex-col gap-2 rounded-lg border border-[var(--color-slate-700,#e8e4df)]/60 p-2 sm:flex-row sm:items-center"
+                      >
+                        <div className="min-w-0 flex-1 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                          <p className="font-semibold">{f.customer_name}</p>
+                          <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+                            {f.customer_mobile || '—'}
+                            {f.follow_up_at
+                              ? ` · ${new Date(f.follow_up_at).toLocaleDateString('en-IN')}`
+                              : ''}
+                            {f.mode ? ` · ${f.mode}` : ''}
+                            {f.priority ? ` · ${f.priority}` : ''}
+                          </p>
+                          {f.remarks ? (
+                            <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/75">
+                              {f.remarks}
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className={erpBtnGhost}
+                          disabled={followUpsBusy}
+                          onClick={() => {
+                            const result = window.prompt('Result / customer response (optional)') || ''
+                            void markFollowUpDone(f.id, result)
+                          }}
+                        >
+                          Mark done
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {analytics ? (
                 <>
                   <div className="overflow-x-auto">

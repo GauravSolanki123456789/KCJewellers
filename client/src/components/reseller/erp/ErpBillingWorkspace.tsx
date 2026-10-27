@@ -1257,6 +1257,35 @@ export function ErpBillingWorkspace() {
     requestAnimationFrame(() => scanRef.current?.focus())
   }
 
+  /** Link bill to CRM: reuse when name + mobile match; create only when both are new. */
+  const resolveCustomerForBill = async (): Promise<number | null> => {
+    if (customerId) return customerId
+    const name = (customerName || customerQ).trim()
+    if (!name) return null
+    const mobDigits = mobile.replace(/\D/g, '').slice(-10)
+    if (mobDigits.length !== 10) return null
+    try {
+      const res = await axios.post<{ customer: ErpCustomer; created?: boolean; matched?: boolean }>(
+        '/api/reseller/erp/customers/resolve',
+        {
+          name,
+          mobile: mobile.trim(),
+          address: address.trim() || undefined,
+          pan: customerPan.trim() || undefined,
+          gstin: customerGst.trim() || undefined,
+          birthdate: customerBirthdate.trim() || undefined,
+          anniversary_date: customerAnniversary.trim() || undefined,
+          notes: customerNotes.trim() || undefined,
+          rate_slab: rateSlab,
+        },
+      )
+      selectCustomer(res.data.customer)
+      return res.data.customer.id
+    } catch {
+      return null
+    }
+  }
+
   const saveCustomerQuick = async () => {
     const name = (customerName || customerQ).trim()
     if (!name) {
@@ -2100,12 +2129,13 @@ export function ErpBillingWorkspace() {
   const buildPayload = (
     billType: 'sale' | 'estimate',
     status: string,
-    extra?: { bill_number?: string; placeOfSupply?: string },
+    extra?: { bill_number?: string; placeOfSupply?: string; customerId?: number | null },
   ) => {
     const billTotalInr = resolveBillTotal(billType)
+    const linkedCustomerId = extra?.customerId !== undefined ? extra.customerId : customerId
     return {
     bill_type: billType,
-    customer_id: customerId,
+    customer_id: linkedCustomerId,
     customer_name: customerName,
     total_inr: billTotalInr,
     gst_enabled: effectiveGstEnabled,
@@ -2173,9 +2203,11 @@ export function ErpBillingWorkspace() {
   ): Promise<ErpBill | null> => {
     if (saveBusy || lines.length === 0) return null
     setSaveBusy(true)
+    const linkedCustomerId = await resolveCustomerForBill()
     const payload = buildPayload(billType, status, {
       bill_number: opts?.bill_number,
       placeOfSupply: opts?.placeOfSupply,
+      customerId: linkedCustomerId ?? customerId,
     })
     try {
       let bill: ErpBill

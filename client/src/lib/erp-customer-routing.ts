@@ -161,9 +161,52 @@ export async function completeQueueItem(
     purchase_notes?: string
     no_sale_reason?: string
     forward_counter_id?: number
+    follow_up?: {
+      required?: boolean
+      follow_up_at?: string
+      date?: string
+      mode?: string
+      priority?: 'high' | 'medium' | 'low'
+      remarks?: string
+    }
   },
 ): Promise<void> {
   await axios.post(`/api/reseller/erp/customer-routing/queue/${queueId}/complete`, body)
+}
+
+export type RoutingFollowUp = {
+  id: number
+  customer_id: number
+  customer_name: string
+  customer_mobile: string | null
+  counter_name: string | null
+  operator_name: string | null
+  source: string
+  status: string
+  follow_up_at: string | null
+  mode: string | null
+  priority: string
+  remarks: string | null
+  result: string | null
+  created_at: string
+}
+
+export async function fetchRoutingFollowUps(status = 'open'): Promise<RoutingFollowUp[]> {
+  const { data } = await axios.get<{ follow_ups: RoutingFollowUp[] }>(
+    '/api/reseller/erp/customer-routing/follow-ups',
+    { params: { status } },
+  )
+  return data.follow_ups || []
+}
+
+export async function completeRoutingFollowUp(
+  id: number,
+  body: { result?: string; status?: string },
+): Promise<void> {
+  await axios.patch(`/api/reseller/erp/customer-routing/follow-ups/${id}`, {
+    status: body.status || 'completed',
+    result: body.result,
+  })
 }
 
 export async function startServingQueueItem(queueId: number): Promise<void> {

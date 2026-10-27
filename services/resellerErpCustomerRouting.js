@@ -77,6 +77,25 @@ async function ensureCustomerRoutingSchema(pool) {
             forward_counter_id INTEGER REFERENCES reseller_erp_store_counters(id) ON DELETE SET NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_visit_follow_ups (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            customer_id INTEGER NOT NULL REFERENCES reseller_erp_customers(id) ON DELETE CASCADE,
+            visit_id INTEGER REFERENCES reseller_erp_customer_visits(id) ON DELETE SET NULL,
+            interaction_id INTEGER REFERENCES reseller_erp_visit_interactions(id) ON DELETE SET NULL,
+            counter_id INTEGER REFERENCES reseller_erp_store_counters(id) ON DELETE SET NULL,
+            operator_id INTEGER REFERENCES reseller_erp_operators(id) ON DELETE SET NULL,
+            source VARCHAR(32) NOT NULL DEFAULT 'no_purchase',
+            status VARCHAR(24) NOT NULL DEFAULT 'open',
+            follow_up_at TIMESTAMPTZ,
+            mode VARCHAR(32),
+            priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+            remarks TEXT,
+            result TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 }
 
@@ -622,11 +641,12 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     return res.status(400).json({ error: 'forward_counter_id required' });
                 }
                 const billAmount = parseFloat(String(req.body.bill_amount_inr || '').replace(/,/g, ''));
-                await query(
+                const interactionRows = await query(
                     `INSERT INTO reseller_erp_visit_interactions (
                         visit_id, queue_id, counter_id, operator_id, outcome,
                         bill_number, bill_amount_inr, purchase_notes, no_sale_reason, forward_counter_id
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                     RETURNING id`,
                     [
                         row.visit_id,
                         qid,
@@ -640,6 +660,59 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         Number.isFinite(forwardId) ? forwardId : null,
                     ],
                 );
+                const interactionId = interactionRows[0]?.id || null;
+                const followUp = req.body.follow_up && typeof req.body.follow_up === 'object' ? req.body.follow_up : null;
+                const wantsFollowUp =
+                    followUp &&
+                    (followUp.required === true ||
+                        String(followUp.follow_up_at || followUp.date || '').trim());
+                if (
+                    wantsFollowUp &&
+                    (outcome === 'no_sale' || outcome === 'left_shop') &&
+                    interactionId
+                ) {
+                    const visitRow = await query(
+                        `SELECT customer_id FROM reseller_erp_customer_visits WHERE id = $1 LIMIT 1`,
+                        [row.visit_id],
+                    );
+                    const customerId = visitRow[0]?.customer_id;
+                    if (customerId) {
+                        const fuAtRaw = String(followUp.follow_up_at || followUp.date || '').trim();
+                        const fuAt = /^\d{4}-\d{2}-\d{2}$/.test(fuAtRaw)
+                            ? `${fuAtRaw}T10:00:00+05:30`
+                            : null;
+                        const mode = String(followUp.mode || 'call')
+                            .trim()
+                            .slice(0, 32);
+                        const priority = ['high', 'medium', 'low'].includes(
+                            String(followUp.priority || '').toLowerCase(),
+                        )
+                            ? String(followUp.priority).toLowerCase()
+                            : 'medium';
+                        const remarks = String(followUp.remarks || req.body.no_sale_reason || '')
+                            .trim()
+                            .slice(0, 2000);
+                        await query(
+                            `INSERT INTO reseller_erp_visit_follow_ups (
+                                reseller_user_id, customer_id, visit_id, interaction_id, counter_id, operator_id,
+                                source, status, follow_up_at, mode, priority, remarks
+                             ) VALUES ($1,$2,$3,$4,$5,$6,$7,'open',$8,$9,$10,$11)`,
+                            [
+                                req.user.id,
+                                customerId,
+                                row.visit_id,
+                                interactionId,
+                                row.counter_id,
+                                op.id,
+                                outcome === 'left_shop' ? 'left_shop' : 'no_purchase',
+                                fuAt,
+                                mode || 'call',
+                                priority,
+                                remarks || null,
+                            ],
+                        );
+                    }
+                }
                 await query(
                     `UPDATE reseller_erp_visit_queue SET status = 'completed', completed_at = NOW() WHERE id = $1`,
                     [qid],
@@ -1004,6 +1077,62 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
             res.status(500).json({ error: e.message || 'Failed to load visits' });
         }
     });
+
+    app.get('/api/reseller/erp/customer-routing/follow-ups', checkAuth, erpGate, gate, adminOnly, async (req, res) => {
+        try {
+            const status = String(req.query.status || 'open').trim().slice(0, 24);
+            const params = [req.user.id];
+            let statusFilter = '';
+            if (status && status !== 'all') {
+                params.push(status);
+                statusFilter = ` AND f.status = $${params.length}`;
+            }
+            const rows = await query(
+                `SELECT f.*, c.name AS customer_name, c.mobile AS customer_mobile,
+                        sc.name AS counter_name, o.display_name AS operator_name
+                 FROM reseller_erp_visit_follow_ups f
+                 JOIN reseller_erp_customers c ON c.id = f.customer_id
+                 LEFT JOIN reseller_erp_store_counters sc ON sc.id = f.counter_id
+                 LEFT JOIN reseller_erp_operators o ON o.id = f.operator_id
+                 WHERE f.reseller_user_id = $1${statusFilter}
+                 ORDER BY COALESCE(f.follow_up_at, f.created_at) ASC
+                 LIMIT 200`,
+                params,
+            );
+            res.json({ follow_ups: rows });
+        } catch (e) {
+            console.error('routing follow-ups list:', e);
+            res.status(500).json({ error: e.message || 'Failed to load follow-ups' });
+        }
+    });
+
+    app.patch(
+        '/api/reseller/erp/customer-routing/follow-ups/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        adminOnly,
+        requireJson,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+                const status = String(req.body.status || 'completed').trim().slice(0, 24);
+                const result = String(req.body.result || '').trim().slice(0, 2000) || null;
+                const rows = await query(
+                    `UPDATE reseller_erp_visit_follow_ups SET
+                        status = $1, result = COALESCE($2, result), updated_at = NOW()
+                     WHERE id = $3 AND reseller_user_id = $4
+                     RETURNING *`,
+                    [status, result, id, req.user.id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Follow-up not found' });
+                res.json({ success: true, follow_up: rows[0] });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to update follow-up' });
+            }
+        },
+    );
 }
 
 module.exports = {
