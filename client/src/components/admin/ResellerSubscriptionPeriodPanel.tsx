@@ -47,7 +47,6 @@ export function subscriptionPeriodFromUser(input: {
 type Props = {
   module: ResellerSubModule
   title: string
-  description: string
   value: SubscriptionPeriodValue
   onChange: (next: SubscriptionPeriodValue) => void
 }
@@ -130,7 +129,7 @@ function extendBy(from: string, to: string, extra: number): { from_date: string;
   return { from_date, to_date, days: daysBetweenYmd(from_date, to_date) }
 }
 
-export function ResellerSubscriptionPeriodPanel({ module, title, description, value, onChange }: Props) {
+export function ResellerSubscriptionPeriodPanel({ module, title, value, onChange }: Props) {
   const preview = evaluateResellerModule(module, {
     paidFrom: value.from_date,
     paidTo: value.to_date,
@@ -145,7 +144,6 @@ export function ResellerSubscriptionPeriodPanel({ module, title, description, va
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-slate-100">{title}</p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">{description}</p>
         </div>
         <span
           className={`inline-flex shrink-0 self-start rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tone.wrap} ${tone.text}`}
@@ -205,19 +203,12 @@ export function ResellerSubscriptionPeriodPanel({ module, title, description, va
             Clear dates
           </button>
         </div>
-        <p className="text-[11px] leading-relaxed text-slate-500">
-          Set a from date, then 30 days <span className="text-slate-400">or</span> a to date. After they pay,
-          extend the to date or add days. Leave empty for unlimited.
-        </p>
       </div>
 
       <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-medium text-slate-100">Free trial</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
-              Optional. Off by default. Turn on to give a trial (days or a to date).
-            </p>
           </div>
           <button
             type="button"

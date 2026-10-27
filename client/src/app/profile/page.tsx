@@ -31,7 +31,7 @@ import { useCustomerTier } from '@/context/CustomerTierContext'
 import { useResellerBranding } from '@/context/ResellerBrandingContext'
 import { isStorefrontInvestAvailable } from '@/lib/storefront-invest'
 import { CUSTOMER_TIER, hasResellerDigiAccess, type WholesaleUserFields } from '@/lib/customer-tier'
-import { isResellerModuleBlocked } from '@/lib/reseller-subscription'
+import { isResellerModuleBlocked, resellerSubscriptionBlockedLabel } from '@/lib/reseller-subscription'
 import Link from 'next/link'
 import {
   Wallet,
@@ -352,7 +352,7 @@ function ProfilePageContent() {
                     title="Jewellery ERP"
                     subtitle={
                       erpSubBlocked
-                        ? wholesaleUser?.reseller_erp_subscription?.headline || 'Expired'
+                        ? resellerSubscriptionBlockedLabel(wholesaleUser?.reseller_erp_subscription)
                         : 'Billing, customers, stock & ROL, GST, reports & more'
                     }
                     primary={!resellerDigiEnabled}
@@ -420,7 +420,7 @@ function ProfilePageContent() {
                         title="Your website"
                         subtitle={
                           websiteSubBlocked
-                            ? wholesaleUser?.reseller_website_subscription?.headline || 'Expired'
+                            ? resellerSubscriptionBlockedLabel(wholesaleUser?.reseller_website_subscription)
                             : undefined
                         }
                         primary

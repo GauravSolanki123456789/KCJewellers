@@ -956,11 +956,7 @@ export default function SharedCatalogClient({
           brandName={brandLabel}
           access={{
             status: (payload.subscriptionStatus as 'trial_over' | 'expired' | 'not_started') || 'expired',
-            headline: payload.subscriptionHeadline || 'Subscription expired',
-            detail: payload.subscriptionDetail || '',
-            public_headline: payload.subscriptionHeadline || 'Subscription expired',
-            public_detail: payload.subscriptionDetail || '',
-            label: 'Website & catalogue',
+            hasAccess: false,
           }}
         />
       )

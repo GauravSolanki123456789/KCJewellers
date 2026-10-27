@@ -89,7 +89,7 @@ function headlineFor(status, opts) {
         }
         return trialTo ? `Free trial until ${formatDisplayDate(trialTo)}` : 'Free trial';
     }
-    if (status === 'trial_over') return 'Free trial over';
+    if (status === 'trial_over') return 'Free trial expired';
     if (status === 'expired') return 'Subscription expired';
     if (status === 'not_started') {
         return paidFrom ? `Starts ${formatDisplayDate(paidFrom)}` : 'Not started';
@@ -97,37 +97,18 @@ function headlineFor(status, opts) {
     return 'Unlimited';
 }
 
-function detailFor(moduleKey, status) {
-    const label = MODULES[moduleKey]?.label || 'This module';
-    if (status === 'trial_over') {
-        return `${label} free trial is over. Contact KC Jewellers to continue.`;
-    }
-    if (status === 'expired') {
-        return `${label} subscription has expired. Pay to extend the to-date or add more days.`;
-    }
-    if (status === 'not_started') {
-        return `${label} is scheduled and is not active yet.`;
-    }
+function detailFor(_moduleKey, _status) {
     return '';
 }
 
 function publicHeadlineFor(status) {
-    if (status === 'trial_over') return 'Free trial over';
+    if (status === 'trial_over') return 'Free trial expired';
     if (status === 'expired') return 'Subscription expired';
     if (status === 'not_started') return 'Catalogue unavailable';
     return '';
 }
 
-function publicDetailFor(status) {
-    if (status === 'trial_over') {
-        return 'This catalogue is currently unavailable because the free trial is over.';
-    }
-    if (status === 'expired') {
-        return 'This catalogue is currently unavailable because the subscription has expired.';
-    }
-    if (status === 'not_started') {
-        return 'This catalogue is not active yet.';
-    }
+function publicDetailFor(_status) {
     return '';
 }
 

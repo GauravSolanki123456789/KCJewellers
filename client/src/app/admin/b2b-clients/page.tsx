@@ -969,25 +969,16 @@ function B2BAdminContent() {
                   </label>
                 </div>
                 <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-100">Subscription dates</p>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
-                      Separate windows for website/catalogue (including shared catalogues) and ERP.
-                      After they pay, extend the to date or add days. Existing accounts stay unlimited until
-                      you set dates.
-                    </p>
-                  </div>
+                  <p className="text-sm font-semibold text-slate-100">Subscription dates</p>
                   <ResellerSubscriptionPeriodPanel
                     module="website"
                     title="Website & catalogue"
-                    description="Live catalogue, shared catalogue links, and Your website."
                     value={resellerForm.websiteSub}
                     onChange={(websiteSub) => setResellerForm((f) => ({ ...f, websiteSub }))}
                   />
                   <ResellerSubscriptionPeriodPanel
                     module="erp"
                     title="ERP software"
-                    description="Jewellery ERP workspace only — independent of the catalogue."
                     value={resellerForm.erpSub}
                     onChange={(erpSub) => setResellerForm((f) => ({ ...f, erpSub }))}
                   />

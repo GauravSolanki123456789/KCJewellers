@@ -187,39 +187,25 @@ export function evaluateResellerModule(
           ? `Free trial — last day (${formatResellerDate(trialTo)})`
           : `Free trial — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left`
         : status === 'trial_over'
-          ? 'Free trial over'
+          ? 'Free trial expired'
           : status === 'expired'
             ? 'Subscription expired'
             : status === 'not_started'
               ? `Starts ${formatResellerDate(paidFrom || trialFrom)}`
               : 'Unlimited'
 
-  const detail =
-    status === 'trial_over'
-      ? `${label} free trial is over. Contact KC Jewellers to continue.`
-      : status === 'expired'
-        ? `${label} subscription has expired. Pay to extend the to-date or add more days.`
-        : status === 'not_started'
-          ? `${label} is scheduled and is not active yet.`
-          : ''
+  const detail = ''
 
   const public_headline =
     status === 'trial_over'
-      ? 'Free trial over'
+      ? 'Free trial expired'
       : status === 'expired'
         ? 'Subscription expired'
         : status === 'not_started'
           ? 'Catalogue unavailable'
           : ''
 
-  const public_detail =
-    status === 'trial_over'
-      ? 'This catalogue is currently unavailable because the free trial is over.'
-      : status === 'expired'
-        ? 'This catalogue is currently unavailable because the subscription has expired.'
-        : status === 'not_started'
-          ? 'This catalogue is not active yet.'
-          : ''
+  const public_detail = ''
 
   return {
     module,
@@ -246,6 +232,27 @@ export function isResellerModuleBlocked(
   access: { hasAccess?: boolean } | null | undefined,
 ): boolean {
   return !!access && access.hasAccess === false
+}
+
+/** Short label for banners and profile cards when access is blocked. */
+export function resellerSubscriptionBlockedLabel(
+  access:
+    | Pick<ResellerModuleAccess, 'status' | 'headline' | 'hasAccess'>
+    | { status?: ResellerSubStatus | string; headline?: string; hasAccess?: boolean }
+    | null
+    | undefined,
+): string {
+  if (!access) return ''
+  const blocked =
+    access.hasAccess === false ||
+    access.status === 'trial_over' ||
+    access.status === 'expired' ||
+    access.status === 'not_started'
+  if (!blocked) return ''
+  if (access.status === 'trial_over') return 'Free trial expired'
+  if (access.status === 'expired') return 'Subscription expired'
+  if (access.status === 'not_started') return access.headline || 'Not started'
+  return access.headline || 'Expired'
 }
 
 export function resellerStatusTone(status: ResellerSubStatus): {

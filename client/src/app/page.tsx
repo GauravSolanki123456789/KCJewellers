@@ -16,11 +16,7 @@ export default async function RootPage() {
         brandName={branding.businessName}
         access={{
           status: branding.websiteSubscription.status,
-          headline: branding.websiteSubscription.headline,
-          detail: branding.websiteSubscription.detail,
-          public_headline: branding.websiteSubscription.headline,
-          public_detail: branding.websiteSubscription.detail,
-          label: "Website & catalogue",
+          hasAccess: false,
         }}
       />
     );
