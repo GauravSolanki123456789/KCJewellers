@@ -31,6 +31,8 @@ import {
   ErpRoutingCustomerSuggest,
   type RoutingCustomer,
 } from '@/components/reseller/erp/ErpRoutingCustomerSuggest'
+import { ErpRoutingBillingQueue } from '@/components/reseller/erp/ErpRoutingBillingQueue'
+import { ErpRoutingManagementDashboard } from '@/components/reseller/erp/ErpRoutingManagementDashboard'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { erpTodayIso, erpDaysAgoIso } from '@/lib/erp-date-format'
@@ -49,11 +51,14 @@ function formatWalkInAge(iso: string): string {
 }
 
 const NO_SALE_PRESETS = [
-  'Price too high',
-  'Out of budget',
-  'Could not find design',
-  'Will come back later',
-  'Just browsing',
+  'Price is high',
+  'Customer will purchase later',
+  'Product not available',
+  'Need family approval',
+  'Comparing with other stores',
+  'No suitable design',
+  'Budget issue',
+  'Other',
 ]
 
 export function ErpCustomerRoutingWorkspace() {
@@ -84,6 +89,10 @@ export function ErpCustomerRoutingWorkspace() {
   >('sale_closed')
   const [billNumber, setBillNumber] = useState('')
   const [billAmount, setBillAmount] = useState('')
+  const [estimationNumber, setEstimationNumber] = useState('')
+  const [grossWeightGm, setGrossWeightGm] = useState('')
+  const [netWeightGm, setNetWeightGm] = useState('')
+  const [transferToBilling, setTransferToBilling] = useState(true)
   const [purchaseNotes, setPurchaseNotes] = useState('')
   const [noSaleReason, setNoSaleReason] = useState('')
   const [followUpWanted, setFollowUpWanted] = useState(false)
@@ -100,7 +109,9 @@ export function ErpCustomerRoutingWorkspace() {
     null,
   )
   const [reportBusy, setReportBusy] = useState(false)
-  const [adminTab, setAdminTab] = useState<'counters' | 'analytics'>('counters')
+  const [adminTab, setAdminTab] = useState<
+    'counters' | 'analytics' | 'billing' | 'management'
+  >('counters')
   const [reportView, setReportView] = useState<'summary' | 'detailed'>('summary')
 
   const reloadBoot = useCallback(async () => {
@@ -223,8 +234,15 @@ export function ErpCustomerRoutingWorkspace() {
       await startServingQueueItem(activeQueueId)
       await completeQueueItem(activeQueueId, {
         outcome,
-        bill_number: billNumber || undefined,
+        bill_number: billNumber.trim() || undefined,
         bill_amount_inr: billAmount || undefined,
+        estimation_number: estimationNumber.trim() || undefined,
+        gross_weight_gm: grossWeightGm.trim() || undefined,
+        net_weight_gm: netWeightGm.trim() || undefined,
+        transfer_to_billing:
+          outcome === 'sale_closed' || outcome === 'sale_and_forward'
+            ? transferToBilling && !billNumber.trim()
+            : undefined,
         purchase_notes: purchaseNotes || undefined,
         no_sale_reason: noSaleReason || undefined,
         forward_counter_id:
@@ -242,10 +260,20 @@ export function ErpCustomerRoutingWorkspace() {
               }
             : undefined,
       })
-      setMsg('Interaction logged')
+      setMsg(
+        (outcome === 'sale_closed' || outcome === 'sale_and_forward') &&
+          transferToBilling &&
+          !billNumber.trim()
+          ? 'Purchase confirmed — customer sent to billing queue'
+          : 'Interaction logged',
+      )
       setActiveQueueId(null)
       setBillNumber('')
       setBillAmount('')
+      setEstimationNumber('')
+      setGrossWeightGm('')
+      setNetWeightGm('')
+      setTransferToBilling(true)
       setPurchaseNotes('')
       setNoSaleReason('')
       setFollowUpWanted(false)
@@ -633,17 +661,47 @@ export function ErpCustomerRoutingWorkspace() {
             <div className="grid gap-2 sm:grid-cols-2">
               <input
                 className={erpInputCls}
-                placeholder="Bill number (optional)"
-                value={billNumber}
-                onChange={(e) => setBillNumber(e.target.value)}
+                placeholder="Estimation no. (e.g. ESTIMATE-002)"
+                value={estimationNumber}
+                onChange={(e) => setEstimationNumber(e.target.value)}
               />
               <input
                 className={erpInputCls}
-                placeholder="Bill amount ₹"
+                placeholder="Estimated amount ₹"
                 value={billAmount}
                 onChange={(e) => setBillAmount(e.target.value)}
                 inputMode="decimal"
               />
+              <input
+                className={erpInputCls}
+                placeholder="Gross weight (g)"
+                value={grossWeightGm}
+                onChange={(e) => setGrossWeightGm(e.target.value)}
+                inputMode="decimal"
+              />
+              <input
+                className={erpInputCls}
+                placeholder="Net weight (g)"
+                value={netWeightGm}
+                onChange={(e) => setNetWeightGm(e.target.value)}
+                inputMode="decimal"
+              />
+              <input
+                className={erpInputCls}
+                placeholder="Invoice no. (if billed at counter)"
+                value={billNumber}
+                onChange={(e) => setBillNumber(e.target.value)}
+              />
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                <input
+                  type="checkbox"
+                  checked={transferToBilling && !billNumber.trim()}
+                  disabled={Boolean(billNumber.trim())}
+                  onChange={(e) => setTransferToBilling(e.target.checked)}
+                  className="size-4 accent-[var(--kc-accent,#c41e3a)]"
+                />
+                Send to billing queue
+              </label>
               <input
                 className={`${erpInputCls} sm:col-span-2`}
                 placeholder="What was bought (optional)"
@@ -764,27 +822,46 @@ export function ErpCustomerRoutingWorkspace() {
         </div>
       ) : null}
 
+      {role !== 'admin' && role !== 'viewer' ? (
+        <ErpRoutingBillingQueue onMsg={setMsg} onErr={setErr} />
+      ) : null}
+
       {role === 'admin' && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            {(['counters', 'analytics'] as const).map((t) => (
+            {(
+              [
+                ['counters', 'Counters & staff'],
+                ['billing', 'Billing queue'],
+                ['management', 'Management'],
+                ['analytics', 'Analytics'],
+              ] as const
+            ).map(([t, label]) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setAdminTab(t)}
                 className={cn(
-                  'min-h-[40px] rounded-xl px-4 text-sm font-semibold',
+                  'min-h-[40px] rounded-xl px-3 text-sm font-semibold sm:px-4',
                   adminTab === t
                     ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
                     : 'border border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/75',
                 )}
               >
-                {t === 'counters' ? 'Counters & staff' : 'Analytics'}
+                {label}
               </button>
             ))}
           </div>
 
-          {adminTab === 'counters' ? (
+          {adminTab === 'billing' ? (
+            <ErpRoutingBillingQueue onMsg={setMsg} onErr={setErr} />
+          ) : adminTab === 'management' ? (
+            <ErpRoutingManagementDashboard
+              operators={operators}
+              onMsg={setMsg}
+              onErr={setErr}
+            />
+          ) : adminTab === 'counters' ? (
             <div className={`${erpCardCls} space-y-4`}>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input

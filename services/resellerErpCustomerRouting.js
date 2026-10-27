@@ -8,6 +8,11 @@ const {
     requireJainavUnlockedAdmin,
     requireErpOperatorAdmin,
 } = require('./resellerErpOperators');
+const {
+    loadManagementDashboard,
+    loadCounterWiseReport,
+    loadSalespersonPerformance,
+} = require('./resellerErpRoutingReports');
 
 const ROUTING_MODULE = 'customer-routing';
 
@@ -95,6 +100,46 @@ async function ensureCustomerRoutingSchema(pool) {
             result TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        ALTER TABLE reseller_erp_visit_interactions
+            ADD COLUMN IF NOT EXISTS estimation_number VARCHAR(64),
+            ADD COLUMN IF NOT EXISTS gross_weight_gm NUMERIC(12, 3),
+            ADD COLUMN IF NOT EXISTS net_weight_gm NUMERIC(12, 3);
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_visit_billing_queue (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            visit_id INTEGER NOT NULL REFERENCES reseller_erp_customer_visits(id) ON DELETE CASCADE,
+            interaction_id INTEGER REFERENCES reseller_erp_visit_interactions(id) ON DELETE SET NULL,
+            customer_id INTEGER NOT NULL REFERENCES reseller_erp_customers(id) ON DELETE CASCADE,
+            counter_id INTEGER REFERENCES reseller_erp_store_counters(id) ON DELETE SET NULL,
+            operator_id INTEGER REFERENCES reseller_erp_operators(id) ON DELETE SET NULL,
+            estimation_number VARCHAR(64),
+            estimated_amount_inr NUMERIC(14, 2),
+            gross_weight_gm NUMERIC(12, 3),
+            net_weight_gm NUMERIC(12, 3),
+            billing_status VARCHAR(24) NOT NULL DEFAULT 'pending',
+            invoice_number VARCHAR(64),
+            payment_status VARCHAR(24) NOT NULL DEFAULT 'unpaid',
+            payment_mode VARCHAR(32),
+            payment_amount_inr NUMERIC(14, 2),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ,
+            completed_by_operator_id INTEGER REFERENCES reseller_erp_operators(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_operator_sales_targets (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            operator_id INTEGER NOT NULL REFERENCES reseller_erp_operators(id) ON DELETE CASCADE,
+            period_type VARCHAR(16) NOT NULL,
+            period_key VARCHAR(16) NOT NULL,
+            target_amount_inr NUMERIC(14, 2) NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (reseller_user_id, operator_id, period_type, period_key)
         );
     `);
 }
@@ -188,14 +233,67 @@ async function closeVisitWhenNoOpenQueue(query, visitId) {
          WHERE visit_id = $1 AND status IN ('waiting', 'serving')`,
         [visitId],
     );
-    if ((pending[0]?.n ?? 0) === 0) {
+    const billingPending = await query(
+        `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_billing_queue
+         WHERE visit_id = $1 AND billing_status = 'pending'`,
+        [visitId],
+    );
+    if ((pending[0]?.n ?? 0) === 0 && (billingPending[0]?.n ?? 0) === 0) {
         await query(
             `UPDATE reseller_erp_customer_visits
              SET status = 'completed', ended_at = COALESCE(ended_at, NOW())
-             WHERE id = $1 AND status = 'active'`,
+             WHERE id = $1 AND status IN ('active', 'billing')`,
             [visitId],
         );
     }
+}
+
+function parseWeightGm(raw) {
+    const n = parseFloat(String(raw || '').replace(/,/g, ''));
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 1000) / 1000 : null;
+}
+
+async function loadLiveCounterStations(query, userId) {
+    const counters = await query(
+        `SELECT sc.id, sc.name, sc.incharge_operator_id, o.display_name AS incharge_name
+         FROM reseller_erp_store_counters sc
+         LEFT JOIN reseller_erp_operators o ON o.id = sc.incharge_operator_id
+         WHERE sc.reseller_user_id = $1 AND sc.is_active = true
+         ORDER BY sc.sort_order, sc.name`,
+        [userId],
+    );
+    const rows = [];
+    for (const c of counters) {
+        const serving = await query(
+            `SELECT cus.name AS customer_name
+             FROM reseller_erp_visit_queue q
+             JOIN reseller_erp_customer_visits v ON v.id = q.visit_id
+             JOIN reseller_erp_customers cus ON cus.id = v.customer_id
+             WHERE q.counter_id = $1 AND q.status = 'serving'
+             ORDER BY q.started_at DESC NULLS LAST LIMIT 1`,
+            [c.id],
+        );
+        const waiting = await query(
+            `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_queue
+             WHERE counter_id = $1 AND status = 'waiting'`,
+            [c.id],
+        );
+        const billing = await query(
+            `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_billing_queue
+             WHERE reseller_user_id = $1 AND counter_id = $2 AND billing_status = 'pending'`,
+            [userId, c.id],
+        );
+        rows.push({
+            counter_id: c.id,
+            counter_name: c.name,
+            incharge_name: c.incharge_name || null,
+            salesperson_status: serving.length ? 'with_customer' : 'free',
+            active_customer: serving[0]?.customer_name || null,
+            waiting_count: Number(waiting[0]?.n || 0),
+            billing_pending: Number(billing[0]?.n || 0),
+        });
+    }
+    return rows;
 }
 
 async function autoCloseStaleActiveVisits(query, userId) {
@@ -641,11 +739,21 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     return res.status(400).json({ error: 'forward_counter_id required' });
                 }
                 const billAmount = parseFloat(String(req.body.bill_amount_inr || '').replace(/,/g, ''));
+                const estimationNumber = String(req.body.estimation_number || '').trim().slice(0, 64) || null;
+                const grossGm = parseWeightGm(req.body.gross_weight_gm);
+                const netGm = parseWeightGm(req.body.net_weight_gm);
+                const invoiceAtCounter = String(req.body.bill_number || '').trim();
+                const isSaleOutcome = outcome === 'sale_closed' || outcome === 'sale_and_forward';
+                const transferToBilling =
+                    isSaleOutcome &&
+                    req.body.transfer_to_billing !== false &&
+                    !invoiceAtCounter;
                 const interactionRows = await query(
                     `INSERT INTO reseller_erp_visit_interactions (
                         visit_id, queue_id, counter_id, operator_id, outcome,
-                        bill_number, bill_amount_inr, purchase_notes, no_sale_reason, forward_counter_id
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                        bill_number, bill_amount_inr, purchase_notes, no_sale_reason, forward_counter_id,
+                        estimation_number, gross_weight_gm, net_weight_gm
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                      RETURNING id`,
                     [
                         row.visit_id,
@@ -653,14 +761,50 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         row.counter_id,
                         op.id,
                         outcome,
-                        String(req.body.bill_number || '').trim().slice(0, 64) || null,
+                        invoiceAtCounter.slice(0, 64) || null,
                         Number.isFinite(billAmount) ? billAmount : null,
                         String(req.body.purchase_notes || '').trim().slice(0, 2000) || null,
                         String(req.body.no_sale_reason || '').trim().slice(0, 2000) || null,
                         Number.isFinite(forwardId) ? forwardId : null,
+                        estimationNumber,
+                        grossGm,
+                        netGm,
                     ],
                 );
                 const interactionId = interactionRows[0]?.id || null;
+                if (transferToBilling && interactionId) {
+                    const visitRow = await query(
+                        `SELECT customer_id FROM reseller_erp_customer_visits WHERE id = $1 LIMIT 1`,
+                        [row.visit_id],
+                    );
+                    const customerId = visitRow[0]?.customer_id;
+                    if (customerId) {
+                        await query(
+                            `INSERT INTO reseller_erp_visit_billing_queue (
+                                reseller_user_id, visit_id, interaction_id, customer_id, counter_id, operator_id,
+                                estimation_number, estimated_amount_inr, gross_weight_gm, net_weight_gm,
+                                billing_status, payment_status
+                             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending','unpaid')`,
+                            [
+                                req.user.id,
+                                row.visit_id,
+                                interactionId,
+                                customerId,
+                                row.counter_id,
+                                op.id,
+                                estimationNumber,
+                                Number.isFinite(billAmount) ? billAmount : null,
+                                grossGm,
+                                netGm,
+                            ],
+                        );
+                        await query(
+                            `UPDATE reseller_erp_customer_visits SET status = 'billing', updated_at = NOW()
+                             WHERE id = $1 AND reseller_user_id = $2`,
+                            [row.visit_id, req.user.id],
+                        );
+                    }
+                }
                 const followUp = req.body.follow_up && typeof req.body.follow_up === 'object' ? req.body.follow_up : null;
                 const wantsFollowUp =
                     followUp &&
@@ -734,11 +878,195 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         ],
                     );
                 }
-                await closeVisitWhenNoOpenQueue(query, row.visit_id);
-                res.json({ success: true });
+                if (!transferToBilling) {
+                    await closeVisitWhenNoOpenQueue(query, row.visit_id);
+                }
+                res.json({ success: true, transfer_to_billing: transferToBilling });
             } catch (e) {
                 console.error('queue complete:', e);
                 res.status(500).json({ error: e.message || 'Failed to complete interaction' });
+            }
+        },
+    );
+
+    app.get('/api/reseller/erp/customer-routing/billing-queue', checkAuth, erpGate, gate, async (req, res) => {
+        try {
+            const status = String(req.query.status || 'pending').trim().slice(0, 24);
+            const params = [req.user.id];
+            let filter = '';
+            if (status && status !== 'all') {
+                params.push(status);
+                filter = ` AND b.billing_status = $${params.length}`;
+            }
+            const rows = await query(
+                `SELECT b.*, c.name AS customer_name, c.mobile AS customer_mobile,
+                        sc.name AS counter_name, o.display_name AS operator_name
+                 FROM reseller_erp_visit_billing_queue b
+                 JOIN reseller_erp_customers c ON c.id = b.customer_id
+                 LEFT JOIN reseller_erp_store_counters sc ON sc.id = b.counter_id
+                 LEFT JOIN reseller_erp_operators o ON o.id = b.operator_id
+                 WHERE b.reseller_user_id = $1 ${filter}
+                 ORDER BY b.created_at ASC
+                 LIMIT 100`,
+                params,
+            );
+            res.json({ queue: rows });
+        } catch (e) {
+            console.error('billing queue list:', e);
+            res.status(500).json({ error: e.message || 'Failed to load billing queue' });
+        }
+    });
+
+    app.post(
+        '/api/reseller/erp/customer-routing/billing-queue/:id/complete',
+        checkAuth,
+        erpGate,
+        gate,
+        requireJson,
+        async (req, res) => {
+            try {
+                const op = req.erpOperator;
+                const id = parseInt(String(req.params.id), 10);
+                const invoice = String(req.body.invoice_number || req.body.bill_number || '').trim();
+                if (!invoice) {
+                    return res.status(400).json({ error: 'Invoice / bill number is required' });
+                }
+                const rows = await query(
+                    `SELECT * FROM reseller_erp_visit_billing_queue
+                     WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                    [id, req.user.id],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Billing queue item not found' });
+                const row = rows[0];
+                if (row.billing_status === 'completed') {
+                    return res.json({ success: true, already_completed: true });
+                }
+                const payAmount = parseFloat(String(req.body.payment_amount_inr || '').replace(/,/g, ''));
+                const paymentMode = String(req.body.payment_mode || 'bank').trim().slice(0, 32);
+                const paymentStatus = String(req.body.payment_status || 'paid').trim().slice(0, 24);
+                await query(
+                    `UPDATE reseller_erp_visit_billing_queue SET
+                        billing_status = 'completed',
+                        invoice_number = $1,
+                        payment_mode = $2,
+                        payment_status = $3,
+                        payment_amount_inr = $4,
+                        completed_at = NOW(),
+                        completed_by_operator_id = $5,
+                        updated_at = NOW()
+                     WHERE id = $6`,
+                    [
+                        invoice.slice(0, 64),
+                        paymentMode,
+                        paymentStatus,
+                        Number.isFinite(payAmount) ? payAmount : row.estimated_amount_inr,
+                        op.id,
+                        id,
+                    ],
+                );
+                if (row.interaction_id) {
+                    await query(
+                        `UPDATE reseller_erp_visit_interactions SET bill_number = $1
+                         WHERE id = $2`,
+                        [invoice.slice(0, 64), row.interaction_id],
+                    );
+                }
+                await query(
+                    `UPDATE reseller_erp_customer_visits SET status = 'completed', ended_at = NOW(), updated_at = NOW()
+                     WHERE id = $1 AND reseller_user_id = $2`,
+                    [row.visit_id, req.user.id],
+                );
+                res.json({ success: true });
+            } catch (e) {
+                console.error('billing queue complete:', e);
+                res.status(500).json({ error: e.message || 'Failed to complete billing' });
+            }
+        },
+    );
+
+    app.get(
+        '/api/reseller/erp/customer-routing/management-dashboard',
+        checkAuth,
+        erpGate,
+        gate,
+        adminOnly,
+        async (req, res) => {
+            try {
+                const from = String(req.query.from || '').trim().slice(0, 10);
+                const to = String(req.query.to || '').trim().slice(0, 10);
+                const periodKey = String(req.query.period_key || '').trim().slice(0, 16);
+                const periodType = String(req.query.period_type || 'month').trim().slice(0, 16);
+                const pk =
+                    periodKey ||
+                    (() => {
+                        const d = new Date();
+                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    })();
+                const summary = await loadManagementDashboard(query, req.user.id, from, to);
+                const counter_report = await loadCounterWiseReport(query, req.user.id, from, to);
+                const salesperson_performance = await loadSalespersonPerformance(
+                    query,
+                    req.user.id,
+                    from,
+                    to,
+                    pk,
+                    periodType,
+                );
+                res.json({ summary, counter_report, salesperson_performance });
+            } catch (e) {
+                console.error('management dashboard:', e);
+                res.status(500).json({ error: e.message || 'Failed to load dashboard' });
+            }
+        },
+    );
+
+    app.get('/api/reseller/erp/customer-routing/live-stations', checkAuth, erpGate, gate, adminOnly, async (req, res) => {
+        try {
+            const stations = await loadLiveCounterStations(query, req.user.id);
+            res.json({ stations });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to load live stations' });
+        }
+    });
+
+    app.put(
+        '/api/reseller/erp/customer-routing/sales-targets',
+        checkAuth,
+        erpGate,
+        gate,
+        adminOnly,
+        requireJson,
+        async (req, res) => {
+            try {
+                const operatorId = parseInt(String(req.body.operator_id), 10);
+                const periodType = String(req.body.period_type || 'month').trim().slice(0, 16);
+                const periodKey = String(req.body.period_key || '').trim().slice(0, 16);
+                const target = parseFloat(String(req.body.target_amount_inr || '').replace(/,/g, ''));
+                if (!Number.isFinite(operatorId) || operatorId <= 0) {
+                    return res.status(400).json({ error: 'operator_id required' });
+                }
+                if (!periodKey) return res.status(400).json({ error: 'period_key required' });
+                if (!Number.isFinite(target) || target < 0) {
+                    return res.status(400).json({ error: 'Invalid target amount' });
+                }
+                const opCheck = await query(
+                    `SELECT id FROM reseller_erp_operators
+                     WHERE id = $1 AND reseller_user_id = $2 AND is_active = true LIMIT 1`,
+                    [operatorId, req.user.id],
+                );
+                if (!opCheck.length) return res.status(404).json({ error: 'Operator not found' });
+                await query(
+                    `INSERT INTO reseller_erp_operator_sales_targets (
+                        reseller_user_id, operator_id, period_type, period_key, target_amount_inr, updated_at
+                     ) VALUES ($1,$2,$3,$4,$5,NOW())
+                     ON CONFLICT (reseller_user_id, operator_id, period_type, period_key)
+                     DO UPDATE SET target_amount_inr = EXCLUDED.target_amount_inr, updated_at = NOW()`,
+                    [req.user.id, operatorId, periodType, periodKey, Math.round(target * 100) / 100],
+                );
+                res.json({ success: true });
+            } catch (e) {
+                console.error('sales target save:', e);
+                res.status(500).json({ error: e.message || 'Failed to save target' });
             }
         },
     );

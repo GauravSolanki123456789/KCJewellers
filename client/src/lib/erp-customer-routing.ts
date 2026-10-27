@@ -161,6 +161,10 @@ export async function completeQueueItem(
     purchase_notes?: string
     no_sale_reason?: string
     forward_counter_id?: number
+    estimation_number?: string
+    gross_weight_gm?: number | string
+    net_weight_gm?: number | string
+    transfer_to_billing?: boolean
     follow_up?: {
       required?: boolean
       follow_up_at?: string
@@ -172,6 +176,123 @@ export async function completeQueueItem(
   },
 ): Promise<void> {
   await axios.post(`/api/reseller/erp/customer-routing/queue/${queueId}/complete`, body)
+}
+
+export type BillingQueueItem = {
+  id: number
+  visit_id: number
+  customer_id: number
+  customer_name: string
+  customer_mobile: string | null
+  counter_name: string | null
+  operator_name: string | null
+  estimation_number: string | null
+  estimated_amount_inr: number | string | null
+  gross_weight_gm: number | string | null
+  net_weight_gm: number | string | null
+  billing_status: string
+  created_at: string
+}
+
+export async function fetchBillingQueue(status = 'pending'): Promise<BillingQueueItem[]> {
+  const { data } = await axios.get<{ queue: BillingQueueItem[] }>(
+    '/api/reseller/erp/customer-routing/billing-queue',
+    { params: { status } },
+  )
+  return data.queue || []
+}
+
+export async function completeBillingQueueItem(
+  id: number,
+  body: {
+    invoice_number: string
+    payment_mode?: string
+    payment_amount_inr?: number | string
+    payment_status?: string
+  },
+): Promise<void> {
+  await axios.post(`/api/reseller/erp/customer-routing/billing-queue/${id}/complete`, body)
+}
+
+export type LiveStation = {
+  counter_id: number
+  counter_name: string
+  incharge_name: string | null
+  salesperson_status: 'with_customer' | 'free'
+  active_customer: string | null
+  waiting_count: number
+  billing_pending: number
+}
+
+export type ManagementDashboard = {
+  summary: {
+    total_visitors: number
+    total_purchasers: number
+    total_no_purchase: number
+    total_sales_inr: number
+    overall_conversion_pct: number
+    average_bill_inr: number
+    follow_ups_pending: number
+    follow_ups_overdue: number
+    avg_counters_per_visit: number
+    top_salespeople?: { operator_id: number | null; name: string; sales_amount_inr: number }[]
+    top_counters_by_visitors?: { counter_name: string; visitors: number }[]
+    top_counters_by_sales?: { counter_name: string; sales_amount_inr: number }[]
+  }
+  counter_report: {
+    counter_id: number
+    counter_name: string
+    total_visitors: number
+    purchased: number
+    no_purchase: number
+    transferred_in: number
+    transferred_out: number
+    conversion_pct: number
+    sales_value_inr: number
+    average_bill_inr?: number
+    follow_ups_created?: number
+  }[]
+  salesperson_performance: {
+    operator_id: number | null
+    name: string
+    customers_attended: number
+    customers_purchased?: number
+    sales_amount_inr: number
+    conversion_pct: number
+    monthly_target_inr: number
+    achievement_pct: number | null
+    target_gap_inr?: number | null
+    bills_count?: number
+  }[]
+}
+
+export async function fetchManagementDashboard(params: {
+  from?: string
+  to?: string
+  period_key?: string
+  period_type?: string
+}): Promise<ManagementDashboard> {
+  const { data } = await axios.get<ManagementDashboard>(
+    '/api/reseller/erp/customer-routing/management-dashboard',
+    { params },
+  )
+  return data
+}
+
+export async function fetchLiveStations(): Promise<LiveStation[]> {
+  const { data } = await axios.get<{ stations: LiveStation[] }>(
+    '/api/reseller/erp/customer-routing/live-stations',
+  )
+  return data.stations || []
+}
+
+export async function saveOperatorSalesTarget(body: {
+  operator_id: number
+  period_key: string
+  period_type?: string
+  target_amount_inr: number
+}): Promise<void> {
+  await axios.put('/api/reseller/erp/customer-routing/sales-targets', body)
 }
 
 export type RoutingFollowUp = {
