@@ -33,6 +33,10 @@ export type StockExcelBuilderDefaults = {
   image_url?: string
   attr_color?: string
   attr_stone?: string
+  mrp_cost?: string | number
+  metal_cost_pct?: string | number
+  mc_cost?: string | number
+  wastage_cost_pct?: string | number
   fixed_price?: string | number
   chain_wt_only?: string | number
   pendant_wt_only?: string | number
@@ -74,6 +78,10 @@ const HEADERS = [
   'MetalType',
   'BoxCharges',
   'StoneCharges',
+  'MrpCost',
+  'Metal%Cost',
+  'McCost',
+  'WastageCost%',
   'Image',
   'FixedPrice',
   'ChainWtOnly',
@@ -112,6 +120,10 @@ function rowFromDefaults(defaults: StockExcelBuilderDefaults): Record<string, st
     PCS: cell(defaults.pcs) || 1,
     BoxCharges: cell(defaults.box_charges),
     StoneCharges: cell(defaults.stone_charges),
+    MrpCost: cell(defaults.mrp_cost),
+    'Metal%Cost': cell(defaults.metal_cost_pct),
+    McCost: cell(defaults.mc_cost),
+    'WastageCost%': cell(defaults.wastage_cost_pct),
     StoneWt: cell(defaults.stone_wt),
     MetalType: cell(defaults.metal_type) || 'SILVER',
     ItemCode: cell(defaults.item_code) || cell(defaults.product_name),

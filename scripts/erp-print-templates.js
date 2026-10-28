@@ -349,7 +349,7 @@ function buildDefaultLabelPrnRules(fallbackTemplate) {
             enabled: true,
             priority: 10,
             metalTypes: ['SILVER'],
-            requireAny: [],
+            requireAny: ['net_weight', 'mc_rate'],
             requireAll: [],
             requireNone: [],
             template: silverFallback,
@@ -414,8 +414,11 @@ function ruleMatchesPiece(piece, rule) {
     for (const f of rule.requireAll || []) {
         if (!pieceFieldHasValue(piece, f)) return false;
     }
-    const any = rule.requireAny || [];
-    if (any.length && !any.some((f) => pieceFieldHasValue(piece, f))) return false;
+    /** requireAny: every listed field must have a value (AND), despite legacy property name. */
+    const matchAll = rule.requireAny || [];
+    for (const f of matchAll) {
+        if (!pieceFieldHasValue(piece, f)) return false;
+    }
     for (const f of rule.requireNone || []) {
         if (pieceFieldHasValue(piece, f)) return false;
     }

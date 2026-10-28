@@ -10,6 +10,7 @@ export const JAINAV_ONLY_MODULE_IDS: ResellerErpModuleId[] = [
   'stock-reports',
   'stock-check',
   'jainav-ledger',
+  'profits',
 ]
 
 /** Never hide these behind Jainav, even if an old tab-layout save listed them. */
@@ -96,6 +97,7 @@ export const ERP_NAV_MODULE_ORDER: ResellerErpModuleId[] = [
   'stock-reports',
   'stock-check',
   'jainav-ledger',
+  'profits',
 ]
 
 /** Primary tabs for staff quick navigation */
@@ -126,6 +128,7 @@ export const ERP_QUICK_NAV_IDS: ResellerErpModuleId[] = [
   'stock-reports',
   'stock-check',
   'jainav-ledger',
+  'profits',
 ]
 
 /** Default: these tabs require Jainav unlock for admin */
@@ -136,6 +139,7 @@ export const DEFAULT_ERP_JAINAV_UNLOCK_TABS: ResellerErpModuleId[] = [
   'jainav-ssr',
   'stock-reports',
   'jainav-ledger',
+  'profits',
   'offline',
   'rol',
 ]

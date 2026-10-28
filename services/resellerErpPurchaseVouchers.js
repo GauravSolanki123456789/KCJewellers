@@ -121,7 +121,16 @@ async function ensurePurchaseSchema(pool) {
             ADD COLUMN IF NOT EXISTS jewellery_metal VARCHAR(16);
         ALTER TABLE reseller_erp_purchase_vouchers
             ADD COLUMN IF NOT EXISTS pv_category VARCHAR(32);
+        ALTER TABLE reseller_erp_purchase_vouchers
+            ADD COLUMN IF NOT EXISTS metal_rate_per_gm NUMERIC(14, 4);
     `);
+}
+
+function computePvMetalRatePerGm(amountInr, weightGm) {
+    const amt = Number(amountInr);
+    const gm = Number(weightGm);
+    if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(gm) || gm <= 0) return null;
+    return Math.round((amt / gm) * 10000) / 10000;
 }
 
 function mapPv(row) {
@@ -156,6 +165,7 @@ function mapPv(row) {
         customer_mobile: row.customer_mobile || null,
         customer_gstin: row.customer_gstin || null,
         customer_address: row.customer_address || null,
+        metal_rate_per_gm: row.metal_rate_per_gm != null ? Number(row.metal_rate_per_gm) : null,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -500,11 +510,13 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                 if (!cust.length) return res.status(400).json({ error: 'Customer not found' });
             }
 
+            const metalRatePerGm = computePvMetalRatePerGm(amount, weightGm);
             const pvRows = await query(
                 `INSERT INTO reseller_erp_purchase_vouchers (
                     reseller_user_id, pv_number, entry_date, vendor_name, vendor_bill_ref,
-                    amount_inr, weight_kg, metal_type, pv_category, narration, status, customer_id
-                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$11)
+                    amount_inr, weight_kg, metal_type, pv_category, narration, status, customer_id,
+                    metal_rate_per_gm
+                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$11,$12)
                  RETURNING *`,
                 [
                     req.user.id,
@@ -518,6 +530,7 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
                     pvCategory,
                     narration,
                     customerId,
+                    metalRatePerGm,
                 ],
             );
             const pv = pvRows[0];

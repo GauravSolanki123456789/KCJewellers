@@ -16,7 +16,7 @@ const ALL_MODULE_IDS = [
     'customer-routing',
     'metal-routing',
     'backup',
-    'jainav', 'stock-reports', 'stock-check', 'jainav-ledger',
+    'jainav', 'stock-reports', 'stock-check', 'jainav-ledger', 'profits',
 ];
 
 const DEFAULT_SHADOW_SEQUENCE = 'F9Rs*';

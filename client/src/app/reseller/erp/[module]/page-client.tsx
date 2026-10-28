@@ -31,6 +31,7 @@ import { ErpOperatorGate } from '@/components/reseller/erp/ErpOperatorLogin'
 import { ErpJainavGate } from '@/components/reseller/erp/ErpQuickNav'
 import { ErpShadowWorkspace } from '@/components/reseller/erp/ErpShadowWorkspace'
 import { ErpStockReportWorkspace } from '@/components/reseller/erp/ErpStockReportWorkspace'
+import { ErpProfitsWorkspace } from '@/components/reseller/erp/ErpProfitsWorkspace'
 import { ErpStockCheckWorkspace } from '@/components/reseller/erp/ErpStockCheckWorkspace'
 import { ErpJainavLedgerWorkspace } from '@/components/reseller/erp/ErpJainavLedgerWorkspace'
 import { ErpJainavBillsWorkspace } from '@/components/reseller/erp/ErpJainavBillsWorkspace'
@@ -299,6 +300,12 @@ function ModuleBody({ moduleId }: { moduleId: ResellerErpModuleId }) {
       return (
         <ErpJainavGate>
           <ErpJainavLedgerWorkspace />
+        </ErpJainavGate>
+      )
+    case 'profits':
+      return (
+        <ErpJainavGate>
+          <ErpProfitsWorkspace />
         </ErpJainavGate>
       )
     default:

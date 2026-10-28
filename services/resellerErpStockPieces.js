@@ -9,6 +9,7 @@ const poshRfid = require('./poshRfid');
 const {
     lookupDesignDefaults,
     applyDesignDefaultsToPiece,
+    upsertDesignSkuCostsFromExcel,
 } = require('./resellerErpDesignMaster');
 const {
     assertPvAcceptsAddedWeight,
@@ -180,7 +181,25 @@ const EXCEL_ALIASES = {
     metal_slab_w_pct: ['MetalSlabW%', 'MetalSlabW', 'metal_slab_w_pct', 'Metal Slab W %'],
     metal_slab_f_pct: ['MetalSlabF%', 'MetalSlabF', 'metal_slab_f_pct', 'Metal Slab F %'],
     rfid_tag: ['RFID', 'RFIDTag', 'rfid_tag', 'Rfid Tag', 'RfidTag', 'RFID Tag'],
+    mrp_cost: ['MrpCost', 'MRPCost', 'mrp_cost', 'Mrp Cost', 'Cost MRP'],
+    metal_cost_pct: ['Metal%Cost', 'MetalCost%', 'metal_cost_pct', 'MetalPctCost', 'Metal % Cost', 'Cost Metal%'],
+    mc_cost: ['McCost', 'MCCost', 'mc_cost', 'MC Cost', 'Cost MC'],
+    wastage_cost_pct: ['WastageCost%', 'WastageCost', 'wastage_cost_pct', 'Wastage Cost %', 'Cost Wastage%'],
 };
+
+const COST_PAYLOAD_KEYS = [
+    ...EXCEL_ALIASES.mrp_cost,
+    ...EXCEL_ALIASES.metal_cost_pct,
+    ...EXCEL_ALIASES.mc_cost,
+    ...EXCEL_ALIASES.wastage_cost_pct,
+];
+
+function stripCostKeysFromPayload(row) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return row || {};
+    const out = { ...row };
+    for (const k of COST_PAYLOAD_KEYS) delete out[k];
+    return out;
+}
 
 function pickRowVal(row, keys) {
     for (const k of keys) {
@@ -525,7 +544,11 @@ function parseExcelRowToPiece(row) {
             const raw = pickRowVal(row, EXCEL_ALIASES.rfid_tag);
             return raw ? poshRfid.normalizeRfidTag(raw) : null;
         })(),
-        payload_json: row,
+        mrp_cost: num(EXCEL_ALIASES.mrp_cost),
+        metal_cost_pct: num(EXCEL_ALIASES.metal_cost_pct),
+        mc_cost: num(EXCEL_ALIASES.mc_cost),
+        wastage_cost_pct: num(EXCEL_ALIASES.wastage_cost_pct),
+        payload_json: stripCostKeysFromPayload(row),
     };
 }
 
@@ -1766,6 +1789,11 @@ function registerStockPieceRoutes(app, deps) {
                 }
                 if (p.style_code && p.sku) {
                     try {
+                        await upsertDesignSkuCostsFromExcel(query, req.user.id, p);
+                    } catch {
+                        /* cost columns are optional */
+                    }
+                    try {
                         const defaults = await lookupDesignDefaults(
                             query,
                             req.user.id,
@@ -1777,6 +1805,10 @@ function registerStockPieceRoutes(app, deps) {
                         /* design master lookup is best-effort */
                     }
                 }
+                delete p.mrp_cost;
+                delete p.metal_cost_pct;
+                delete p.mc_cost;
+                delete p.wastage_cost_pct;
                 if (!p.barcode) {
                     p.barcode = await generateUniqueStockBarcode(
                         query,

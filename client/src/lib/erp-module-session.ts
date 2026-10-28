@@ -22,6 +22,7 @@ export type ErpModuleSessionId =
   | 'debit-notes'
   | 'jainav-ledger'
   | 'jainav-bills'
+  | 'profits'
 
 export function erpModuleSessionKey(moduleId: ErpModuleSessionId | string): string {
   if (moduleId === 'customers') return 'kc-erp-module-customers-v2'

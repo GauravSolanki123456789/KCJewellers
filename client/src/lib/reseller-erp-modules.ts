@@ -79,6 +79,7 @@ export type ResellerErpModuleId =
   | 'stock-reports'
   | 'stock-check'
   | 'jainav-ledger'
+  | 'profits'
   | 'offline'
   | 'running-tags'
   /** @deprecated use jainav */
@@ -493,6 +494,16 @@ export const RESELLER_ERP_MODULES: ResellerErpModule[] = [
     short: 'Lane ledger',
     description: 'Hitesh & Jainav bills ledger (separate from payment ledger)',
     icon: BookMarked,
+    group: 'jainav',
+    kind: 'workspace',
+    jainavOnly: true,
+  },
+  {
+    id: 'profits',
+    title: 'Profits',
+    short: 'Profits',
+    description: 'Sold-piece profit vs PV rate and design cost',
+    icon: Percent,
     group: 'jainav',
     kind: 'workspace',
     jainavOnly: true,

@@ -413,6 +413,7 @@ export type LabelPrnRule = {
   enabled?: boolean
   priority: number
   metalTypes: string[]
+  /** All listed fields must have a value (AND). Stored as requireAny for backward compatibility. */
   requireAny?: LabelRuleFieldKey[]
   requireAll?: LabelRuleFieldKey[]
   requireNone?: LabelRuleFieldKey[]
@@ -523,7 +524,7 @@ export function buildDefaultLabelPrnRules(fallbackTemplate?: string): LabelPrnRu
       enabled: true,
       priority: 10,
       metalTypes: ['SILVER'],
-      requireAny: [],
+      requireAny: ['net_weight', 'mc_rate'],
       requireAll: [],
       requireNone: [],
       template: silverFallback,
@@ -996,7 +997,7 @@ export function buildDefaultLabelZebraPrnRules(fallbackTemplate?: string): Label
       enabled: true,
       priority: 10,
       metalTypes: ['SILVER'],
-      requireAny: [],
+      requireAny: ['net_weight', 'mc_rate'],
       requireAll: [],
       requireNone: [],
       template: base,

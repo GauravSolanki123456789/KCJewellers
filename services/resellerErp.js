@@ -43,6 +43,7 @@ const {
     sqlExcludeInternalErpCustomers,
 } = require('./resellerErpCustomerAccount');
 const { registerResellerErpPurchaseVoucherRoutes } = require('./resellerErpPurchaseVouchers');
+const { registerResellerErpProfitRoutes } = require('./resellerErpProfits');
 const {
     registerResellerErpRunningTagRoutes,
     recomputeRunningTagBalances,
@@ -1054,6 +1055,7 @@ function registerResellerErpRoutes(app, deps) {
 
     registerResellerErpLedgerRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpPurchaseVoucherRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
+    registerResellerErpProfitRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpRunningTagRoutes(app, { query, pool, checkAuth, requireJson, erpGate });
     registerResellerErpBackupRoutes(app, { query, checkAuth, erpGate });
     registerResellerErpOfflineRoutes(app, { query, checkAuth, requireJson, erpGate });

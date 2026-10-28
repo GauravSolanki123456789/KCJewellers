@@ -622,7 +622,7 @@ export function ErpPrintFormatsWorkspace() {
                   ? 'Use this PRN template for TVS LP46 NEO TPS (TSPL — set matching Windows printer name in Hardware)'
                   : label3Across
                     ? 'Use this PRN for 3-across TSC sheets (Hardware → label layout TSC 3-across)'
-                    : 'Use this PRN template for barcode labels (TTP-244)'}
+                    : 'Use this PRN template for barcode labels (TTP-244) — fallback when no smart rule matches'}
             </label>
             {label3Across ? (
               <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
@@ -813,7 +813,9 @@ export function ErpPrintFormatsWorkspace() {
                             <span className="block truncate text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
                               Priority {rule.priority}
                               {rule.metalTypes?.length ? ` · ${rule.metalTypes.join(', ')}` : ' · any metal'}
-                              {rule.requireAny?.length ? ` · needs ${rule.requireAny.join(' or ')}` : ''}
+                              {rule.requireAny?.length
+                                ? ` · needs ${rule.requireAny.map((f) => LABEL_RULE_FIELD_LABELS[f as LabelRuleFieldKey] || f).join(' + ')}`
+                                : ''}
                             </span>
                           </span>
                           {open ? (
@@ -873,8 +875,12 @@ export function ErpPrintFormatsWorkspace() {
                             </label>
 
                             <div>
-                              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/45">
-                                Match when any of these columns have a value
+                              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/55">
+                                Match only when ALL of these columns have a value (AND)
+                              </p>
+                              <p className="mb-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
+                                Every selected chip must be filled — Net weight + MC rate means both, not either. If no
+                                rule matches, the default template below is used.
                               </p>
                               <div className="flex flex-wrap gap-2">
                                 {LABEL_RULE_FIELD_KEYS.map((field) => {

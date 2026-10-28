@@ -64,6 +64,10 @@ type DesignSku = {
   invoice_item_name?: string | null
   hsn_code?: string | null
   fixed_price?: number | null
+  mrp_cost?: number | null
+  metal_cost_pct?: number | null
+  mc_cost?: number | null
+  wastage_cost_pct?: number | null
   size_variants?: SizeVariant[]
 }
 
@@ -86,6 +90,13 @@ const NUM_FIELDS: { key: string; label: string }[] = [
   { key: 'metal_slab_r1_pct', label: 'Met R1%' },
   { key: 'metal_slab_w_pct', label: 'Met W%' },
   { key: 'metal_slab_f_pct', label: 'Met F%' },
+]
+
+const COST_FIELDS: { key: string; label: string; hint: string }[] = [
+  { key: 'mrp_cost', label: 'MrpCost', hint: 'Cost MRP (₹)' },
+  { key: 'metal_cost_pct', label: 'Metal%Cost', hint: 'e.g. 0.89 or 89' },
+  { key: 'mc_cost', label: 'McCost', hint: '₹/gm or ₹/pc (same as MCType)' },
+  { key: 'wastage_cost_pct', label: 'WastageCost%', hint: 'e.g. 0.02 or 2' },
 ]
 
 export function ErpDesignMasterWorkspace() {
@@ -201,6 +212,10 @@ export function ErpDesignMasterWorkspace() {
         invoice_item_name: selectedSku.invoice_item_name ?? '',
         hsn_code: selectedSku.hsn_code ?? '',
         fixed_price: selectedSku.fixed_price != null ? String(selectedSku.fixed_price) : '',
+        mrp_cost: selectedSku.mrp_cost != null ? String(selectedSku.mrp_cost) : '',
+        metal_cost_pct: selectedSku.metal_cost_pct != null ? String(selectedSku.metal_cost_pct) : '',
+        mc_cost: selectedSku.mc_cost != null ? String(selectedSku.mc_cost) : '',
+        wastage_cost_pct: selectedSku.wastage_cost_pct != null ? String(selectedSku.wastage_cost_pct) : '',
       })
       setSizeVariants(
         (selectedSku.size_variants || []).map((sv) => ({
@@ -882,6 +897,33 @@ export function ErpDesignMasterWorkspace() {
                     onChange={(e) => setDraft((d) => ({ ...d, fixed_price: e.target.value }))}
                   />
                 </label>
+              </div>
+
+              <div className="rounded-lg border border-[var(--color-slate-900,#e8e4dc)] p-2">
+                <p className="mb-1 text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
+                  Cost (profit — design only)
+                </p>
+                <p className="mb-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
+                  Optional. Hidden on stock, estimates and bills. Used for Jainav profit reports. Changing a cost here
+                  applies to this design until you edit it again.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {COST_FIELDS.map(({ key, label, hint }) => (
+                    <label
+                      key={key}
+                      className="block text-[10px] font-semibold uppercase text-[var(--color-jewelry-black,#1a1814)]/45"
+                    >
+                      {label}
+                      <input
+                        className={`${erpInputCls} mt-0.5 text-xs`}
+                        inputMode="decimal"
+                        placeholder={hint}
+                        value={draft[key] ?? ''}
+                        onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                      />
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <div className="rounded-lg border border-[var(--color-slate-900,#e8e4dc)] p-2">
