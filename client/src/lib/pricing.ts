@@ -620,7 +620,8 @@ export function calculateBreakdown(
     const fixedPrice = Number(item.fixed_price ?? 0) || 0
     const mcRate = Number(item.mc_rate ?? 0) || 0
     const stoneAmt = Number(item.stone_charges ?? 0) || 0
-    const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt
+    const listMrpExGst = fixedPrice > 0 ? fixedPrice : mcRate > 0 ? mcRate : 0
+    const basePrice = listMrpExGst > 0 ? listMrpExGst : mcRate + stoneAmt
     const categoryDisc = categoryDiscountPct(item)
     const isGift = isGiftingItem(item)
     const gstPct = isGift ? 0 : resolveItemGstRate(item, gstRate, pricingOptions)

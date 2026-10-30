@@ -83,6 +83,7 @@ import {
   sortSizeVariants,
   variantDisplayTitle,
 } from "@/lib/product-variants";
+import { enrichGiftingCatalogListPrices } from "@/lib/gifting-catalog-fixed-price";
 import { getProductSelectionKey } from "@/lib/catalog-product-filters";
 
 type RateRow = {
@@ -203,6 +204,10 @@ export default function ProductDetailClient({
             sortedVariants = [];
           }
         }
+        const pricingPool = enrichGiftingCatalogListPrices(
+          sortedVariants.length > 0 ? sortedVariants : item ? [item] : [],
+        );
+        if (sortedVariants.length > 0) sortedVariants = pricingPool;
         if (cancelled) return;
 
         if (!cancelled) {
@@ -213,7 +218,11 @@ export default function ProductDetailClient({
           item && sortedVariants.length > 1
             ? findVariantByBarcode(sortedVariants, safeId) ?? item
             : item;
-        const activeItem = resolved ?? item;
+        let activeItem = resolved ?? item;
+        if (activeItem) {
+          activeItem =
+            enrichGiftingCatalogListPrices([activeItem])[0] ?? activeItem;
+        }
         setProduct(activeItem);
         productRef.current = activeItem;
         setLoadState(activeItem ? "ready" : "not_found");

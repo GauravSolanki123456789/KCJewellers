@@ -38,6 +38,7 @@ import {
   variantDisplayTitle,
   type ItemWithVariants,
 } from '@/lib/product-variants'
+import { enrichGiftingCatalogListPrices } from '@/lib/gifting-catalog-fixed-price'
 import { formatLiveStockLabel, parseProductStockQty } from '@/lib/live-stock'
 import { isMakeToOrderOnlyProduct, makeToOrderStockLabel } from '@/lib/make-to-order-product'
 
@@ -109,7 +110,10 @@ export default function ProductCard({
   const storefrontWeightOnly = hidePrices
   const { pricingOptions } = useCatalogPricingSettings()
 
-  const variants = useMemo(() => getAttachedVariants(product), [product])
+  const variants = useMemo(
+    () => enrichGiftingCatalogListPrices(getAttachedVariants(product)),
+    [product],
+  )
   const hasVariants = variants.length > 1
   const [activeVariant, setActiveVariant] = useState<Item>(() => variants[0] ?? product)
   const [includeBox, setIncludeBox] = useState(false)

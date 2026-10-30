@@ -21,7 +21,8 @@ import {
   lineShowsMcRPdfColumn,
 } from '@/lib/erp-quote-pdf-summary'
 import { isPiecePricedBillLine, parseSlabSettingsFromUser } from '@/lib/erp-billing-pricing'
-import type { ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
+import { parseResellerSlabSettings, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
+import { giftMrpFixedColumnDisplay } from '@/lib/erp-gift-mrp-pricing'
 import { formatErpPdfPurity } from '@/lib/erp-pdf-purity'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
@@ -448,9 +449,11 @@ function cell(
       if (line.manualCategory === 'gift' || line.mrpMode || isPiecePricedBillLine(line)) return '—'
       return line.metal_type || '—'
     case 'fixed': {
-      const list = Number(line.mrpListPrice ?? 0)
-      if ((line.mrpMode || line.manualCategory === 'gift') && list > 0) return String(list)
-      return line.fixed_price != null && line.fixed_price > 0 ? String(line.fixed_price) : '—'
+      const settings: ResellerSlabSettings =
+        slabSettings ?? parseResellerSlabSettings(null)
+      const v = giftMrpFixedColumnDisplay(line, rateSlab, settings)
+      if (v === '' || v == null) return '—'
+      return String(v)
     }
     case 'amt':
       if (ratesUnfixed) return ''

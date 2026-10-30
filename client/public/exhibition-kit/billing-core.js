@@ -294,7 +294,8 @@ var KcExhibitionBillingModule = (() => {
       const fixedPrice = Number(item.fixed_price ?? 0) || 0;
       const mcRate = Number(item.mc_rate ?? 0) || 0;
       const stoneAmt2 = Number(item.stone_charges ?? 0) || 0;
-      const basePrice = fixedPrice > 0 ? fixedPrice : mcRate + stoneAmt2;
+      const listMrpExGst = fixedPrice > 0 ? fixedPrice : mcRate > 0 ? mcRate : 0;
+      const basePrice = listMrpExGst > 0 ? listMrpExGst : mcRate + stoneAmt2;
       const categoryDisc2 = categoryDiscountPct(item);
       const isGift = isGiftingItem(item);
       const gstPct = isGift ? 0 : resolveItemGstRate(item, gstRate, pricingOptions);

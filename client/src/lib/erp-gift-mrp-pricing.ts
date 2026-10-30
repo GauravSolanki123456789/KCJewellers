@@ -1,5 +1,6 @@
 import {
   erpSlabToKind,
+  erpSlabUsesWholesaleMetal,
   isRetailQuoteSlab,
   lineToItem,
   shouldUseWeightSilverNotMrp,
@@ -38,6 +39,26 @@ export function giftMrpDiscountPct(
     return clamp(tierSettingsForSlab(slabSettings, 'slab_w', 'gifting').gift_discount_pct)
   }
   return own
+}
+
+/** Fixed column: Slab R shows catalogue list MRP; W/R1/F show slab-discounted piece rate. */
+export function giftMrpFixedColumnDisplay(
+  line: ErpBillLine,
+  slab: ErpRateSlab,
+  slabSettings: ResellerSlabSettings,
+): string | number {
+  const isGiftLine = line.mrpMode || line.manualCategory === 'gift'
+  if (!isGiftLine) return line.fixed_price ?? ''
+  const list = Number(line.mrpListPrice ?? 0)
+  if (Number.isFinite(list) && list > 0) {
+    if (erpSlabUsesWholesaleMetal(slab)) {
+      const slabPrice = Number(line.fixed_price ?? line.unitInr ?? 0)
+      if (Number.isFinite(slabPrice) && slabPrice > 0) return slabPrice
+      return giftMrpSlabPrice(list, slab, slabSettings)
+    }
+    return list
+  }
+  return line.fixed_price ?? ''
 }
 
 /** Slab-adjusted gift/MRP piece rate from catalogue MRP (Gift / MRP disc %). */

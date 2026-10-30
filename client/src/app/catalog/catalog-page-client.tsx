@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import ProductCard from '@/components/ProductCard'
 import { collapseGiftingVariantRows } from '@/lib/product-variants'
+import { enrichGiftingCatalogListPrices } from '@/lib/gifting-catalog-fixed-price'
 import WhatsAppShareButton from '@/components/WhatsAppShareButton'
 import WhatsAppContactLink from '@/components/WhatsAppContactLink'
 import {
@@ -835,8 +836,9 @@ export default function CatalogPageClient() {
 
   const rawProducts = useMemo(() => {
     const list = activeSku?.products ?? []
-    return sortCatalogProductsByDesignGroupOrder(list, activeSku?.design_group_order) as typeof list
-  }, [activeSku?.products, activeSku?.design_group_order, savedDgOrderKey])
+    const sorted = sortCatalogProductsByDesignGroupOrder(list, activeSku?.design_group_order) as typeof list
+    return selectedMetal === 'gifting' ? enrichGiftingCatalogListPrices(sorted) : sorted
+  }, [activeSku?.products, activeSku?.design_group_order, savedDgOrderKey, selectedMetal])
 
   const designGroups = useMemo(() => {
     const seen = new Set<string>()

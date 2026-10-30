@@ -149,6 +149,7 @@ import {
 import {
   applyGiftMrpForSlabChange,
   applyGiftMrpPieceRate,
+  giftMrpFixedColumnDisplay,
   giftMrpSlabPrice,
 } from '@/lib/erp-gift-mrp-pricing'
 import { ErpBillingStackedRow } from '@/components/reseller/erp/ErpBillingStackedRow'
@@ -2488,14 +2489,7 @@ export function ErpBillingWorkspace() {
         if (line.manualCategory === 'gift' || line.mrpMode) return ''
         return line.metal_type || 'silver'
       case 'fixed_price':
-        if (
-          (line.mrpMode || line.manualCategory === 'gift') &&
-          line.mrpListPrice != null &&
-          Number(line.mrpListPrice) > 0
-        ) {
-          return line.mrpListPrice
-        }
-        return line.fixed_price ?? ''
+        return giftMrpFixedColumnDisplay(line, rateSlab, slabSettings)
       case 'fixed_price_r':
         if (erpSlabUsesWholesaleMetal(rateSlab)) return ''
         return line.fixed_price_r ?? ''
