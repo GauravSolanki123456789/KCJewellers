@@ -74,6 +74,7 @@ function ShopHeaderPanel({
           Shop name
           <input
             className={`${erpInputCls} mt-1`}
+            placeholder="Uses your admin Business name when blank"
             value={pf.shopName || ''}
             onChange={(e) => setPf((p) => ({ ...p, shopName: e.target.value }))}
           />

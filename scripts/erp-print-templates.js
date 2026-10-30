@@ -1678,7 +1678,7 @@ function buildBillTemplateVars(bill, printFormats, rates) {
         mcDiscount + cashDiscount;
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
     return {
-        shop_name: pf.shopName || bill.shop_name || 'B N MARLECHA SILVER',
+        shop_name: resolveShopNameForPrint(pf, bill, bill?.reseller_shop_name),
         shop_address: pf.shopAddress || '',
         shop_phone: pf.shopPhone || '',
         shop_gstin: pf.shopGstin || '',
@@ -1782,6 +1782,8 @@ function renderBillEscPos(template, bill, printFormats, rates) {
 const ROUGH_ESTIMATE_WIDTH = 42;
 const ESC_BOLD_ON = '\x1B\x45\x01';
 const ESC_BOLD_OFF = '\x1B\x45\x00';
+/** Auto-filled on old clients when shop name was blank — must not override other resellers. */
+const LEGACY_MIGRATED_SHOP_DEFAULT = 'B N MARLECHA SILVER';
 /** Reserved — double-width ESC/POS breaks 80mm lines; Grand Total uses bold only. */
 const ESC_EMPHASIS_ON = '\x1B\x21\x30';
 const ESC_EMPHASIS_OFF = '\x1B\x21\x00';
@@ -1791,6 +1793,43 @@ function roughVisibleLen(text) {
         .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
         .replace(/\x1B./g, '')
         .length;
+}
+
+/** Remove ESC/POS control bytes for inkjet / cut-sheet (L3310) — keeps plain text only. */
+function stripEscPosPlainText(text) {
+    let s = String(text || '');
+    for (let i = 0; i < 8; i += 1) {
+        const next = s
+            .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
+            .replace(/\x1B[\x40-\x7E]/g, '')
+            .replace(/\x1D[\x40-\x7E]/g, '');
+        if (next === s) break;
+        s = next;
+    }
+    return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+function resolveShopNameForPrint(pf, bill, resellerShopName) {
+    const fromReseller = String(resellerShopName || '').trim();
+    let fromPf = String(pf?.shopName || '').trim();
+    if (
+        fromPf.toUpperCase() === LEGACY_MIGRATED_SHOP_DEFAULT &&
+        fromReseller &&
+        fromReseller.toUpperCase() !== LEGACY_MIGRATED_SHOP_DEFAULT
+    ) {
+        fromPf = '';
+    }
+    const fromBill = String(bill?.shop_name || '').trim();
+    if (fromPf) return fromPf;
+    if (fromBill) return fromBill;
+    if (fromReseller) return fromReseller;
+    return 'Shop';
+}
+
+function enrichBillForPrint(bill, printFormats, resellerShopName) {
+    const pf = migratePrintFormats(printFormats);
+    const shop_name = resolveShopNameForPrint(pf, bill, resellerShopName);
+    return { ...bill, shop_name };
 }
 
 function roughBold(text) {
@@ -2360,7 +2399,9 @@ function formatRoughHeaderTime(raw) {
 function buildRoughEstimateHeaderLines(bill, printFormats) {
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
-    const shopName = String(pf.shopName || bill.shop_name || 'B N MARLECHA SILVER').trim();
+    const shopName = String(
+        bill.shop_name || resolveShopNameForPrint(pf, bill, bill?.reseller_shop_name),
+    ).trim();
     const estNo = extractEstimateNo(bill.bill_number);
     const when = resolveRoughBillDateTime(bill);
     const customerName = String(bill.customer_name || 'Walk-in').trim();
@@ -3091,7 +3132,8 @@ function resolveEstimateSheetPrinterName(hw) {
     return String(name).trim() || 'Epson L3310 Series';
 }
 
-function renderEstimateSheet(bill, printFormats, rates, hw) {
+function renderEstimateSheet(bill, printFormats, rates, hw, resellerShopName) {
+    bill = enrichBillForPrint(bill, printFormats, resellerShopName);
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
@@ -3115,7 +3157,7 @@ function renderEstimateSheet(bill, printFormats, rates, hw) {
         body = renderTemplate(body, vars, { plainText: true });
     }
     return {
-        text: String(body || marlecha).replace(/\r\n/g, '\n').trim(),
+        text: stripEscPosPlainText(String(body || marlecha).replace(/\r\n/g, '\n').trim()),
         paper: layout.paper,
         marginMm: layout.marginMm,
         fontPt: layout.fontPt,
@@ -3124,7 +3166,8 @@ function renderEstimateSheet(bill, printFormats, rates, hw) {
     };
 }
 
-function renderEstimateEscPos(bill, printFormats, rates) {
+function renderEstimateEscPos(bill, printFormats, rates, resellerShopName) {
+    bill = enrichBillForPrint(bill, printFormats, resellerShopName);
     const pf = migratePrintFormats(printFormats);
     const session = bill.session && typeof bill.session === 'object' ? bill.session : {};
     const rateSlab = String(session.rateSlab || 'R').toUpperCase();
@@ -3262,6 +3305,8 @@ module.exports = {
     preserveZplTemplate,
     normalizeLabelTemplate,
     buildDefaultLabelPrnRules,
+    resolveShopNameForPrint,
+    stripEscPosPlainText,
     ruleMatchesPiece,
     pieceFieldHasValue,
     newRuleId,
@@ -3271,6 +3316,7 @@ module.exports = {
     buildBillTemplateVars,
     buildLinesTable,
     buildRoughEstimateBody,
+    enrichBillForPrint,
     enrichBillLinesMcCatalogForPrint,
     enrichBillLinesForEstimatePrint,
     buildSampleBillForPreview,

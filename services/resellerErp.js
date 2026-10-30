@@ -822,6 +822,18 @@ function denyUnlessApprovalModule(req, res) {
     return false;
 }
 
+async function loadResellerBusinessName(query, userId) {
+    try {
+        const rows = await query(
+            `SELECT business_name FROM users WHERE id = $1 LIMIT 1`,
+            [userId],
+        );
+        return String(rows[0]?.business_name || '').trim();
+    } catch {
+        return '';
+    }
+}
+
 function mapBill(row, options = {}) {
     const forClient = options.forClient !== false;
     if (!row) return row;
@@ -3022,7 +3034,14 @@ function registerResellerErpRoutes(app, deps) {
             if (sheetKind) {
                 const sampleBill = erpPrint.buildSampleBillForPreview('estimate_silver');
                 const rates = { gold: 13200, silver: 270 };
-                const sheet = erpPrint.renderEstimateSheet(sampleBill, printFormats, rates, hw);
+                const shopName = await loadResellerBusinessName(query, req.user.id);
+                const sheet = erpPrint.renderEstimateSheet(
+                    sampleBill,
+                    printFormats,
+                    rates,
+                    hw,
+                    shopName,
+                );
                 const paperOverride = String(req.body.paper_size || '').trim().toUpperCase();
                 const tmpl = String(printFormats.estimateSheetTemplate || '');
                 if (
@@ -3085,12 +3104,14 @@ function registerResellerErpRoutes(app, deps) {
             const printFormats = settings.printFormats || {};
             const sampleBill = erpPrint.buildSampleBillForPreview(kind);
             const rates = { gold: 13200, silver: 270 };
+            const shopName = await loadResellerBusinessName(query, req.user.id);
             if (kind === 'estimate_sheet' || kind === 'sheet') {
                 const sheet = erpPrint.renderEstimateSheet(
                     sampleBill,
                     { ...printFormats, estimateSheetTemplate: template },
                     rates,
                     settings.hardware || {},
+                    shopName,
                 );
                 return res.json({ preview: sheet.text });
             }
@@ -3227,8 +3248,10 @@ function registerResellerErpRoutes(app, deps) {
                 printerKind === 'l3310' ||
                 printerKind === 'epson_l3310';
 
+            const shopName = await loadResellerBusinessName(query, req.user.id);
+
             if (sheetKind) {
-                const sheet = erpPrint.renderEstimateSheet(bill, printFormats, rates, hw);
+                const sheet = erpPrint.renderEstimateSheet(bill, printFormats, rates, hw, shopName);
                 const paperOverride = String(req.body.paper_size || '').trim().toUpperCase();
                 const tmpl = String(printFormats.estimateSheetTemplate || '');
                 if (
@@ -3252,7 +3275,7 @@ function registerResellerErpRoutes(app, deps) {
                 });
             }
 
-            const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates);
+            const escPos = erpPrint.renderEstimateEscPos(bill, printFormats, rates, shopName);
             const windowsPrinterName =
                 printerKind === 'bills_banao' || printerKind === 'billsbanao'
                     ? erpPrint.resolveBillsBanaoWindowsPrinterName(hw)
