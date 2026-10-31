@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { fetchSchemeStats, type SchemeStats } from '@/lib/erp-crm'
-import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { exportTableExcel } from '@/lib/erp-customer-routing'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { downloadRoutingTablePdf } from '@/lib/erp-routing-report-pdf'
 import { erpDaysAgoIso, erpTodayIso } from '@/lib/erp-date-format'
 import { Diamond, Loader2 } from 'lucide-react'
 
@@ -50,6 +52,51 @@ export function ErpRoutingSchemesPanel({ onErr }: Props) {
           {busy ? <Loader2 className="size-4 animate-spin" /> : null}
           Load
         </button>
+        {stats ? (
+          <>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() =>
+                void exportTableExcel(
+                  'Schemes',
+                  ['Salesperson', 'Explained', 'Interested', 'Joined', 'Join rate'],
+                  (stats.by_operator || []).map((r) => [
+                    r.name,
+                    r.explained,
+                    r.interested,
+                    r.joined,
+                    `${r.join_rate_pct}%`,
+                  ]),
+                  `schemes-${fromDate}_${toDate}`,
+                )
+              }
+            >
+              Download Excel
+            </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() =>
+                void downloadRoutingTablePdf({
+                  title: 'Scheme performance',
+                  from: fromDate,
+                  to: toDate,
+                  headers: ['Salesperson', 'Explained', 'Joined', 'Join rate'],
+                  rows: (stats.by_operator || []).map((r) => [
+                    r.name,
+                    String(r.explained),
+                    String(r.joined),
+                    `${r.join_rate_pct}%`,
+                  ]),
+                  filename: `schemes-${fromDate}_${toDate}`,
+                })
+              }
+            >
+              Preview PDF
+            </button>
+          </>
+        ) : null}
       </div>
 
       {t ? (

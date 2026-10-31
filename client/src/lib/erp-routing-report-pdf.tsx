@@ -163,3 +163,69 @@ export async function downloadRoutingReportPdf(payload: {
     title: 'Routing report',
   })
 }
+
+function SimpleTableDocument({
+  title,
+  from,
+  to,
+  headers,
+  rows,
+  generatedAt,
+}: {
+  title: string
+  from: string
+  to: string
+  headers: string[]
+  rows: string[][]
+  generatedAt: string
+}) {
+  const colW = `${Math.floor(100 / Math.max(headers.length, 1))}%`
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.subtitle}>
+          {from} to {to} · Generated {generatedAt}
+        </Text>
+        <View style={[styles.row, styles.head]}>
+          {headers.map((h) => (
+            <Text key={h} style={{ width: colW }}>
+              {h}
+            </Text>
+          ))}
+        </View>
+        {rows.map((r, i) => (
+          <View key={i} style={styles.row}>
+            {r.map((cell, j) => (
+              <Text key={j} style={{ width: colW }}>
+                {cell}
+              </Text>
+            ))}
+          </View>
+        ))}
+      </Page>
+    </Document>
+  )
+}
+
+export async function downloadRoutingTablePdf(payload: {
+  title: string
+  from: string
+  to: string
+  headers: string[]
+  rows: string[][]
+  filename: string
+}) {
+  const generatedAt = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+  const blob = await pdf(
+    <SimpleTableDocument
+      title={payload.title}
+      from={payload.from}
+      to={payload.to}
+      headers={payload.headers}
+      rows={payload.rows}
+      generatedAt={generatedAt}
+    />,
+  ).toBlob()
+  await presentPdfBlob(blob, `${payload.filename}.pdf`, { title: payload.title })
+}

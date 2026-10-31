@@ -5,10 +5,12 @@ import {
   fetchLiveStations,
   fetchManagementDashboard,
   saveOperatorSalesTarget,
+  exportTableExcel,
   type LiveStation,
   type ManagementDashboard,
 } from '@/lib/erp-customer-routing'
-import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { downloadRoutingTablePdf } from '@/lib/erp-routing-report-pdf'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { erpDaysAgoIso, erpTodayIso } from '@/lib/erp-date-format'
 import { BarChart3, Loader2, Radio } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -58,11 +60,15 @@ export function ErpRoutingManagementDashboard({ operators, onMsg, onErr }: Props
       setStations(live)
       const drafts: Record<number, string> = {}
       for (const p of dash.salesperson_performance) {
-        if (p.operator_id != null && p.monthly_target_inr > 0) {
-          drafts[p.operator_id] = String(p.monthly_target_inr)
+        if (p.operator_id != null) {
+          drafts[p.operator_id] =
+            p.monthly_target_inr > 0 ? String(p.monthly_target_inr) : ''
         }
       }
-      setTargetDrafts((prev) => ({ ...drafts, ...prev }))
+      for (const o of operators) {
+        if (!(o.id in drafts)) drafts[o.id] = ''
+      }
+      setTargetDrafts(drafts)
     } catch {
       onErr?.('Failed to load management dashboard')
     } finally {
@@ -83,8 +89,24 @@ export function ErpRoutingManagementDashboard({ operators, onMsg, onErr }: Props
   }, [])
 
   const saveTarget = async (operatorId: number) => {
-    const raw = targetDrafts[operatorId] || ''
-    const n = Number(String(raw).replace(/,/g, ''))
+    const raw = targetDrafts[operatorId] ?? ''
+    const trimmed = String(raw).trim()
+    if (!trimmed) {
+      try {
+        await saveOperatorSalesTarget({
+          operator_id: operatorId,
+          period_key: periodKey,
+          period_type: 'month',
+          clear: true,
+        })
+        onMsg?.('Sales target cleared')
+        await load()
+      } catch {
+        onErr?.('Could not clear target')
+      }
+      return
+    }
+    const n = Number(String(trimmed).replace(/,/g, ''))
     if (!Number.isFinite(n) || n < 0) {
       onErr?.('Enter a valid target amount')
       return
@@ -140,6 +162,54 @@ export function ErpRoutingManagementDashboard({ operators, onMsg, onErr }: Props
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
             Load dashboard
           </button>
+          {data ? (
+            <>
+              <button
+                type="button"
+                className={erpBtnPrimary}
+                onClick={() =>
+                  void exportTableExcel(
+                    'Management',
+                    ['Counter', 'Visitors', 'Purchased', 'No sale', 'In/Out', 'Conv %', 'Sales'],
+                    (data.counter_report || []).map((r) => [
+                      r.counter_name,
+                      r.total_visitors,
+                      r.purchased,
+                      r.no_purchase,
+                      `${r.transferred_in}/${r.transferred_out}`,
+                      `${r.conversion_pct}%`,
+                      r.sales_value_inr,
+                    ]),
+                    `management-${fromDate}_${toDate}`,
+                  )
+                }
+              >
+                Download Excel
+              </button>
+              <button
+                type="button"
+                className={erpBtnPrimary}
+                onClick={() =>
+                  void downloadRoutingTablePdf({
+                    title: 'Management dashboard',
+                    from: fromDate,
+                    to: toDate,
+                    headers: ['Counter', 'Visitors', 'Purchased', 'No sale', 'Sales ₹'],
+                    rows: (data.counter_report || []).map((r) => [
+                      r.counter_name,
+                      String(r.total_visitors),
+                      String(r.purchased),
+                      String(r.no_purchase),
+                      String(r.sales_value_inr),
+                    ]),
+                    filename: `management-${fromDate}_${toDate}`,
+                  })
+                }
+              >
+                Preview PDF
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 

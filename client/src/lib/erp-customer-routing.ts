@@ -173,6 +173,11 @@ export async function completeQueueItem(
       priority?: 'high' | 'medium' | 'low'
       remarks?: string
     }
+    exit_type?: 'no_purchase' | 'purchased_elsewhere'
+    review_option_ids?: number[]
+    customer_review_note?: string
+    staff_collected_review?: boolean
+    review_media?: { url: string; kind: string; mime?: string | null }[]
     schemes?: {
       scheme_id: number
       explained?: boolean
@@ -326,7 +331,8 @@ export async function saveOperatorSalesTarget(body: {
   operator_id: number
   period_key: string
   period_type?: string
-  target_amount_inr: number
+  target_amount_inr?: number
+  clear?: boolean
 }): Promise<void> {
   await axios.put('/api/reseller/erp/customer-routing/sales-targets', body)
 }
@@ -465,4 +471,40 @@ export async function exportRoutingAnalyticsExcel(
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), 'Summary')
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(reasonRows), 'Lost sales')
   XLSX.writeFile(wb, `routing-report-${label.replace(/[^\w.-]+/g, '_')}.xlsx`)
+}
+
+export async function exportTableExcel(
+  sheetName: string,
+  headers: string[],
+  rows: (string | number | null | undefined)[][],
+  filename: string,
+): Promise<void> {
+  const XLSX = await import('xlsx')
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...rows]), sheetName.slice(0, 31))
+  XLSX.writeFile(wb, filename.replace(/[^\w.-]+/g, '_') + '.xlsx')
+}
+
+export type VisitReviewOption = { id: number; label: string; sort_order: number; is_active?: boolean }
+
+export async function fetchVisitReviewOptions(): Promise<VisitReviewOption[]> {
+  const { data } = await axios.get<{ options: VisitReviewOption[] }>(
+    '/api/reseller/erp/customer-routing/review-options',
+  )
+  return data.options || []
+}
+
+export async function uploadVisitReviewMedia(file: File): Promise<{ url: string; kind: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await axios.post<{ url: string; kind: string }>(
+    '/api/reseller/erp/customer-routing/review-media',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  )
+  return data
+}
+
+export async function deleteRoutingFollowUp(id: number): Promise<void> {
+  await axios.delete(`/api/reseller/erp/customer-routing/follow-ups/${id}`)
 }

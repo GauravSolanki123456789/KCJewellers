@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { fetchVisitOutcomes, type VisitOutcomeRow } from '@/lib/erp-customer-routing'
-import { erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { fetchVisitOutcomes, exportTableExcel, type VisitOutcomeRow } from '@/lib/erp-customer-routing'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { downloadRoutingTablePdf } from '@/lib/erp-routing-report-pdf'
 import { erpDaysAgoIso, erpTodayIso } from '@/lib/erp-date-format'
 import { cn } from '@/lib/utils'
 import { CheckCircle2, Loader2 } from 'lucide-react'
@@ -73,6 +74,54 @@ export function ErpRoutingVisitOutcomesPanel({ onErr }: Props) {
           {busy ? <Loader2 className="size-4 animate-spin" /> : null}
           Load outcomes
         </button>
+        {rows.length ? (
+          <>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() =>
+                void exportTableExcel(
+                  'Visit outcomes',
+                  ['Customer', 'Mobile', 'Counters', 'Staff', 'Result', 'Amount', 'No purchase', 'Scheme'],
+                  rows.map((r) => [
+                    r.customer_name,
+                    r.customer_mobile || '',
+                    r.counters_trail,
+                    r.salespersons,
+                    r.final_result,
+                    r.amount_inr ?? '',
+                    r.no_purchase_reason || '',
+                    r.scheme,
+                  ]),
+                  `visit-outcomes-${fromDate}_${toDate}`,
+                )
+              }
+            >
+              Download Excel
+            </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() =>
+                void downloadRoutingTablePdf({
+                  title: 'Final visit results',
+                  from: fromDate,
+                  to: toDate,
+                  headers: ['Customer', 'Result', 'Counters', 'Amount'],
+                  rows: rows.map((r) => [
+                    r.customer_name,
+                    resultLabel(r.final_result),
+                    r.counters_trail,
+                    r.amount_inr != null ? String(r.amount_inr) : '—',
+                  ]),
+                  filename: `visit-outcomes-${fromDate}_${toDate}`,
+                })
+              }
+            >
+              Preview PDF
+            </button>
+          </>
+        ) : null}
       </div>
 
       {rows.length ? (

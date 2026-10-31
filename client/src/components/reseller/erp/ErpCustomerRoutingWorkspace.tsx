@@ -15,6 +15,8 @@ import {
   fetchRoutingBootstrap,
   fetchVisitTimeline,
   fetchRoutingFollowUps,
+  fetchVisitReviewOptions,
+  uploadVisitReviewMedia,
   completeRoutingFollowUp,
   routeCustomerToCounter,
   setStoreGreeter,
@@ -26,7 +28,7 @@ import {
   type RoutingBootstrap,
   type VisitTimeline,
 } from '@/lib/erp-customer-routing'
-import { downloadRoutingReportPdf } from '@/lib/erp-routing-report-pdf'
+import { downloadRoutingReportPdf, downloadRoutingTablePdf } from '@/lib/erp-routing-report-pdf'
 import {
   ErpRoutingCustomerSuggest,
   type RoutingCustomer,
@@ -41,7 +43,7 @@ import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, useErpErrorFlash, 
 import { appPrompt } from '@/lib/app-notice'
 import { fetchCrmSchemes, fetchSchemeStats, type CrmScheme, type SchemeStats, type SchemeTick } from '@/lib/erp-crm'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
-import { erpTodayIso, erpDaysAgoIso } from '@/lib/erp-date-format'
+import { erpTodayIso, erpTodayIstIso, erpDaysAgoIso } from '@/lib/erp-date-format'
 import { useErpOperator } from '@/context/ErpOperatorContext'
 import { cn } from '@/lib/utils'
 import { Loader2, MapPin, Plus, RefreshCw, Route, Trash2, Users, X } from 'lucide-react'
@@ -114,6 +116,12 @@ export function ErpCustomerRoutingWorkspace() {
   const [followUps, setFollowUps] = useState<RoutingFollowUp[]>([])
   const [followUpsBusy, setFollowUpsBusy] = useState(false)
   const [forwardCounterId, setForwardCounterId] = useState<number | ''>('')
+  const [leftShopExit, setLeftShopExit] = useState<'no_purchase' | 'purchased_elsewhere'>('no_purchase')
+  const [reviewOptions, setReviewOptions] = useState<{ id: number; label: string }[]>([])
+  const [reviewSelectedIds, setReviewSelectedIds] = useState<number[]>([])
+  const [reviewNote, setReviewNote] = useState('')
+  const [staffCollectedReview, setStaffCollectedReview] = useState(false)
+  const [reviewFiles, setReviewFiles] = useState<File[]>([])
   const [fromDate, setFromDate] = useState(erpDaysAgoIso(7))
   const [toDate, setToDate] = useState(erpTodayIso())
   const [analytics, setAnalytics] = useState<Awaited<ReturnType<typeof fetchRoutingAnalytics>> | null>(
@@ -152,17 +160,21 @@ export function ErpCustomerRoutingWorkspace() {
     setQueue([])
   }, [boot])
 
-  const reloadFloor = useCallback(async () => {
+  const reloadFloor = useCallback(async (from?: string, to?: string) => {
     if (!boot || (boot.role !== 'greeter' && boot.role !== 'admin')) return
+    const rangeFrom = from ?? floorFrom
+    const rangeTo = to ?? floorTo
     try {
-      const f = await fetchLiveFloor({ from: floorFrom, to: floorTo })
+      const f = await fetchLiveFloor({ from: rangeFrom, to: rangeTo })
       setFloorVisits(f.visits)
       setFloorBusy(f.counters_busy)
       setFloorActiveCount(f.active_count)
+      if (f.range_from) setFloorFrom(f.range_from)
+      if (f.range_to) setFloorTo(f.range_to)
     } catch {
-      /* keep last snapshot */
+      setErr('Could not load live floor for those dates')
     }
-  }, [boot, floorFrom, floorTo])
+  }, [boot, floorFrom, floorTo, setErr])
 
   useEffect(() => {
     void (async () => {
@@ -204,6 +216,12 @@ export function ErpCustomerRoutingWorkspace() {
       .catch(() => setTimeline(null))
       .finally(() => setTimelineLoading(false))
   }, [timelineVisitId])
+
+  useEffect(() => {
+    void fetchVisitReviewOptions()
+      .then(setReviewOptions)
+      .catch(() => setReviewOptions([]))
+  }, [])
 
   useEffect(() => {
     void fetchCrmSchemes(true)
@@ -254,8 +272,28 @@ export function ErpCustomerRoutingWorkspace() {
 
   const submitOutcome = async () => {
     if (!activeQueueId) return
+    if (
+      (outcome === 'forward' || outcome === 'sale_and_forward') &&
+      (forwardCounterId === '' || !Number(forwardCounterId))
+    ) {
+      setErr('Select a counter to forward to')
+      return
+    }
+    if (outcome === 'no_sale' && !noSaleReason.trim()) {
+      setErr('Enter reason for not buying')
+      return
+    }
+    if (outcome === 'left_shop' && leftShopExit === 'no_purchase' && !noSaleReason.trim()) {
+      setErr('Enter reason for not buying at this counter')
+      return
+    }
     setErr('')
     try {
+      const reviewMedia: { url: string; kind: string }[] = []
+      for (const file of reviewFiles) {
+        const up = await uploadVisitReviewMedia(file)
+        reviewMedia.push({ url: up.url, kind: up.kind })
+      }
       await startServingQueueItem(activeQueueId)
       await completeQueueItem(activeQueueId, {
         outcome,
@@ -268,14 +306,27 @@ export function ErpCustomerRoutingWorkspace() {
           outcome === 'sale_closed' || outcome === 'sale_and_forward'
             ? transferToBilling && !billNumber.trim()
             : undefined,
-        purchase_notes: purchaseNotes || undefined,
-        no_sale_reason: noSaleReason || undefined,
+        purchase_notes:
+          outcome === 'left_shop' && leftShopExit === 'purchased_elsewhere'
+            ? purchaseNotes.trim() || 'Customer leaving after purchase at another counter'
+            : purchaseNotes || undefined,
+        no_sale_reason:
+          outcome === 'left_shop' && leftShopExit === 'purchased_elsewhere'
+            ? undefined
+            : noSaleReason || undefined,
+        exit_type:
+          outcome === 'left_shop'
+            ? leftShopExit === 'purchased_elsewhere'
+              ? 'purchased_elsewhere'
+              : 'no_purchase'
+            : undefined,
         forward_counter_id:
           outcome === 'forward' || outcome === 'sale_and_forward'
             ? Number(forwardCounterId)
             : undefined,
         follow_up:
-          followUpWanted && (outcome === 'no_sale' || outcome === 'left_shop')
+          followUpWanted &&
+          (outcome === 'no_sale' || (outcome === 'left_shop' && leftShopExit === 'no_purchase'))
             ? {
                 required: true,
                 follow_up_at: followUpDate || undefined,
@@ -284,6 +335,10 @@ export function ErpCustomerRoutingWorkspace() {
                 remarks: followUpRemarks || noSaleReason || undefined,
               }
             : undefined,
+        review_option_ids: outcome === 'left_shop' ? reviewSelectedIds : undefined,
+        customer_review_note: outcome === 'left_shop' ? reviewNote.trim() || undefined : undefined,
+        staff_collected_review: outcome === 'left_shop' ? staffCollectedReview : undefined,
+        review_media: outcome === 'left_shop' && reviewMedia.length ? reviewMedia : undefined,
         schemes: Object.values(schemeTicks).filter((t) => t.explained || t.interested || t.joined),
       })
       setMsg(
@@ -306,6 +361,12 @@ export function ErpCustomerRoutingWorkspace() {
       setFollowUpDate('')
       setFollowUpRemarks('')
       setSchemeTicks({})
+      setLeftShopExit('no_purchase')
+      setReviewSelectedIds([])
+      setReviewNote('')
+      setStaffCollectedReview(false)
+      setReviewFiles([])
+      setForwardCounterId('')
       await Promise.all([reloadQueue(), reloadFloor()])
     } catch (e: unknown) {
       const m =
@@ -483,16 +544,17 @@ export function ErpCustomerRoutingWorkspace() {
                 onChange={(e) => setFloorTo(e.target.value)}
               />
             </label>
-            <button type="button" className={erpBtnGhost} onClick={() => void reloadFloor()}>
+            <button type="button" className={erpBtnGhost} onClick={() => void reloadFloor(floorFrom, floorTo)}>
               Apply dates
             </button>
             <button
               type="button"
               className={erpBtnGhost}
               onClick={() => {
-                const t = erpTodayIso()
+                const t = erpTodayIstIso()
                 setFloorFrom(t)
                 setFloorTo(t)
+                void reloadFloor(t, t)
               }}
             >
               Today
@@ -766,7 +828,7 @@ export function ErpCustomerRoutingWorkspace() {
               />
             </div>
           )}
-          {(outcome === 'no_sale' || outcome === 'left_shop') && (
+          {(outcome === 'no_sale' || (outcome === 'left_shop' && leftShopExit === 'no_purchase')) && (
             <div className="space-y-2">
               <select
                 className={erpInputCls}
@@ -854,6 +916,95 @@ export function ErpCustomerRoutingWorkspace() {
               ) : null}
             </div>
           )}
+          {outcome === 'left_shop' ? (
+            <div className="space-y-3 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                Leaving shop
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <label className="flex min-h-[44px] flex-1 cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                  <input
+                    type="radio"
+                    name="leftShopExit"
+                    checked={leftShopExit === 'no_purchase'}
+                    onChange={() => setLeftShopExit('no_purchase')}
+                    className="accent-[var(--kc-accent,#c41e3a)]"
+                  />
+                  No purchase at this counter
+                </label>
+                <label className="flex min-h-[44px] flex-1 cursor-pointer items-center gap-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] px-3 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                  <input
+                    type="radio"
+                    name="leftShopExit"
+                    checked={leftShopExit === 'purchased_elsewhere'}
+                    onChange={() => setLeftShopExit('purchased_elsewhere')}
+                    className="accent-[var(--kc-accent,#c41e3a)]"
+                  />
+                  Already purchased at another counter
+                </label>
+              </div>
+              {leftShopExit === 'purchased_elsewhere' ? (
+                <input
+                  className={erpInputCls}
+                  placeholder="Optional note (e.g. billing done at Ring counter)"
+                  value={purchaseNotes}
+                  onChange={(e) => setPurchaseNotes(e.target.value)}
+                />
+              ) : null}
+              <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">Customer review</p>
+              <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                <input
+                  type="checkbox"
+                  checked={staffCollectedReview}
+                  onChange={(e) => setStaffCollectedReview(e.target.checked)}
+                  className="size-4 accent-[var(--kc-accent,#c41e3a)]"
+                />
+                Staff collected customer feedback
+              </label>
+              {reviewOptions.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {reviewOptions.map((o) => {
+                    const on = reviewSelectedIds.includes(o.id)
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() =>
+                          setReviewSelectedIds((ids) =>
+                            on ? ids.filter((x) => x !== o.id) : [...ids, o.id],
+                          )
+                        }
+                        className={cn(
+                          'min-h-[36px] rounded-lg border px-2.5 text-xs font-semibold',
+                          on
+                            ? 'border-[var(--kc-accent,#c41e3a)]/40 bg-[var(--kc-accent,#c41e3a)]/[0.08] text-[var(--color-jewelry-black,#1a1814)]'
+                            : 'border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/75',
+                        )}
+                      >
+                        {o.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+              <textarea
+                className={`${erpInputCls} min-h-[72px] w-full`}
+                placeholder="Review notes (optional)"
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+              />
+              <label className="block text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Photo / video / voice note
+                <input
+                  type="file"
+                  accept="image/*,video/*,audio/*"
+                  multiple
+                  className="mt-1 block w-full text-sm text-[var(--color-jewelry-black,#1a1814)]"
+                  onChange={(e) => setReviewFiles(Array.from(e.target.files || []))}
+                />
+              </label>
+            </div>
+          ) : null}
           {(outcome === 'forward' || outcome === 'sale_and_forward') && (
             <select
               className={erpInputCls}
@@ -959,7 +1110,11 @@ export function ErpCustomerRoutingWorkspace() {
           ) : adminTab === 'live-stations' ? (
             <ErpRoutingLiveStationsPanel />
           ) : adminTab === 'follow-ups' ? (
-            <ErpRoutingFollowUpReport onMsg={setMsg} onErr={setErr} />
+            <ErpRoutingFollowUpReport
+              onMsg={setMsg}
+              onErr={setErr}
+              jainavUnlocked={shadowUnlocked && operator?.role === 'admin'}
+            />
           ) : adminTab === 'schemes' ? (
             <ErpRoutingSchemesPanel onErr={setErr} />
           ) : adminTab === 'visit-outcomes' ? (
@@ -1186,27 +1341,6 @@ export function ErpCustomerRoutingWorkspace() {
                       </tbody>
                     </table>
                   </div>
-                  {schemeStats ? (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
-                        Schemes explained
-                      </p>
-                      <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]">
-                        {schemeStats.totals.explained} explained · {schemeStats.totals.interested} interested ·{' '}
-                        {schemeStats.totals.joined} joined · {schemeStats.join_rate_pct}% join rate
-                      </p>
-                      <ul className="mt-2 space-y-1 text-sm">
-                        {schemeStats.schemes.map((s) => (
-                          <li key={s.id} className="flex justify-between gap-2 text-[var(--color-jewelry-black,#1a1814)]">
-                            <span>{s.name}</span>
-                            <span className="tabular-nums font-medium">
-                              {s.explained}/{s.interested}/{s.joined}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
                   {analytics.lost_sale_reasons.length ? (
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">

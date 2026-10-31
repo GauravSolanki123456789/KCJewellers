@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   completeRoutingFollowUp,
+  deleteRoutingFollowUp,
+  exportTableExcel,
   fetchRoutingFollowUps,
   type RoutingFollowUp,
 } from '@/lib/erp-customer-routing'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { downloadRoutingTablePdf } from '@/lib/erp-routing-report-pdf'
 import { appPrompt } from '@/lib/app-notice'
 import { cn } from '@/lib/utils'
 import { Clock, Loader2 } from 'lucide-react'
@@ -14,6 +17,7 @@ import { Clock, Loader2 } from 'lucide-react'
 type Props = {
   onMsg?: (m: string) => void
   onErr?: (m: string) => void
+  jainavUnlocked?: boolean
 }
 
 function badge(cls: string, label: string) {
@@ -24,7 +28,7 @@ function badge(cls: string, label: string) {
   )
 }
 
-export function ErpRoutingFollowUpReport({ onMsg, onErr }: Props) {
+export function ErpRoutingFollowUpReport({ onMsg, onErr, jainavUnlocked }: Props) {
   const [rows, setRows] = useState<RoutingFollowUp[]>([])
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'completed'>('all')
   const [busy, setBusy] = useState(false)
@@ -122,6 +126,50 @@ export function ErpRoutingFollowUpReport({ onMsg, onErr }: Props) {
               {busy ? <Loader2 className="size-4 animate-spin" /> : null}
               Refresh
             </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() =>
+                void exportTableExcel(
+                  'Follow-ups',
+                  ['Customer', 'Mobile', 'Source', 'Counter', 'Staff', 'Reason', 'Due', 'Status'],
+                  filtered.map((f) => [
+                    f.customer_name,
+                    f.customer_mobile || '',
+                    f.source,
+                    f.counter_name || '',
+                    f.operator_name || '',
+                    f.remarks || '',
+                    f.follow_up_at || f.created_at,
+                    f.status,
+                  ]),
+                  'follow-ups-report',
+                )
+              }
+            >
+              Download Excel
+            </button>
+            <button
+              type="button"
+              className={erpBtnGhost}
+              onClick={() =>
+                void downloadRoutingTablePdf({
+                  title: 'Follow-up report',
+                  from: '—',
+                  to: '—',
+                  headers: ['Customer', 'Source', 'Counter', 'Status'],
+                  rows: filtered.map((f) => [
+                    f.customer_name,
+                    f.source,
+                    f.counter_name || '—',
+                    f.status,
+                  ]),
+                  filename: 'follow-ups-report',
+                })
+              }
+            >
+              Preview PDF
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -167,13 +215,29 @@ export function ErpRoutingFollowUpReport({ onMsg, onErr }: Props) {
                       : badge('bg-amber-100 text-amber-900', 'Pending')}
                   </td>
                   <td className="py-2">
-                    {f.status !== 'completed' ? (
-                      <button type="button" className={erpBtnGhost} onClick={() => void markDone(f.id)}>
-                        Complete
-                      </button>
-                    ) : (
-                      <span className="text-xs text-[var(--color-jewelry-black,#1a1814)]/45">—</span>
-                    )}
+                    <div className="flex flex-wrap gap-1">
+                      {f.status !== 'completed' ? (
+                        <button type="button" className={erpBtnGhost} onClick={() => void markDone(f.id)}>
+                          Complete
+                        </button>
+                      ) : null}
+                      {jainavUnlocked ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-rose-700"
+                          onClick={() => {
+                            void deleteRoutingFollowUp(f.id)
+                              .then(() => {
+                                onMsg?.('Follow-up deleted')
+                                return load()
+                              })
+                              .catch(() => onErr?.('Delete failed'))
+                          }}
+                        >
+                          Delete
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

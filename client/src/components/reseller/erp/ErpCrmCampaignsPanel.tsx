@@ -353,11 +353,6 @@ export function ErpCrmCampaignsPanel() {
                   {s.details ? (
                     <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/60">{s.details}</p>
                   ) : null}
-                  {row ? (
-                    <p className="mt-0.5 text-[11px] tabular-nums text-[var(--color-jewelry-black,#1a1814)]/55">
-                      Explained {row.explained} · Interested {row.interested} · Joined {row.joined}
-                    </p>
-                  ) : null}
                 </div>
                 <div className="flex gap-2">
                   <button

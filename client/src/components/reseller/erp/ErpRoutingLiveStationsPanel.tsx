@@ -40,9 +40,6 @@ export function ErpRoutingLiveStationsPanel() {
             <Radio className="mr-1 inline size-4 text-[var(--kc-accent,#c41e3a)]" />
             Live counter station
           </p>
-          <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-            Real-time counters, waiting customers and today&apos;s sales — refreshes every 5s.
-          </p>
         </div>
         {busy ? <Loader2 className="size-5 animate-spin text-[var(--color-jewelry-black,#1a1814)]/40" /> : null}
       </div>

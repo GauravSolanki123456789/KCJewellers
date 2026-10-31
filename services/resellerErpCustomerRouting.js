@@ -13,6 +13,9 @@ const {
     loadSalespersonPerformance,
 } = require('./resellerErpRoutingReports');
 const { ensureCrmSchema } = require('./resellerErpCrm');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 
 const ROUTING_MODULE = 'customer-routing';
 
@@ -141,6 +144,23 @@ async function ensureCustomerRoutingSchema(pool) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (reseller_user_id, operator_id, period_type, period_key)
         );
+
+        CREATE TABLE IF NOT EXISTS reseller_erp_visit_review_options (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            label VARCHAR(200) NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        ALTER TABLE reseller_erp_visit_interactions
+            ADD COLUMN IF NOT EXISTS exit_type VARCHAR(32),
+            ADD COLUMN IF NOT EXISTS customer_review_option_ids INTEGER[],
+            ADD COLUMN IF NOT EXISTS customer_review_note TEXT,
+            ADD COLUMN IF NOT EXISTS customer_review_media JSONB,
+            ADD COLUMN IF NOT EXISTS staff_collected_review BOOLEAN NOT NULL DEFAULT false;
     `);
 }
 
@@ -443,11 +463,39 @@ async function getVisitContext(query, userId, visitId) {
     return rows[0] || null;
 }
 
+async function ensureDefaultReviewOptions(query, userId) {
+    const rows = await query(
+        `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_review_options WHERE reseller_user_id = $1`,
+        [userId],
+    );
+    if (Number(rows[0]?.n || 0) > 0) return;
+    const defaults = [
+        'Lightweight collections',
+        'Good designs',
+        'Helpful staff',
+        'Fair pricing',
+        'Wide variety',
+    ];
+    for (let i = 0; i < defaults.length; i++) {
+        await query(
+            `INSERT INTO reseller_erp_visit_review_options (reseller_user_id, label, sort_order)
+             VALUES ($1, $2, $3)`,
+            [userId, defaults[i], i],
+        );
+    }
+}
+
 function registerResellerErpCustomerRoutingRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate } = deps;
     const gate = routingGate();
     const jainavDelete = requireJainavUnlockedAdmin();
     const routingAdmin = routingAdminOnly();
+    const reviewUploadDir = path.join(__dirname, '..', 'public', 'uploads', 'erp-routing-reviews');
+    fs.mkdirSync(reviewUploadDir, { recursive: true });
+    const reviewUpload = multer({
+        storage: multer.memoryStorage(),
+        limits: { fileSize: 25 * 1024 * 1024 },
+    });
 
     ensureCustomerRoutingSchema(pool).catch((e) =>
         console.warn('customer routing schema:', e.message),
@@ -845,18 +893,37 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                 if (!isAdminOp(op) && row.incharge_operator_id !== op.id) {
                     return res.status(403).json({ error: 'Not incharge of this counter' });
                 }
-                if (outcome === 'no_sale' || outcome === 'left_shop') {
+                if (outcome === 'no_sale') {
                     const reason = String(req.body.no_sale_reason || '').trim();
                     if (!reason) {
                         return res.status(400).json({ error: 'Reason for not buying is required' });
                     }
                 }
-                const forwardId =
-                    outcome === 'forward' || outcome === 'sale_and_forward'
-                        ? parseInt(String(req.body.forward_counter_id), 10)
-                        : null;
-                if ((outcome === 'forward' || outcome === 'sale_and_forward') && !Number.isFinite(forwardId)) {
-                    return res.status(400).json({ error: 'forward_counter_id required' });
+                const exitType = String(req.body.exit_type || '').trim().slice(0, 32) || null;
+                if (outcome === 'left_shop') {
+                    const purchasedElsewhere =
+                        exitType === 'purchased_elsewhere' || exitType === 'already_purchased';
+                    if (!purchasedElsewhere) {
+                        const reason = String(req.body.no_sale_reason || '').trim();
+                        if (!reason) {
+                            return res.status(400).json({ error: 'Reason for not buying is required' });
+                        }
+                    }
+                }
+                let forwardId = null;
+                if (outcome === 'forward' || outcome === 'sale_and_forward') {
+                    forwardId = parseInt(String(req.body.forward_counter_id), 10);
+                    if (!Number.isFinite(forwardId) || forwardId <= 0) {
+                        return res.status(400).json({ error: 'forward_counter_id required' });
+                    }
+                    const fcCheck = await query(
+                        `SELECT id FROM reseller_erp_store_counters
+                         WHERE id = $1 AND reseller_user_id = $2 AND is_active = true LIMIT 1`,
+                        [forwardId, req.user.id],
+                    );
+                    if (!fcCheck.length) {
+                        return res.status(400).json({ error: 'Choose a valid counter to forward to' });
+                    }
                 }
                 const billAmount = parseFloat(String(req.body.bill_amount_inr || '').replace(/,/g, ''));
                 const estimationNumber = String(req.body.estimation_number || '').trim().slice(0, 64) || null;
@@ -868,12 +935,25 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     isSaleOutcome &&
                     req.body.transfer_to_billing !== false &&
                     !invoiceAtCounter;
+                const reviewOptionIds = Array.isArray(req.body.review_option_ids)
+                    ? req.body.review_option_ids
+                          .map((x) => parseInt(String(x), 10))
+                          .filter((n) => Number.isFinite(n) && n > 0)
+                    : [];
+                const reviewNote = String(req.body.customer_review_note || '').trim().slice(0, 4000) || null;
+                const reviewMedia =
+                    req.body.review_media && typeof req.body.review_media === 'object'
+                        ? req.body.review_media
+                        : null;
+                const staffCollectedReview = req.body.staff_collected_review === true;
                 const interactionRows = await query(
                     `INSERT INTO reseller_erp_visit_interactions (
                         visit_id, queue_id, counter_id, operator_id, outcome,
                         bill_number, bill_amount_inr, purchase_notes, no_sale_reason, forward_counter_id,
-                        estimation_number, gross_weight_gm, net_weight_gm
-                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                        estimation_number, gross_weight_gm, net_weight_gm,
+                        exit_type, customer_review_option_ids, customer_review_note,
+                        customer_review_media, staff_collected_review
+                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                      RETURNING id`,
                     [
                         row.visit_id,
@@ -885,10 +965,15 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         Number.isFinite(billAmount) ? billAmount : null,
                         String(req.body.purchase_notes || '').trim().slice(0, 2000) || null,
                         String(req.body.no_sale_reason || '').trim().slice(0, 2000) || null,
-                        Number.isFinite(forwardId) ? forwardId : null,
+                        forwardId,
                         estimationNumber,
                         grossGm,
                         netGm,
+                        exitType,
+                        reviewOptionIds.length ? reviewOptionIds : null,
+                        reviewNote,
+                        reviewMedia,
+                        staffCollectedReview,
                     ],
                 );
                 const interactionId = interactionRows[0]?.id || null;
@@ -1194,6 +1279,19 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     return res.status(400).json({ error: 'operator_id required' });
                 }
                 if (!periodKey) return res.status(400).json({ error: 'period_key required' });
+                const clearTarget =
+                    req.body.clear === true ||
+                    req.body.target_amount_inr === null ||
+                    String(req.body.target_amount_inr ?? '').trim() === '';
+                if (clearTarget) {
+                    await query(
+                        `DELETE FROM reseller_erp_operator_sales_targets
+                         WHERE reseller_user_id = $1 AND operator_id = $2
+                           AND period_type = $3 AND period_key = $4`,
+                        [req.user.id, operatorId, periodType, periodKey],
+                    );
+                    return res.json({ success: true, cleared: true });
+                }
                 if (!Number.isFinite(target) || target < 0) {
                     return res.status(400).json({ error: 'Invalid target amount' });
                 }
@@ -1356,6 +1454,15 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                 }
                 const visit = await getVisitContext(query, req.user.id, visitId);
                 if (!visit) return res.status(404).json({ error: 'Visit not found' });
+                await query(
+                    `DELETE FROM reseller_erp_visit_scheme_logs WHERE visit_id = $1 AND reseller_user_id = $2`,
+                    [visitId, req.user.id],
+                ).catch(() => undefined);
+                await query(
+                    `DELETE FROM reseller_erp_visit_follow_ups WHERE visit_id = $1 AND reseller_user_id = $2`,
+                    [visitId, req.user.id],
+                );
+                await query(`DELETE FROM reseller_erp_visit_billing_queue WHERE visit_id = $1`, [visitId]);
                 await query(`DELETE FROM reseller_erp_visit_interactions WHERE visit_id = $1`, [visitId]);
                 await query(`DELETE FROM reseller_erp_visit_queue WHERE visit_id = $1`, [visitId]);
                 await query(
@@ -1618,6 +1725,166 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                 res.json({ success: true, follow_up: rows[0] });
             } catch (e) {
                 res.status(500).json({ error: e.message || 'Failed to update follow-up' });
+            }
+        },
+    );
+
+    app.get('/api/reseller/erp/customer-routing/review-options', checkAuth, erpGate, gate, async (req, res) => {
+        try {
+            await ensureDefaultReviewOptions(query, req.user.id);
+            const rows = await query(
+                `SELECT id, label, sort_order, is_active FROM reseller_erp_visit_review_options
+                 WHERE reseller_user_id = $1 AND is_active = true
+                 ORDER BY sort_order, id`,
+                [req.user.id],
+            );
+            res.json({ options: rows });
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Failed to load review options' });
+        }
+    });
+
+    app.get(
+        '/api/reseller/erp/customer-routing/review-options/manage',
+        checkAuth,
+        erpGate,
+        gate,
+        routingAdmin,
+        async (req, res) => {
+            try {
+                await ensureDefaultReviewOptions(query, req.user.id);
+                const rows = await query(
+                    `SELECT id, label, sort_order, is_active FROM reseller_erp_visit_review_options
+                     WHERE reseller_user_id = $1 ORDER BY sort_order, id`,
+                    [req.user.id],
+                );
+                res.json({ options: rows });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to load review options' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/customer-routing/review-options',
+        checkAuth,
+        erpGate,
+        gate,
+        routingAdmin,
+        requireJson,
+        async (req, res) => {
+            try {
+                const label = String(req.body.label || '').trim().slice(0, 200);
+                if (!label) return res.status(400).json({ error: 'Label required' });
+                const rows = await query(
+                    `INSERT INTO reseller_erp_visit_review_options (reseller_user_id, label, sort_order)
+                     VALUES ($1, $2, COALESCE($3::int, 0)) RETURNING *`,
+                    [req.user.id, label, parseInt(String(req.body.sort_order || '0'), 10) || 0],
+                );
+                res.json({ option: rows[0] });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to add option' });
+            }
+        },
+    );
+
+    app.patch(
+        '/api/reseller/erp/customer-routing/review-options/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        routingAdmin,
+        requireJson,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                const label = String(req.body.label || '').trim().slice(0, 200);
+                if (!label) return res.status(400).json({ error: 'Label required' });
+                const rows = await query(
+                    `UPDATE reseller_erp_visit_review_options SET label = $3, sort_order = COALESCE($4, sort_order), updated_at = NOW()
+                     WHERE id = $1 AND reseller_user_id = $2 RETURNING *`,
+                    [
+                        id,
+                        req.user.id,
+                        label,
+                        req.body.sort_order != null ? parseInt(String(req.body.sort_order), 10) : null,
+                    ],
+                );
+                if (!rows.length) return res.status(404).json({ error: 'Not found' });
+                res.json({ option: rows[0] });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to update option' });
+            }
+        },
+    );
+
+    app.delete(
+        '/api/reseller/erp/customer-routing/review-options/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        routingAdmin,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                await query(
+                    `UPDATE reseller_erp_visit_review_options SET is_active = false, updated_at = NOW()
+                     WHERE id = $1 AND reseller_user_id = $2`,
+                    [id, req.user.id],
+                );
+                res.json({ success: true });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to delete option' });
+            }
+        },
+    );
+
+    app.post(
+        '/api/reseller/erp/customer-routing/review-media',
+        checkAuth,
+        erpGate,
+        gate,
+        reviewUpload.single('file'),
+        async (req, res) => {
+            try {
+                if (!req.file?.buffer?.length) {
+                    return res.status(400).json({ error: 'File required' });
+                }
+                const ext = path.extname(req.file.originalname || '').slice(0, 8) || '.bin';
+                const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '') || '.bin';
+                const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+                const destDir = path.join(reviewUploadDir, String(req.user.id));
+                fs.mkdirSync(destDir, { recursive: true });
+                fs.writeFileSync(path.join(destDir, filename), req.file.buffer);
+                const url = `/uploads/erp-routing-reviews/${req.user.id}/${filename}`;
+                const kind = String(req.file.mimetype || '').startsWith('video/')
+                    ? 'video'
+                    : String(req.file.mimetype || '').startsWith('audio/')
+                      ? 'audio'
+                      : 'image';
+                res.json({ url, kind, mime: req.file.mimetype || null });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Upload failed' });
+            }
+        },
+    );
+
+    app.delete(
+        '/api/reseller/erp/customer-routing/follow-ups/:id',
+        checkAuth,
+        erpGate,
+        gate,
+        jainavDelete,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id), 10);
+                await query(`DELETE FROM reseller_erp_visit_follow_ups WHERE id = $1 AND reseller_user_id = $2`, [
+                    id,
+                    req.user.id,
+                ]);
+                res.json({ success: true });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to delete follow-up' });
             }
         },
     );

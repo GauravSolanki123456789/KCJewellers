@@ -104,6 +104,14 @@ export function erpTodayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** ISO yyyy-mm-dd for today in IST (matches routing floor API). */
+export function erpTodayIstIso(): string {
+  const d = new Date()
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 60_000
+  const ist = new Date(utcMs + 330 * 60_000)
+  return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`
+}
+
 /** ISO yyyy-mm-dd for N calendar days ago (0 = today). */
 export function erpDaysAgoIso(daysAgo: number): string {
   const d = new Date()
