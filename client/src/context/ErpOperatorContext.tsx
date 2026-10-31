@@ -11,6 +11,7 @@ import {
 } from 'react'
 import axios from '@/lib/axios'
 import type { ResellerErpModuleId } from '@/lib/reseller-erp-modules'
+import { useAuth } from '@/hooks/useAuth'
 
 export type ErpOperator = {
   id: number
@@ -63,6 +64,9 @@ function operatorHasModule(allowedModules: string[], moduleId: string): boolean 
 }
 
 export function ErpOperatorProvider({ children }: { children: ReactNode }) {
+  const auth = useAuth()
+  const authUserId = (auth.user as { id?: number } | undefined)?.id
+  const authLogin = (auth.user as { email?: string } | undefined)?.email
   const [operator, setOperator] = useState<ErpOperator | null>(null)
   const [shadowUnlocked, setShadowUnlocked] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -84,7 +88,7 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh()
-  }, [refresh])
+  }, [refresh, authUserId, authLogin])
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await axios.post<{ operator: ErpOperator }>('/api/reseller/erp/operators/login', {

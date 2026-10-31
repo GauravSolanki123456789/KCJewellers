@@ -7,7 +7,7 @@ import {
   RESELLER_ERP_MODULES,
   type ResellerErpModuleId,
 } from '@/lib/reseller-erp-modules'
-import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { appConfirm } from '@/lib/app-notice'
 import type { ErpOperator } from '@/context/ErpOperatorContext'
 import {
@@ -21,7 +21,7 @@ export function ErpUsersWorkspace() {
   const [operators, setOperators] = useState<OperatorRow[]>([])
   const [moduleIds, setModuleIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [formOpen, setFormOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState({

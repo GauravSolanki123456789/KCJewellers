@@ -12,6 +12,7 @@ const {
     loadCounterWiseReport,
     loadSalespersonPerformance,
 } = require('./resellerErpRoutingReports');
+const { ensureCrmSchema } = require('./resellerErpCrm');
 
 const ROUTING_MODULE = 'customer-routing';
 
@@ -343,6 +344,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
     ensureCustomerRoutingSchema(pool).catch((e) =>
         console.warn('customer routing schema:', e.message),
     );
+    ensureCrmSchema(pool).catch((e) => console.warn('crm schema:', e.message));
 
     app.get('/api/reseller/erp/customer-routing/bootstrap', checkAuth, erpGate, gate, async (req, res) => {
         try {
@@ -867,6 +869,37 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         );
                     }
                 }
+                const schemeTicks = Array.isArray(req.body.schemes) ? req.body.schemes : [];
+                for (const tick of schemeTicks) {
+                    const schemeId = parseInt(String(tick.scheme_id || tick.id), 10);
+                    if (!Number.isFinite(schemeId)) continue;
+                    const explained = tick.explained !== false;
+                    const interested = tick.interested === true;
+                    const joined = tick.joined === true;
+                    if (!explained && !interested && !joined) continue;
+                    const owned = await query(
+                        `SELECT id FROM reseller_erp_schemes
+                         WHERE id = $1 AND reseller_user_id = $2 AND is_active = true LIMIT 1`,
+                        [schemeId, req.user.id],
+                    );
+                    if (!owned.length) continue;
+                    await query(
+                        `INSERT INTO reseller_erp_visit_scheme_logs (
+                            reseller_user_id, visit_id, interaction_id, operator_id, scheme_id,
+                            explained, interested, joined
+                         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+                        [
+                            req.user.id,
+                            row.visit_id,
+                            interactionId,
+                            op.id,
+                            schemeId,
+                            explained,
+                            interested,
+                            joined,
+                        ],
+                    );
+                }
                 await query(
                     `UPDATE reseller_erp_visit_queue SET status = 'completed', completed_at = NOW() WHERE id = $1`,
                     [qid],
@@ -938,9 +971,6 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                 const op = req.erpOperator;
                 const id = parseInt(String(req.params.id), 10);
                 const invoice = String(req.body.invoice_number || req.body.bill_number || '').trim();
-                if (!invoice) {
-                    return res.status(400).json({ error: 'Invoice / bill number is required' });
-                }
                 const rows = await query(
                     `SELECT * FROM reseller_erp_visit_billing_queue
                      WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
@@ -966,7 +996,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         updated_at = NOW()
                      WHERE id = $6`,
                     [
-                        invoice.slice(0, 64),
+                        invoice.slice(0, 64) || null,
                         paymentMode,
                         paymentStatus,
                         Number.isFinite(payAmount) ? payAmount : row.estimated_amount_inr,
@@ -974,7 +1004,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                         id,
                     ],
                 );
-                if (row.interaction_id) {
+                if (row.interaction_id && invoice) {
                     await query(
                         `UPDATE reseller_erp_visit_interactions SET bill_number = $1
                          WHERE id = $2`,

@@ -1,4 +1,8 @@
+'use client'
+
 import type { DesignCatalogProduct } from '@/lib/erp-catalog-product'
+
+export { useErpErrorFlash, useErpFlash, useFlashNotice } from '@/hooks/useFlashNotice'
 
 export const erpInputCls =
   'min-h-[44px] w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm text-[var(--color-jewelry-black,#1a1814)] outline-none focus:border-[var(--kc-accent,#c41e3a)]/50'

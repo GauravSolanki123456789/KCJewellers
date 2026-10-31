@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCart } from '@/context/CartContext'
-import { useAuth } from '@/hooks/useAuth'
+import { invalidateAuthCache, useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import {
   Home,
@@ -137,6 +137,7 @@ export default function Navbar() {
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
+      invalidateAuthCache()
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
       window.location.href = vanityWebsiteHome ? '/' : HOME_PATH
     } catch (error) {
@@ -235,7 +236,7 @@ export default function Navbar() {
                 </div>
               )}
 
-              {!auth.isAuthenticated && (
+              {auth.hasChecked && !auth.isAuthenticated && (
                 <button
                   type="button"
                   onClick={() => openLoginModal(returnTo)}
@@ -245,7 +246,7 @@ export default function Navbar() {
                 </button>
               )}
 
-              {auth.isAuthenticated && user && (
+              {auth.hasChecked && auth.isAuthenticated && user && (
                 <>
                   <Link
                     href={PROFILE_PATH}

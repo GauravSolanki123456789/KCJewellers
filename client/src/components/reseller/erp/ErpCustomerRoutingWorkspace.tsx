@@ -33,7 +33,9 @@ import {
 } from '@/components/reseller/erp/ErpRoutingCustomerSuggest'
 import { ErpRoutingBillingQueue } from '@/components/reseller/erp/ErpRoutingBillingQueue'
 import { ErpRoutingManagementDashboard } from '@/components/reseller/erp/ErpRoutingManagementDashboard'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, useErpErrorFlash, useErpFlash } from '@/components/reseller/erp/erp-ui'
+import { appPrompt } from '@/lib/app-notice'
+import { fetchCrmSchemes, fetchSchemeStats, type CrmScheme, type SchemeStats, type SchemeTick } from '@/lib/erp-crm'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { erpTodayIso, erpDaysAgoIso } from '@/lib/erp-date-format'
 import { useErpOperator } from '@/context/ErpOperatorContext'
@@ -65,8 +67,11 @@ export function ErpCustomerRoutingWorkspace() {
   const { operator, shadowUnlocked } = useErpOperator()
   const [boot, setBoot] = useState<RoutingBootstrap | null>(null)
   const [loading, setLoading] = useState(true)
-  const [msg, setMsg] = useState('')
-  const [err, setErr] = useState('')
+  const [msg, setMsg] = useErpFlash()
+  const [err, setErr] = useErpErrorFlash()
+  const [schemes, setSchemes] = useState<CrmScheme[]>([])
+  const [schemeTicks, setSchemeTicks] = useState<Record<number, SchemeTick>>({})
+  const [schemeStats, setSchemeStats] = useState<SchemeStats | null>(null)
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [operators, setOperators] = useState<{ id: number; displayName: string }[]>([])
   const [pickedCustomer, setPickedCustomer] = useState<RoutingCustomer | null>(null)
@@ -188,6 +193,12 @@ export function ErpCustomerRoutingWorkspace() {
   }, [timelineVisitId])
 
   useEffect(() => {
+    void fetchCrmSchemes(true)
+      .then(setSchemes)
+      .catch(() => setSchemes([]))
+  }, [])
+
+  useEffect(() => {
     if (boot?.role !== 'admin') return
     void axios
       .get<{ operators: { id: number; displayName: string; role: string }[] }>(
@@ -259,6 +270,7 @@ export function ErpCustomerRoutingWorkspace() {
                 remarks: followUpRemarks || noSaleReason || undefined,
               }
             : undefined,
+        schemes: Object.values(schemeTicks).filter((t) => t.explained || t.interested || t.joined),
       })
       setMsg(
         (outcome === 'sale_closed' || outcome === 'sale_and_forward') &&
@@ -279,6 +291,7 @@ export function ErpCustomerRoutingWorkspace() {
       setFollowUpWanted(false)
       setFollowUpDate('')
       setFollowUpRemarks('')
+      setSchemeTicks({})
       await Promise.all([reloadQueue(), reloadFloor()])
     } catch (e: unknown) {
       const m =
@@ -292,16 +305,18 @@ export function ErpCustomerRoutingWorkspace() {
   const loadAnalytics = async () => {
     setReportBusy(true)
     try {
-      const [data, openFollowUps] = await Promise.all([
+      const [data, openFollowUps, schemeData] = await Promise.all([
         fetchRoutingAnalytics({
           from: fromDate,
           to: toDate,
           view: reportView,
         }),
         fetchRoutingFollowUps('open').catch(() => [] as RoutingFollowUp[]),
+        fetchSchemeStats(fromDate, toDate).catch(() => null),
       ])
       setAnalytics(data)
       setFollowUps(openFollowUps)
+      setSchemeStats(schemeData)
     } catch {
       setErr('Failed to load analytics')
     } finally {
@@ -815,6 +830,44 @@ export function ErpCustomerRoutingWorkspace() {
                 ))}
             </select>
           )}
+          {schemes.length ? (
+            <div className="space-y-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                Schemes explained
+              </p>
+              <ul className="space-y-2">
+                {schemes.map((s) => {
+                  const tick = schemeTicks[s.id] || { scheme_id: s.id }
+                  return (
+                    <li key={s.id} className="rounded-lg border border-[var(--color-slate-700,#e8e4df)]/70 p-2">
+                      <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">{s.name}</p>
+                      {s.details ? (
+                        <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{s.details}</p>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--color-jewelry-black,#1a1814)]">
+                        {(['explained', 'interested', 'joined'] as const).map((k) => (
+                          <label key={k} className="inline-flex min-h-[36px] items-center gap-1.5 capitalize">
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-[var(--kc-accent,#c41e3a)]"
+                              checked={!!tick[k]}
+                              onChange={(e) =>
+                                setSchemeTicks((prev) => ({
+                                  ...prev,
+                                  [s.id]: { ...tick, scheme_id: s.id, [k]: e.target.checked },
+                                }))
+                              }
+                            />
+                            {k}
+                          </label>
+                        ))}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={erpBtnPrimary} onClick={() => void submitOutcome()}>
               Save & clear queue
@@ -1040,8 +1093,10 @@ export function ErpCustomerRoutingWorkspace() {
                           className={erpBtnGhost}
                           disabled={followUpsBusy}
                           onClick={() => {
-                            const result = window.prompt('Result / customer response (optional)') || ''
-                            void markFollowUpDone(f.id, result)
+                            void appPrompt('Result / customer response (optional)').then((result) => {
+                              if (result == null) return
+                              void markFollowUpDone(f.id, result)
+                            })
                           }}
                         >
                           Mark done
@@ -1079,6 +1134,27 @@ export function ErpCustomerRoutingWorkspace() {
                       </tbody>
                     </table>
                   </div>
+                  {schemeStats ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">
+                        Schemes explained
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]">
+                        {schemeStats.totals.explained} explained · {schemeStats.totals.interested} interested ·{' '}
+                        {schemeStats.totals.joined} joined · {schemeStats.join_rate_pct}% join rate
+                      </p>
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {schemeStats.schemes.map((s) => (
+                          <li key={s.id} className="flex justify-between gap-2 text-[var(--color-jewelry-black,#1a1814)]">
+                            <span>{s.name}</span>
+                            <span className="tabular-nums font-medium">
+                              {s.explained}/{s.interested}/{s.joined}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {analytics.lost_sale_reasons.length ? (
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-jewelry-black,#1a1814)]/50">

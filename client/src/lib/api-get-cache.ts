@@ -18,6 +18,9 @@ export function cachedGet<T>(
   fetcher: () => Promise<T>,
   ttlMs = DEFAULT_TTL_MS,
 ): Promise<T> {
+  if (typeof window === 'undefined') {
+    return fetcher()
+  }
   const key = cacheKey(url);
   const now = Date.now();
   const hit = cache.get(key);

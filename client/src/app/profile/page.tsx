@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, type ComponentType } from 'react'
-import { useAuth } from '@/hooks/useAuth'
+import { invalidateAuthCache, useAuth } from '@/hooks/useAuth'
 import { useLoginModal } from '@/context/LoginModalContext'
 import {
   HOME_PATH,
@@ -266,6 +266,7 @@ function ProfilePageContent() {
   const handleLogout = async () => {
     const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
     try {
+      invalidateAuthCache()
       await axios.get(`${url}/api/auth/logout`, { withCredentials: true })
       window.location.href = HOME_PATH
     } catch {
@@ -283,7 +284,7 @@ function ProfilePageContent() {
         {/* User header */}
         <header className="mb-6">
           <h1 className="text-xl font-semibold text-[var(--color-jewelry-black,#1a1814)]">Profile</h1>
-          {auth.isAuthenticated && user ? (
+          {auth.hasChecked && auth.isAuthenticated && user ? (
             <div className="mt-2">
               <p className="font-medium text-[var(--color-jewelry-black,#1a1814)]">{displayName}</p>
               {displaySub ? (
@@ -298,7 +299,11 @@ function ProfilePageContent() {
           ) : null}
         </header>
 
-        {!auth.isAuthenticated ? (
+        {!auth.hasChecked ? (
+          <div className="kc-profile-card rounded-2xl px-6 py-10 text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
+            Loading profile…
+          </div>
+        ) : !auth.isAuthenticated ? (
           <div className="kc-profile-card rounded-2xl px-6 py-10 text-center">
             <User className="mx-auto mb-4 size-12 text-[var(--color-jewelry-black,#1a1814)]/25" />
             <h3 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">

@@ -7,15 +7,23 @@ const { resolveUserRole, SUPER_ADMIN_EMAIL } = require('../services/authService'
 const { findOrCreateGoogleUser } = require('../services/storefrontTenantAuth');
 
 passport.serializeUser((user, done) => {
-    done(null, user.id);
+    done(null, {
+        id: user.id,
+        loginEmail: user.loginEmail || user.email || null,
+        loginName: user.loginName || user.name || null,
+    });
 });
 
-passport.deserializeUser(async (id, done) => {
+passport.deserializeUser(async (payload, done) => {
     try {
+        const id = payload && typeof payload === 'object' ? payload.id : payload;
         const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
         if (result.rows.length > 0) {
-            // Always resolve role to ensure super_admin gets correct role
             const user = resolveUserRole(result.rows[0]);
+            if (payload && typeof payload === 'object') {
+                user.loginEmail = payload.loginEmail || user.email;
+                user.loginName = payload.loginName || user.name;
+            }
             done(null, user);
         } else {
             done(null, null);
@@ -97,31 +105,39 @@ passport.use(new GoogleStrategy({
                 user.role = 'customer';
             }
             
-            // Update google_id if missing (on brand owner row)
-            if (!user.google_id) {
-                try {
+            const ownerEmail = String(user.email || '').toLowerCase().trim();
+            const isAliasLogin = ownerEmail && ownerEmail !== emailLower;
+
+            // Alias Google logins share the reseller owner row — never overwrite owner name / google_id.
+            if (!isAliasLogin) {
+                if (!user.google_id) {
+                    try {
+                        await pool.query(
+                            'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [googleId, user.id]
+                        );
+                        user.google_id = googleId;
+                    } catch (gidErr) {
+                        console.warn('google_id update skipped:', gidErr.message);
+                    }
+                }
+                if (user.name !== displayName && displayName) {
+                    const safeName = String(displayName || '').slice(0, 255);
                     await pool.query(
-                        'UPDATE users SET google_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                        [googleId, user.id]
+                        'UPDATE users SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                        [safeName, user.id]
                     );
-                    user.google_id = googleId;
-                } catch (gidErr) {
-                    console.warn('google_id update skipped:', gidErr.message);
+                    user.name = safeName;
                 }
             }
-            
-            // Update name if changed (owner profile)
-            if (user.name !== displayName && displayName) {
-                const safeName = String(displayName || '').slice(0, 255);
-                await pool.query(
-                    'UPDATE users SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                    [safeName, user.id]
-                );
-                user.name = safeName;
-            }
+
+            user.loginEmail = emailLower;
+            user.loginName = displayName || user.name;
             
             // CRITICAL: Always resolve role to ensure correct role is returned
             const resolvedUser = resolveUserRole(user);
+            resolvedUser.loginEmail = emailLower;
+            resolvedUser.loginName = displayName || resolvedUser.name;
             console.log(`✅ Login successful: ${emailLower} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
             
@@ -145,6 +161,8 @@ passport.use(new GoogleStrategy({
             
             // CRITICAL: Always resolve role to ensure correct role is returned
             const resolvedUser = resolveUserRole(newUserResult.rows[0]);
+            resolvedUser.loginEmail = emailLower;
+            resolvedUser.loginName = displayName || resolvedUser.name;
             console.log(`✅ New user created: ${emailLower} (Role: ${resolvedUser.role}, AllowedTabs: ${JSON.stringify(resolvedUser.allowed_tabs)})`);
             return done(null, resolvedUser);
         }

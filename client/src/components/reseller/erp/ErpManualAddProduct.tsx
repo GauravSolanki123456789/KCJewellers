@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { Loader2, Plus, Printer, Trash2 } from 'lucide-react'
 import { ErpBillingSuggestField } from '@/components/reseller/erp/ErpBillingSuggestField'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpErr } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, erpErr, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { printStockLabels } from '@/lib/erp-print-labels'
 import type { ErpHardwareSettings } from '@/lib/erp-hardware'
 
@@ -96,7 +96,7 @@ export function ErpManualAddProduct({
   const [defaults, setDefaults] = useState<Record<string, DesignDefaults | null>>({})
   const [productOptions, setProductOptions] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [msgTone, setMsgTone] = useState<'ok' | 'err'>('ok')
   const skuRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const wtRefs = useRef<Record<string, HTMLInputElement | null>>({})

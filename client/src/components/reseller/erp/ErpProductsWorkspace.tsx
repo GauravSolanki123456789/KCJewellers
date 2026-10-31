@@ -10,7 +10,7 @@ import { ErpStockExcelEditor } from '@/components/reseller/erp/ErpStockExcelEdit
 import { ErpStockExcelBuilder } from '@/components/reseller/erp/ErpStockExcelBuilder'
 import { ErpManualAddProduct } from '@/components/reseller/erp/ErpManualAddProduct'
 import { useErpWorkstationSelection } from '@/components/reseller/erp/ErpWorkstationBar'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, type ErpStockPiece, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { migrateHardwareSettings, type ErpHardwareSettings } from '@/lib/erp-hardware'
 import { printStockLabels } from '@/lib/erp-print-labels'
 import { parseStockExcelRows, downloadStockPiecesExcel } from '@/lib/reseller-erp-stock-editor'
@@ -91,7 +91,7 @@ export function ErpProductsWorkspace() {
   const [busy, setBusy] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [msgTone, setMsgTone] = useState<'ok' | 'err'>('ok')
   const [tagDeleteCode, setTagDeleteCode] = useState('')
   const [tagDeleteBusy, setTagDeleteBusy] = useState(false)

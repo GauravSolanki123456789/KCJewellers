@@ -11,7 +11,7 @@ import {
   type OfflineQueueItem,
   type OfflineSnapshotMeta,
 } from '@/lib/erp-offline-store'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, useErpErrorFlash, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
 function formatWhen(iso?: string | null) {
@@ -26,8 +26,8 @@ export function ErpOfflineWorkspace() {
   const [meta, setMeta] = useState<OfflineSnapshotMeta | null>(null)
   const [queue, setQueue] = useState<OfflineQueueItem[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
+  const [err, setErr] = useErpErrorFlash()
   const mergeRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {

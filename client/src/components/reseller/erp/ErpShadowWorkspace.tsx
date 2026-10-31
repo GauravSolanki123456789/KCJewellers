@@ -9,7 +9,7 @@ import { useErpOperator } from '@/context/ErpOperatorContext'
 import { RESELLER_ERP_PATH } from '@/lib/routes'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
-import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { ResellerErpShell } from '@/components/reseller/erp/ResellerErpShell'
 import { ErpNavVisibilityPanel } from '@/components/reseller/erp/ErpNavVisibilityPanel'
 import { useErpNavVisibility } from '@/hooks/useErpNavVisibility'
@@ -36,7 +36,7 @@ export function ErpShadowWorkspace({ embedded = false }: { embedded?: boolean })
   const [bills, setBills] = useState<ShadowBill[]>([])
   const [summary, setSummary] = useState<{ hitesh: { count: number; total: number }; jainav: { count: number; total: number } } | null>(null)
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [busy, setBusy] = useState(false)
   const [newKey, setNewKey] = useState('')
   const [purgeConfirm, setPurgeConfirm] = useState('')

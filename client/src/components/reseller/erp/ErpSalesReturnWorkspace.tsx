@@ -13,6 +13,7 @@ import {
   erpListItemSelected,
   type ErpBill,
   type ErpCustomer,
+  useErpFlash,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpBillPreviewModal } from '@/components/reseller/erp/ErpBillPreviewModal'
 import { ErpCameraScannerModal } from '@/components/reseller/erp/ErpCameraScannerModal'
@@ -74,7 +75,7 @@ export function ErpSalesReturnWorkspace({ laneMode = false }: { laneMode?: boole
 
   const [history, setHistory] = useState<ErpBill[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [pickMode, setPickMode] = useState<PickMode>('bill')
   const [billNoInput, setBillNoInput] = useState('')
   const [selectedBills, setSelectedBills] = useState<ErpBill[]>([])

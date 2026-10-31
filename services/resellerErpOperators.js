@@ -285,6 +285,11 @@ function registerOperatorRoutes(app, deps) {
                 [row.id],
             );
 
+            await new Promise((resolve, reject) => {
+                req.session.save((err) => (err ? reject(err) : resolve()));
+            });
+
+            res.set('Cache-Control', 'private, no-store');
             res.json({ success: true, operator });
         } catch (e) {
             console.error('erp operator login:', e);
@@ -295,10 +300,15 @@ function registerOperatorRoutes(app, deps) {
     app.post('/api/reseller/erp/operators/logout', checkAuth, erpGate, async (req, res) => {
         req.session.erpOperator = null;
         req.session.shadowUnlocked = false;
+        await new Promise((resolve, reject) => {
+            req.session.save((err) => (err ? reject(err) : resolve()));
+        });
+        res.set('Cache-Control', 'private, no-store');
         res.json({ success: true });
     });
 
     app.get('/api/reseller/erp/operators/me', checkAuth, erpGate, async (req, res) => {
+        res.set('Cache-Control', 'private, no-store');
         const op = getSessionOperator(req);
         if (!op) {
             return res.json({ operator: null, shadowUnlocked: false });

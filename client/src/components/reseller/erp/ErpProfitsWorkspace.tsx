@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { downloadProfitsPdf, type ProfitSummaryPdf } from '@/lib/erp-profits-pdf'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
 
@@ -58,7 +58,7 @@ export function ErpProfitsWorkspace() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [summary, setSummary] = useState<ProfitSummaryPdf | null>(null)
   const [pieces, setPieces] = useState<ProfitRow[]>([])
 

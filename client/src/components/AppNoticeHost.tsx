@@ -159,7 +159,7 @@ export function AppNoticeHost() {
             </p>
             <input
               type="text"
-              inputMode="decimal"
+              inputMode="text"
               className="mt-3 w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2.5 text-sm font-medium text-[#1a1814] outline-none focus:border-[var(--kc-accent,#c41e3a)]"
               value={promptDraft}
               onChange={(e) => setPromptDraft(e.target.value)}

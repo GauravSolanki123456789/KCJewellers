@@ -11,7 +11,9 @@ import { ErpGstinFetchField } from '@/components/reseller/erp/ErpGstinFetchField
 import { ErpCustomerSuggestField } from '@/components/reseller/erp/ErpCustomerSuggestField'
 import { matchGstStateName } from '@/lib/erp-gstin-lookup'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
-import { appConfirm } from '@/lib/app-notice'
+import { appAlert, appConfirm } from '@/lib/app-notice'
+import { sendCrmCampaign } from '@/lib/erp-crm'
+import { ErpCrmCampaignsPanel } from '@/components/reseller/erp/ErpCrmCampaignsPanel'
 import { formatErpDateDdMmYyyy, formatErpDateTime, toIsoDateInput } from '@/lib/erp-date-format'
 import {
   addressPayloadFromTextarea,
@@ -29,6 +31,7 @@ import {
   erpCardCls,
   erpInputCls,
   erpErr,
+  useErpFlash,
   normalizeErpCustomerSlab,
   type ErpRateSlabCode,
   type ErpBill,
@@ -123,7 +126,7 @@ export function CustomersWorkspace() {
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [, setMsg] = useErpFlash()
   const fileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({
     name: '',
@@ -244,12 +247,36 @@ export function CustomersWorkspace() {
 
   const remove = async (id: number) => {
     if (!(await appConfirm('Delete this customer?'))) return
-    await axios.delete(`/api/reseller/erp/customers/${id}`)
-    if (editingId === id) {
-      setEditingId(null)
-      setForm(emptyForm())
+    try {
+      await axios.delete(`/api/reseller/erp/customers/${id}`)
+      if (editingId === id) {
+        setEditingId(null)
+        setForm(emptyForm())
+      }
+      await load()
+      setMsg('Customer deleted.')
+    } catch (e) {
+      appAlert(erpErr(e), 'error')
     }
-    await load()
+  }
+
+  const sendOccasionWhatsApp = async (ev: UpcomingEvent) => {
+    try {
+      const res = await sendCrmCampaign({ customer_id: ev.customer_id, occasion: ev.kind })
+      if (res.sent_via === 'wa_link' && res.wa_href) {
+        window.open(res.wa_href, '_blank', 'noopener,noreferrer')
+        appAlert(res.cloud_error ? `${res.cloud_error} Opened WhatsApp instead.` : 'Opened WhatsApp.', 'success')
+      } else {
+        appAlert('WhatsApp sent.', 'success')
+      }
+    } catch (e) {
+      const fallback = customerWhatsAppHref(
+        ev.mobile,
+        ev.kind === 'birthday' ? `Happy Birthday ${ev.name}!` : `Happy Anniversary ${ev.name}!`,
+      )
+      if (fallback) window.open(fallback, '_blank', 'noopener,noreferrer')
+      appAlert(erpErr(e), 'error')
+    }
   }
 
   const downloadAllExcel = async () => {
@@ -369,12 +396,6 @@ export function CustomersWorkspace() {
               const sub = isToday
                 ? dateLabel
                 : `${dateLabel} · 1 day to go`
-              const waText = isToday
-                ? ev.kind === 'birthday'
-                  ? `Happy Birthday ${ev.name}!`
-                  : `Happy Anniversary ${ev.name}!`
-                : null
-              const waHref = waText ? customerWhatsAppHref(ev.mobile, waText) : null
               return (
                 <li
                   key={`${ev.customer_id}-${ev.kind}`}
@@ -388,16 +409,15 @@ export function CustomersWorkspace() {
                     <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">{headline}</p>
                     <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">{sub}</p>
                   </div>
-                  {isToday && waHref ? (
-                    <a
-                      href={waHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {isToday ? (
+                    <button
+                      type="button"
+                      onClick={() => void sendOccasionWhatsApp(ev)}
                       className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700"
                     >
                       <MessageCircle className="size-4" />
                       WhatsApp
-                    </a>
+                    </button>
                   ) : null}
                 </li>
               )
@@ -444,10 +464,6 @@ export function CustomersWorkspace() {
           }}
         />
       </div>
-      {msg ? (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>
-      ) : null}
-
       <div className={erpCardCls}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
@@ -595,6 +611,8 @@ export function CustomersWorkspace() {
           </p>
         ) : null}
       </div>
+
+      <ErpCrmCampaignsPanel />
     </div>
   )
 }

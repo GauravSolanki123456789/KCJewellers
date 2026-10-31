@@ -14,7 +14,7 @@ import {
   ScanLine,
   Trash2,
 } from 'lucide-react'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import {
   Dialog,
   DialogContent,
@@ -105,7 +105,7 @@ export function ErpStockCheckWorkspace() {
   const [scans, setScans] = useState<StockCheckScanRow[]>([])
   const [drafts, setDrafts] = useState<StockCheckDraft[]>([])
   const [archive, setArchive] = useState<StockCheckArchive[]>([])
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [draftName, setDraftName] = useState('')
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([])
   const [pdfBusy, setPdfBusy] = useState(false)

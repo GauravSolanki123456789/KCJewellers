@@ -374,6 +374,124 @@ async function mergeResellerWhatsAppSettings(query, resellerUserId, patch) {
     return settings.whatsappCloud;
 }
 
+async function loadResellerWhatsAppCloud(query, resellerUserId) {
+    const settingsRows = await query(
+        `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1 LIMIT 1`,
+        [resellerUserId],
+    );
+    let settings = settingsRows[0]?.settings || {};
+    if (typeof settings === 'string') {
+        try {
+            settings = JSON.parse(settings);
+        } catch {
+            settings = {};
+        }
+    }
+    const userRows = await query(`SELECT mobile FROM users WHERE id = $1 LIMIT 1`, [resellerUserId]);
+    return readWhatsAppCloudConfig(settings, userRows[0]);
+}
+
+async function sendWhatsAppText({ accessToken, phoneNumberId, toMobile10, body }) {
+    const to = normalizeMobile10(toMobile10);
+    if (!to) throw Object.assign(new Error('Valid 10-digit customer mobile required'), { status: 400 });
+    const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: `91${to}`,
+        type: 'text',
+        text: { preview_url: true, body: trimStr(body, 4096) },
+    };
+    const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const err = new Error(data?.error?.message || `WhatsApp send failed (${res.status})`);
+        err.status = res.status;
+        err.details = data;
+        throw err;
+    }
+    return data;
+}
+
+async function sendWhatsAppImage({ accessToken, phoneNumberId, toMobile10, mediaId, caption }) {
+    const to = normalizeMobile10(toMobile10);
+    if (!to) throw Object.assign(new Error('Valid 10-digit customer mobile required'), { status: 400 });
+    const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: `91${to}`,
+        type: 'image',
+        image: {
+            id: mediaId,
+            caption: trimStr(caption, 1024) || undefined,
+        },
+    };
+    const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const err = new Error(data?.error?.message || `WhatsApp send failed (${res.status})`);
+        err.status = res.status;
+        err.details = data;
+        throw err;
+    }
+    return data;
+}
+
+async function sendWhatsAppTextToCustomer(query, resellerUserId, opts) {
+    const cfg = await loadResellerWhatsAppCloud(query, resellerUserId);
+    if (!cfg.enabled) {
+        throw Object.assign(new Error('WhatsApp Cloud API is not configured for this shop'), { status: 503 });
+    }
+    const body = trimStr(opts.body, 4096);
+    if (!body) throw Object.assign(new Error('Message text is required'), { status: 400 });
+    return sendWhatsAppText({
+        accessToken: cfg.accessToken,
+        phoneNumberId: cfg.phoneNumberId,
+        toMobile10: opts.mobile,
+        body,
+    });
+}
+
+async function sendWhatsAppImageToCustomer(query, resellerUserId, opts) {
+    const cfg = await loadResellerWhatsAppCloud(query, resellerUserId);
+    if (!cfg.enabled) {
+        throw Object.assign(new Error('WhatsApp Cloud API is not configured for this shop'), { status: 503 });
+    }
+    const buffer = opts.buffer;
+    if (!buffer || !Buffer.isBuffer(buffer) || buffer.length < 24) {
+        throw Object.assign(new Error('Image file is required'), { status: 400 });
+    }
+    const mimeType = trimStr(opts.mimeType, 80) || 'image/jpeg';
+    const filename = trimStr(opts.filename, 120) || 'image.jpg';
+    const mediaId = await uploadWhatsAppMedia({
+        accessToken: cfg.accessToken,
+        phoneNumberId: cfg.phoneNumberId,
+        buffer,
+        filename,
+        mimeType,
+    });
+    return sendWhatsAppImage({
+        accessToken: cfg.accessToken,
+        phoneNumberId: cfg.phoneNumberId,
+        toMobile10: opts.mobile,
+        mediaId,
+        caption: opts.caption,
+    });
+}
+
 async function sendWhatsAppPdfToCustomer(query, resellerUserId, opts) {
     const settingsRows = await query(
         `SELECT settings FROM reseller_erp_settings WHERE reseller_user_id = $1 LIMIT 1`,
@@ -605,6 +723,9 @@ module.exports = {
     readWhatsAppWebhookConfig,
     readMetaPlatformConfig,
     sendWhatsAppPdfToCustomer,
+    sendWhatsAppTextToCustomer,
+    sendWhatsAppImageToCustomer,
+    loadResellerWhatsAppCloud,
     normalizeMobile10,
     fetchPhoneNumberMetadata,
 };

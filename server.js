@@ -820,11 +820,16 @@ app.get('/auth/google/callback', authLimiter, (req, res, next) => {
 
 // Current user endpoint - include full permissions context
 app.get('/api/auth/current_user', async (req, res) => {
+    res.set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
     const appTheme = await getAppKcThemeId();
     if (req.isAuthenticated()) {
         // CRITICAL: Always resolve role to ensure super_admin gets correct role
         const { resolveUserRole } = require('./services/authService');
         const resolvedUser = resolveUserRole(req.user);
+        if (req.user && typeof req.user === 'object') {
+            resolvedUser.loginEmail = req.user.loginEmail || resolvedUser.loginEmail;
+            resolvedUser.loginName = req.user.loginName || resolvedUser.loginName;
+        }
         
         // Get both legacy and new permission formats using resolved user
         const legacyPermissions = getUserPermissions(resolvedUser);
@@ -991,9 +996,9 @@ app.get('/api/auth/current_user', async (req, res) => {
             kc_theme_id,
             user: {
                 id: resolvedUser.id,
-                email: resolvedUser.email,
+                email: resolvedUser.loginEmail || resolvedUser.email,
                 mobile_number: resolvedUser.mobile_number,
-                name: resolvedUser.name,
+                name: resolvedUser.loginName || resolvedUser.name,
                 role: resolvedUser.role,
                 customer_tier: tier,
                 wholesale_making_charge_discount_percent: Number(resolvedUser.wholesale_making_charge_discount_percent ?? 0),

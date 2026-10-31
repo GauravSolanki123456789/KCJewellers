@@ -8,7 +8,7 @@ import {
   type ErpNavVisibility,
 } from '@/lib/erp-nav-visibility'
 import { RESELLER_ERP_MODULES } from '@/lib/reseller-erp-modules'
-import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpErrorFlash, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import type { ResellerErpModuleId } from '@/lib/reseller-erp-modules'
 import { Loader2, Save, Settings2 } from 'lucide-react'
 
@@ -24,8 +24,8 @@ export function ErpNavVisibilityPanel({ onSaved }: Props) {
   const [draft, setDraft] = useState<ErpNavVisibility>(DEFAULT_ERP_NAV_VISIBILITY)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
+  const [err, setErr] = useErpErrorFlash()
 
   const load = useCallback(async () => {
     setLoading(true)

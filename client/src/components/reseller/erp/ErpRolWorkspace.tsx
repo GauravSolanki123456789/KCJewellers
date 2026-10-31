@@ -10,6 +10,8 @@ import {
   erpInputCls,
   erpListItemSelected,
   erpListItemSelectedAlt,
+  useErpErrorFlash,
+  useErpFlash,
 } from '@/components/reseller/erp/erp-ui'
 import { Download, FileText, Loader2, Plus, Save, Tags, Trash2, Wand2 } from 'lucide-react'
 import { downloadRolReportPdf } from '@/lib/erp-rol-report-pdf'
@@ -55,8 +57,8 @@ export function ErpRolWorkspace() {
   const [draftRanges, setDraftRanges] = useState<DraftRange[]>([])
   const [liveRanges, setLiveRanges] = useState<RolRange[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
+  const [err, setErr] = useErpErrorFlash()
   const [report, setReport] = useState<
     {
       style_code: string

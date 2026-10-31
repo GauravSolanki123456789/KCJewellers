@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpErrorFlash, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react'
 
 export type GstInvoiceItem = {
@@ -31,8 +31,8 @@ export function ErpGstInvoiceItemsPanel() {
   const [mounted, setMounted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
+  const [err, setErr] = useErpErrorFlash()
 
   const load = useCallback(async () => {
     setLoading(true)

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import { FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { downloadStockInHandPdf } from '@/lib/erp-stock-summary-pdf'
 
 type DesignTree = {
@@ -77,7 +77,7 @@ export function ErpStockReportWorkspace() {
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [status, setStatus] = useState('in_stock')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [summary, setSummary] = useState<StockSummary | null>(null)
   const [pieces, setPieces] = useState<StockPiece[]>([])
 

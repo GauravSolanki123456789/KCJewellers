@@ -9,6 +9,7 @@ import {
   erpCardCls,
   erpErr,
   erpInputCls,
+  useErpFlash,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { formatErpInr } from '@/lib/reseller-erp-modules'
@@ -166,7 +167,7 @@ export function ErpDigiWorkspace({ metal }: { metal: 'gold' | 'silver' }) {
   const [discounts, setDiscounts] = useState<Record<string, number>>({})
   const [busy, setBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [txBusy, setTxBusy] = useState(false)
   const [transactions, setTransactions] = useState<DigiTransaction[]>([])
   const [holdings, setHoldings] = useState<DigiHolding[]>([])

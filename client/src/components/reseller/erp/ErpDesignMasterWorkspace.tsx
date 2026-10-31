@@ -17,6 +17,7 @@ import {
   erpInputCls,
   erpListItemSelected,
   erpListItemSelectedAlt,
+  useErpFlash,
 } from '@/components/reseller/erp/erp-ui'
 import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
 import { ChevronDown, ChevronRight, Layers, Loader2, Pencil, Plus, Save, Download, Trash2, X, Check } from 'lucide-react'
@@ -107,7 +108,7 @@ export function ErpDesignMasterWorkspace() {
   const [selectedSkuId, setSelectedSkuId] = useState<number | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useErpFlash()
   const [newStyleCode, setNewStyleCode] = useState('')
   const [newStyleMetalType, setNewStyleMetalType] = useState<DesignMetalType>('Silver')
   const [expandedMetalGroups, setExpandedMetalGroups] = useState<Record<string, boolean>>({})

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import axios from '@/lib/axios'
 import { Check, Copy, Loader2, RefreshCw, Sparkles } from 'lucide-react'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { formatPvGrams } from '@/lib/erp-pv-weight'
 
 type RunningTag = {
@@ -43,7 +43,7 @@ export function ErpRunningTagsWorkspace() {
   const [busy, setBusy] = useState(false)
   const [generating, setGenerating] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [msgTone, setMsgTone] = useState<'ok' | 'err'>('ok')
 
   const load = useCallback(async () => {

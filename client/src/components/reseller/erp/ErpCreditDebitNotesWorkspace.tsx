@@ -12,6 +12,7 @@ import {
   erpInputCls,
   type ErpBill,
   type ErpCustomer,
+  useErpFlash,
 } from '@/components/reseller/erp/erp-ui'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
 import { fetchGstInvoiceItems, type GstInvoiceItem } from '@/components/reseller/erp/ErpGstInvoiceItemsPanel'
@@ -40,7 +41,7 @@ export function ErpCreditDebitNotesWorkspace({ kind }: { kind: Kind }) {
 
   const [bills, setBills] = useState<ErpBill[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
   const [custQ, setCustQ] = useState('')
   const [custResults, setCustResults] = useState<ErpCustomer[]>([])
   const [pickIdx, setPickIdx] = useState(-1)

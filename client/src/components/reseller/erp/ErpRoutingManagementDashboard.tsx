@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   fetchLiveStations,
   fetchManagementDashboard,
@@ -69,6 +69,18 @@ export function ErpRoutingManagementDashboard({ operators, onMsg, onErr }: Props
       setBusy(false)
     }
   }
+
+  useEffect(() => {
+    void load()
+    const t = window.setInterval(() => {
+      void fetchLiveStations()
+        .then(setStations)
+        .catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(t)
+    // initial dashboard load once; live counters keep polling
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const saveTarget = async (operatorId: number) => {
     const raw = targetDrafts[operatorId] || ''

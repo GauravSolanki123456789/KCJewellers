@@ -173,6 +173,12 @@ export async function completeQueueItem(
       priority?: 'high' | 'medium' | 'low'
       remarks?: string
     }
+    schemes?: {
+      scheme_id: number
+      explained?: boolean
+      interested?: boolean
+      joined?: boolean
+    }[]
   },
 ): Promise<void> {
   await axios.post(`/api/reseller/erp/customer-routing/queue/${queueId}/complete`, body)

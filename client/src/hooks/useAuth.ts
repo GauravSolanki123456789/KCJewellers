@@ -18,18 +18,24 @@ let authCache: AuthState | null = null
 let authCacheAt = 0
 let authInflight: Promise<AuthState> | null = null
 
+function isBrowser() {
+  return typeof window !== 'undefined'
+}
+
 async function fetchCurrentUser(): Promise<AuthState> {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
   try {
-    const res = await axios.get(`${url}/api/auth/current_user`, { withCredentials: true })
+    const res = await axios.get(`${url}/api/auth/current_user`, {
+      withCredentials: true,
+      headers: { 'Cache-Control': 'no-store' },
+    })
     const next: AuthState = { ...res.data, hasChecked: true }
 
-    if (typeof window !== 'undefined') {
+    if (isBrowser()) {
       const params = new URLSearchParams(window.location.search)
       const authStatus = params.get('auth')
       if (authStatus === 'success') {
         const email = params.get('email')
-        const role = params.get('role')
         const name = params.get('name')
         if (email || name) {
           const newUrl = new URL(window.location.href)
@@ -43,27 +49,31 @@ async function fetchCurrentUser(): Promise<AuthState> {
         const reason = params.get('reason')
         console.error(`❌ Login failed: ${reason || 'Unknown error'}`)
       }
+      authCache = next
+      authCacheAt = Date.now()
     }
-
-    authCache = next
-    authCacheAt = Date.now()
     return next
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status
-    if (status === 429 && authCache) {
+    if (status === 429 && isBrowser() && authCache) {
       return { ...authCache, hasChecked: true }
     }
     if (status !== 429) {
       console.error('Auth check error:', err && typeof err === 'object' && 'message' in err ? (err as Error).message : err)
     }
     const failed: AuthState = { isAuthenticated: false, hasChecked: true }
-    authCache = failed
-    authCacheAt = Date.now()
+    if (isBrowser()) {
+      authCache = failed
+      authCacheAt = Date.now()
+    }
     return failed
   }
 }
 
 function loadAuth(force = false): Promise<AuthState> {
+  if (!isBrowser()) {
+    return Promise.resolve({ isAuthenticated: false, hasChecked: false })
+  }
   const fresh = authCache && Date.now() - authCacheAt < AUTH_CACHE_TTL_MS
   if (!force && fresh && authCache) {
     return Promise.resolve(authCache)
@@ -84,9 +94,8 @@ export function invalidateAuthCache() {
 }
 
 export function useAuth() {
-  const [auth, setAuth] = useState<AuthState>(() =>
-    authCache ? { ...authCache, hasChecked: true } : { isAuthenticated: false, hasChecked: false },
-  )
+  /** Always start empty so SSR HTML matches the first client paint (React #418). */
+  const [auth, setAuth] = useState<AuthState>({ isAuthenticated: false, hasChecked: false })
 
   useEffect(() => {
     let cancelled = false

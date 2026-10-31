@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useErpModuleSession } from '@/hooks/useErpModuleSession'
 import axios from '@/lib/axios'
-import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls } from '@/components/reseller/erp/erp-ui'
+import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpErr, erpInputCls, useErpErrorFlash, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { downloadLocationQrImages, type LocationLabelRow } from '@/lib/erp-location-label-print'
 import { Building2, Download, Loader2, MapPin, Package, Pencil, Plus, Search, Shuffle } from 'lucide-react'
 
@@ -55,8 +55,8 @@ export function ErpFloorsWorkspace() {
   const [floors, setFloors] = useState<Floor[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useErpFlash()
+  const [err, setErr] = useErpErrorFlash()
 
   const [newFloorName, setNewFloorName] = useState('')
   const [newFloorCode, setNewFloorCode] = useState('')

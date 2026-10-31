@@ -17,9 +17,14 @@ axios.defaults.withCredentials = true
 
 axios.interceptors.request.use((config) => {
   const domain = getClientStorefrontDomain()
+  config.headers = config.headers ?? {}
   if (domain) {
-    config.headers = config.headers ?? {}
     config.headers['X-Storefront-Domain'] = domain
+  }
+  const url = String(config.url || '')
+  if (url.includes('/api/auth/current_user') || url.includes('/api/reseller/erp/operators/me')) {
+    config.headers['Cache-Control'] = 'no-store'
+    config.headers.Pragma = 'no-cache'
   }
   return config
 })

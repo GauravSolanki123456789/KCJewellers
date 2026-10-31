@@ -37,7 +37,7 @@ export function ErpRoutingBillingQueue({ onMsg, onErr }: Props) {
 
   useEffect(() => {
     void reload()
-    const t = window.setInterval(() => void reload(), 45000)
+    const t = window.setInterval(() => void reload(), 5000)
     return () => window.clearInterval(t)
   }, [reload])
 
@@ -46,10 +46,6 @@ export function ErpRoutingBillingQueue({ onMsg, onErr }: Props) {
       invoice: '',
       payment_mode: 'bank',
       amount: String(item.estimated_amount_inr ?? ''),
-    }
-    if (!d.invoice.trim()) {
-      onErr?.('Enter invoice / bill number')
-      return
     }
     setBusyId(item.id)
     try {
@@ -127,7 +123,7 @@ export function ErpRoutingBillingQueue({ onMsg, onErr }: Props) {
                   <div className="grid w-full gap-2 sm:grid-cols-2 lg:max-w-md">
                     <input
                       className={erpInputCls}
-                      placeholder="Invoice / bill no. *"
+                      placeholder="Invoice / bill no. (optional)"
                       value={d.invoice}
                       onChange={(e) =>
                         setDrafts((p) => ({
