@@ -47,6 +47,8 @@ export type Item = {
   secondary_image_url?: string | null
   pcs?: number
   discount_percentage?: number
+  /** Reseller own-price overlay — treat `fixed_price` as MRP without renaming metal type. */
+  own_price_fixed?: boolean
   [key: string]: unknown
 }
 
@@ -365,7 +367,9 @@ export function giftCatalogMrpInclGst(mrp: number, gstPct = 3): number {
 
 /** Diamond or gifting — uses `fixed_price` instead of live rates (cart, checkout, filters). */
 export function isFixedPriceCatalogItem(item: Item | null | undefined): boolean {
-  return isDiamondItem(item) || isGiftingItem(item)
+  if (isDiamondItem(item) || isGiftingItem(item)) return true
+  if (item?.own_price_fixed === true && Number(item.fixed_price ?? 0) > 0) return true
+  return false
 }
 
 /** Storefront pricing toggles from `app_settings` (admin). */

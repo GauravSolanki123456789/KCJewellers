@@ -67,6 +67,8 @@ type AdminUser = {
   reseller_product_uploads_enabled?: boolean
   /** Admin enables live product edits without re-review (`users.reseller_product_edits_enabled`). */
   reseller_product_edits_enabled?: boolean
+  /** Admin lets this reseller set own gift MRP / silver prices on their website & catalogues. */
+  reseller_own_prices_enabled?: boolean
   /** Admin hides PDF on shared catalogues — customers use WhatsApp text only. */
   reseller_hide_shared_catalog_pdf?: boolean
   /** Admin enables staff live rate updates (`users.reseller_rates_update_enabled`). */
@@ -204,6 +206,7 @@ function B2BAdminContent() {
     reseller_show_live_stock: false,
     reseller_product_uploads_enabled: false,
     reseller_product_edits_enabled: false,
+    reseller_own_prices_enabled: false,
     reseller_hide_shared_catalog_pdf: false,
     reseller_rates_update_enabled: false,
     reseller_upload_slabs_enabled: false,
@@ -294,6 +297,7 @@ function B2BAdminContent() {
         reseller_show_live_stock: !!resellerModalUser.reseller_show_live_stock,
         reseller_product_uploads_enabled: !!resellerModalUser.reseller_product_uploads_enabled,
         reseller_product_edits_enabled: !!resellerModalUser.reseller_product_edits_enabled,
+        reseller_own_prices_enabled: !!resellerModalUser.reseller_own_prices_enabled,
         reseller_hide_shared_catalog_pdf: !!resellerModalUser.reseller_hide_shared_catalog_pdf,
         reseller_rates_update_enabled: !!resellerModalUser.reseller_rates_update_enabled,
         reseller_upload_slabs_enabled: !!resellerModalUser.reseller_upload_slabs_enabled,
@@ -422,6 +426,7 @@ function B2BAdminContent() {
         reseller_show_live_stock: resellerForm.reseller_show_live_stock,
         reseller_product_uploads_enabled: resellerForm.reseller_product_uploads_enabled,
         reseller_product_edits_enabled: resellerForm.reseller_product_edits_enabled,
+        reseller_own_prices_enabled: resellerForm.reseller_own_prices_enabled,
         reseller_hide_shared_catalog_pdf: resellerForm.reseller_hide_shared_catalog_pdf,
         reseller_rates_update_enabled: resellerForm.reseller_rates_update_enabled,
         reseller_upload_slabs_enabled: resellerForm.reseller_upload_slabs_enabled,
@@ -1119,6 +1124,36 @@ function B2BAdminContent() {
                       <span
                         className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
                           resellerForm.reseller_product_edits_enabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200">Let reseller keep their own prices</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={resellerForm.reseller_own_prices_enabled}
+                      aria-label="Let reseller keep their own prices"
+                      onClick={() =>
+                        setResellerForm((f) => ({
+                          ...f,
+                          reseller_own_prices_enabled: !f.reseller_own_prices_enabled,
+                        }))
+                      }
+                      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+                        resellerForm.reseller_own_prices_enabled
+                          ? 'border-violet-400/50 bg-violet-500'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none absolute top-0.5 left-0.5 size-6 rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform ${
+                          resellerForm.reseller_own_prices_enabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>

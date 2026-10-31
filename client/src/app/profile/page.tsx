@@ -15,6 +15,7 @@ import {
   PROFILE_SIPS_PATH,
   PROFILE_STOREFRONT_PATH,
   RESELLER_PRODUCTS_PATH,
+  RESELLER_OWN_PRICES_PATH,
   RESELLER_RATES_PATH,
   RESELLER_INQUIRIES_PATH,
   RESELLER_SMS_SETTINGS_PATH,
@@ -213,6 +214,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_product_edits_enabled?: boolean }).reseller_product_edits_enabled,
   )
+  const resellerOwnPricesEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_own_prices_enabled?: boolean }).reseller_own_prices_enabled,
+  )
   const resellerRatesEnabled = Boolean(
     auth.isAuthenticated &&
       isReseller &&
@@ -333,6 +340,7 @@ function ProfilePageContent() {
             {/* ——— Reseller quick actions (most important first) ——— */}
             {(resellerUploadsEnabled ||
               resellerEditsEnabled ||
+              resellerOwnPricesEnabled ||
               resellerRatesEnabled ||
               resellerUploadSlabsEnabled ||
               resellerErpEnabled ||
@@ -381,6 +389,15 @@ function ProfilePageContent() {
                     href={RESELLER_PRODUCTS_PATH}
                     icon={Upload}
                     title={resellerUploadsEnabled ? 'Upload products' : 'Manage products'}
+                    primary
+                  />
+                ) : null}
+                {resellerOwnPricesEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_OWN_PRICES_PATH}
+                    icon={ReceiptIndianRupee}
+                    title="Your prices"
+                    subtitle="Gift items and silver — MRP as shown on your website"
                     primary
                   />
                 ) : null}

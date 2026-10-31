@@ -4,6 +4,7 @@
 
 const { normalizeStoredMobile } = require('./internationalMobile');
 const { lookupUploadedMcRate } = require('./resellerMcSlabs');
+const { applyOwnPricesToProducts } = require('./resellerOwnPrices');
 
 function parseInquiryLines(linesJson) {
     if (Array.isArray(linesJson)) return linesJson;
@@ -191,7 +192,11 @@ async function getCatalogInquiryPdfContext(query, inquiryId, opts = {}) {
     const inquiry = await loadInquiryForPdf(query, inquiryId, opts);
     const lines = parseInquiryLines(inquiry.lines_json);
     const catalogSnap = await loadSharedCatalogPricingSnapshot(query, inquiry.shared_catalog_id);
-    const products = await fetchProductsForInquiryLines(query, lines);
+        const products = await applyOwnPricesToProducts(
+            query,
+            inquiry.reseller_user_id || opts.resellerUserId,
+            await fetchProductsForInquiryLines(query, lines),
+        );
 
     const productByCode = new Map();
     for (const p of products) {

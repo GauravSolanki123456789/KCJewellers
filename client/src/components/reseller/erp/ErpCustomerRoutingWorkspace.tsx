@@ -1116,7 +1116,11 @@ export function ErpCustomerRoutingWorkspace() {
               jainavUnlocked={shadowUnlocked && operator?.role === 'admin'}
             />
           ) : adminTab === 'schemes' ? (
-            <ErpRoutingSchemesPanel onErr={setErr} />
+            <ErpRoutingSchemesPanel
+              onErr={setErr}
+              onMsg={setMsg}
+              jainavUnlocked={shadowUnlocked && operator?.role === 'admin'}
+            />
           ) : adminTab === 'visit-outcomes' ? (
             <ErpRoutingVisitOutcomesPanel onErr={setErr} />
           ) : adminTab === 'management' ? (

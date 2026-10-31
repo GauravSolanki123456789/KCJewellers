@@ -35,7 +35,7 @@ export async function generateMetadata({
   const canonical = `${origin}${productPath}`;
   const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [product, liveRates] = await Promise.all([
-    fetchProductByBarcode(safeId),
+    fetchProductByBarcode(safeId, storefrontDomain),
     fetchDisplayRates(storefrontDomain),
   ]);
 
@@ -115,7 +115,7 @@ export default async function ProductPage({
   const safeId = normalizeStorefrontProductId(id);
   const storefrontDomain = await getStorefrontDomainFromHeaders();
   const [product, liveRates] = await Promise.all([
-    fetchProductByBarcode(safeId),
+    fetchProductByBarcode(safeId, storefrontDomain),
     fetchDisplayRates(storefrontDomain),
   ]);
   const productPath = `/products/${encodeURIComponent(safeId)}`;

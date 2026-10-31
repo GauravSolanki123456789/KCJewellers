@@ -11,6 +11,7 @@ const {
     loadResellerWhatsAppCloud,
     normalizeMobile10,
 } = require('./resellerWhatsApp');
+const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
 
 const OCCASIONS = ['birthday', 'anniversary', 'custom'];
 
@@ -165,6 +166,7 @@ function parseUsesPerYear(raw) {
 
 function registerResellerErpCrmRoutes(app, deps) {
     const { query, pool, checkAuth, requireJson, erpGate, getPublicApiBaseUrl } = deps;
+    const jainavDelete = requireJainavUnlockedAdmin();
     const uploadsDir = path.join(__dirname, '..', 'public', 'uploads', 'erp-crm');
     fs.mkdirSync(uploadsDir, { recursive: true });
     const upload = multer({
@@ -600,6 +602,36 @@ function registerResellerErpCrmRoutes(app, deps) {
             res.status(500).json({ error: e.message || 'Failed to load scheme stats' });
         }
     });
+
+    app.delete(
+        '/api/reseller/erp/crm/scheme-logs',
+        checkAuth,
+        erpGate,
+        jainavDelete,
+        requireJson,
+        async (req, res) => {
+            try {
+                const operatorId = parseInt(String(req.body.operator_id ?? req.query.operator_id ?? ''), 10);
+                const params = [req.user.id];
+                let extra = '';
+                if (Number.isFinite(operatorId) && operatorId > 0) {
+                    params.push(operatorId);
+                    extra = ` AND operator_id = $2`;
+                } else if (req.body.operator_id === null || req.body.clear_unassigned === true) {
+                    extra = ` AND operator_id IS NULL`;
+                }
+                const rows = await query(
+                    `DELETE FROM reseller_erp_visit_scheme_logs
+                     WHERE reseller_user_id = $1${extra}
+                     RETURNING id`,
+                    params,
+                );
+                res.json({ success: true, deleted: rows.length });
+            } catch (e) {
+                res.status(500).json({ error: e.message || 'Failed to delete scheme activity' });
+            }
+        },
+    );
 }
 
 module.exports = {

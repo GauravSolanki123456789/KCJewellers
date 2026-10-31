@@ -858,6 +858,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerPricelistEnabled = !!resolvedUser.reseller_pricelist_enabled;
         let resellerImageSearchEnabled = !!resolvedUser.reseller_image_search_enabled;
         let resellerStorefrontWebsiteEnabled = !!resolvedUser.reseller_storefront_website_enabled;
+        let resellerOwnPricesEnabled = !!resolvedUser.reseller_own_prices_enabled;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
@@ -874,6 +875,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_pricelist_enabled, false) AS pricelist_enabled,
                         COALESCE(reseller_image_search_enabled, false) AS image_search_enabled,
                         COALESCE(reseller_storefront_website_enabled, false) AS storefront_website,
+                        COALESCE(reseller_own_prices_enabled, false) AS own_prices,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
@@ -893,10 +895,16 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerPricelistEnabled = !!fresh[0].pricelist_enabled;
                 resellerImageSearchEnabled = !!fresh[0].image_search_enabled;
                 resellerStorefrontWebsiteEnabled = !!fresh[0].storefront_website;
+                resellerOwnPricesEnabled = !!fresh[0].own_prices;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
             const msg = String(e.message || '');
+            if (msg.includes('reseller_own_prices_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_own_prices_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
             if (msg.includes('reseller_storefront_website_enabled')) {
                 await pool.query(
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_storefront_website_enabled BOOLEAN NOT NULL DEFAULT false',
@@ -1030,6 +1038,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_image_search_enabled: resellerImageSearchEnabled,
                 reseller_storefront_website_enabled: resellerStorefrontWebsiteEnabled,
+                reseller_own_prices_enabled: resellerOwnPricesEnabled,
                 reseller_website_subscription: websiteSubscription,
                 reseller_erp_subscription: erpSubscription,
                 reseller_website_from_date: websiteSubscription.from_date,
@@ -1948,6 +1957,14 @@ ensureStorefrontTenantSchema().catch((e) => console.warn('storefront tenant sche
 registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });
 registerResellerMcSlabRoutes(app, { query, requireSharedCatalogCreator, requireJson });
 ensureMcSlabColumns(pool).catch((e) => console.warn('mc slab columns:', e.message));
+const {
+    registerResellerOwnPriceRoutes,
+    applyOwnPricesToProducts,
+    applyOwnPricesForRequest,
+    ensureOwnPricesSchema,
+} = require('./services/resellerOwnPrices');
+registerResellerOwnPriceRoutes(app, { query, pool, requireSharedCatalogCreator, requireJson });
+ensureOwnPricesSchema(pool).catch((e) => console.warn('own prices schema:', e.message));
 registerResellerErpRoutes(app, { query, pool, checkAuth, requireJson, getPublicApiBaseUrl });
 ensureResellerErpSchema(pool).catch((e) => console.warn('reseller erp schema:', e.message));
 ensureResellerSubscriptionColumns(pool).catch((e) => console.warn('reseller subscription columns:', e.message));
@@ -3298,10 +3315,11 @@ app.get('/api/products', async (req, res) => {
             };
         };
         const result = rawResult.map(mapProductRowDiscount);
+        const pricedResult = await applyOwnPricesForRequest(query, req, result);
 
         let size_variants = [];
-        if (barcode && result.length > 0) {
-            const first = result[0];
+        if (barcode && pricedResult.length > 0) {
+            const first = pricedResult[0];
             const dg = String(first.design_group || '').trim();
             const subId = first.subcategory_id;
             const mt = String(first.metal_type || '').toLowerCase();
@@ -3317,7 +3335,11 @@ app.get('/api/products', async (req, res) => {
                     `${baseSelect} ${variantWhere} ORDER BY wp.size NULLS LAST, wp.name ASC, wp.id ASC`,
                     variantParams,
                 );
-                size_variants = rawVariants.map(mapProductRowDiscount);
+                size_variants = await applyOwnPricesForRequest(
+                    query,
+                    req,
+                    rawVariants.map(mapProductRowDiscount),
+                );
             }
         }
 
@@ -3329,8 +3351,8 @@ app.get('/api/products', async (req, res) => {
         }
 
         res.json({
-            products: result,
-            items: result, // frontend compatibility
+            products: pricedResult,
+            items: pricedResult, // frontend compatibility
             size_variants,
             total: totalCount,
             limit: limitValue,
@@ -4377,6 +4399,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_pricelist_enabled, false) AS reseller_pricelist_enabled,
                        COALESCE(reseller_image_search_enabled, false) AS reseller_image_search_enabled,
                        COALESCE(reseller_storefront_website_enabled, false) AS reseller_storefront_website_enabled,
+                       COALESCE(reseller_own_prices_enabled, false) AS reseller_own_prices_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
                        COALESCE(reseller_invest_enabled, false) AS reseller_invest_enabled,
                        COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings,
@@ -4844,6 +4867,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
         if (req.body.reseller_product_edits_enabled !== undefined) {
             updates.push(`reseller_product_edits_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_product_edits_enabled);
+        }
+
+        if (req.body.reseller_own_prices_enabled !== undefined) {
+            updates.push(`reseller_own_prices_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_own_prices_enabled);
         }
 
         if (req.body.reseller_hide_shared_catalog_pdf !== undefined) {
@@ -7230,8 +7258,10 @@ app.get('/api/catalog', async (req, res) => {
             normalizeDomain(req.headers['x-storefront-domain']) ||
             normalizeDomain(req.headers['x-custom-domain']);
         let filtered = categories;
+        let catalogResellerId = null;
         if (domain) {
             const reseller = await findResellerByDomain(domain);
+            catalogResellerId = reseller?.id || null;
             const allowed = reseller?.allowed_category_ids;
             if (Array.isArray(allowed) && allowed.length > 0) {
                 filtered = filterCatalogForResellerScope(
@@ -7239,6 +7269,19 @@ app.get('/api/catalog', async (req, res) => {
                     allowed,
                     reseller?.allowed_category_metals,
                 );
+            }
+        }
+        if (catalogResellerId) {
+            for (const cat of filtered) {
+                for (const sub of cat.subcategories || []) {
+                    if (Array.isArray(sub.products) && sub.products.length) {
+                        sub.products = await applyOwnPricesToProducts(
+                            query,
+                            catalogResellerId,
+                            sub.products,
+                        );
+                    }
+                }
             }
         }
         res.json({ categories: filtered });
@@ -8453,7 +8496,10 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
         const orderedProductsWithVariants = sortedExpandedBarcodes
             .map((bc) => productByBarcode.get(bc))
             .filter(Boolean);
-        const brochureProducts = orderedProductsWithVariants.map((p) => {
+        const brochureProducts = await applyOwnPricesToProducts(
+            query,
+            row.created_by_user_id,
+            orderedProductsWithVariants.map((p) => {
             const categoryDisc = resolveCategoryDiscountPct(
                 {
                     discount_percentage: p.category_discount_percentage,
@@ -8472,7 +8518,8 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
                 ...rest,
                 discount_percentage: Math.max(categoryDisc, productDisc),
             };
-        });
+        }),
+        );
 
         res.json({
             expired: false,

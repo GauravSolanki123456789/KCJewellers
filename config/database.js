@@ -636,6 +636,10 @@ async function initSchema() {
         `);
         await pool.query(`
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_own_prices_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS reseller_website_from_date DATE,
             ADD COLUMN IF NOT EXISTS reseller_website_to_date DATE,
             ADD COLUMN IF NOT EXISTS reseller_website_trial_enabled BOOLEAN NOT NULL DEFAULT false,

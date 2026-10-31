@@ -219,7 +219,9 @@ var KcExhibitionBillingModule = (() => {
     return Math.round(m * (1 + g / 100) * 100) / 100;
   }
   function isFixedPriceCatalogItem(item) {
-    return isDiamondItem(item) || isGiftingItem(item);
+    if (isDiamondItem(item) || isGiftingItem(item)) return true;
+    if (item?.own_price_fixed === true && Number(item.fixed_price ?? 0) > 0) return true;
+    return false;
   }
   function resolveItemGstRate(item, gstRate, pricingOptions) {
     if (isGiftingItem(item) && pricingOptions?.giftingGstEnabled === false) return 0;

@@ -61,12 +61,16 @@ const FETCH_OPTS: RequestInit = {
 };
 
 export const fetchProductByBarcode = cache(async function fetchProductByBarcode(
-  barcode: string
+  barcode: string,
+  storefrontDomain?: string | null,
 ): Promise<ApiProductRow | null> {
   const id = normalizeStorefrontProductId(barcode);
   if (!id) return null;
   const api = getApiUrlForServer();
-  const url = `${api}/api/products?barcode=${encodeURIComponent(id)}&limit=1`;
+  const domainQ = storefrontDomain?.trim()
+    ? `&domain=${encodeURIComponent(storefrontDomain.trim().toLowerCase())}`
+    : "";
+  const url = `${api}/api/products?barcode=${encodeURIComponent(id)}&limit=1${domainQ}`;
   try {
     const res = await fetch(url, FETCH_OPTS);
     if (!res.ok) return null;
@@ -124,14 +128,18 @@ export const fetchDisplayRates = cache(async function fetchDisplayRates(
 /** Global search results — case-insensitive match on name, sku, barcode, category & subcategory names (see GET /api/products). */
 export async function fetchProductsSearch(
   query: string,
-  limit = 80
+  limit = 80,
+  storefrontDomain?: string | null,
 ): Promise<{ products: ApiProductRow[]; total: number | null }> {
   const q = String(query || "")
     .trim()
     .slice(0, 160);
   if (!q) return { products: [], total: null };
   const api = getApiUrlForServer();
-  const url = `${api}/api/products?search=${encodeURIComponent(q)}&limit=${limit}`;
+  const domainQ = storefrontDomain?.trim()
+    ? `&domain=${encodeURIComponent(storefrontDomain.trim().toLowerCase())}`
+    : "";
+  const url = `${api}/api/products?search=${encodeURIComponent(q)}&limit=${limit}${domainQ}`;
   try {
     const res = await fetch(url, {
       cache: "no-store",

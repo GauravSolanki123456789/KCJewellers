@@ -551,6 +551,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/reseller/own-prices/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/reseller/own-prices">> = Specific
+  const handler = {} as typeof import("../../src/app/reseller/own-prices/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/reseller/payment-settings/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/reseller/payment-settings">> = Specific

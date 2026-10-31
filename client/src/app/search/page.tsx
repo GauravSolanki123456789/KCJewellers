@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { normalizeSearchQuery, resolveSearchSynonym } from "@/lib/searchSynonyms";
 import { fetchProductsSearch } from "@/lib/server-data";
 import { CATALOG_PATH } from "@/lib/routes";
+import { getStorefrontDomainFromHeaders } from "@/lib/storefront-domain-server";
 import SearchResultsClient from "./search-results-client";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +50,7 @@ export default async function SearchPage({ searchParams }: Props) {
     redirect(syn.href);
   }
 
-  const { products, total } = await fetchProductsSearch(raw, 80);
+  const storefrontDomain = await getStorefrontDomainFromHeaders();
+  const { products, total } = await fetchProductsSearch(raw, 80, storefrontDomain);
   return <SearchResultsClient products={products} total={total} query={raw} />;
 }

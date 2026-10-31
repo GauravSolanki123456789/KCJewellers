@@ -119,3 +119,9 @@ export async function fetchSchemeStats(from?: string, to?: string): Promise<Sche
   })
   return data
 }
+
+export async function deleteSchemeActivityLogs(operatorId?: number | null): Promise<void> {
+  await axios.delete('/api/reseller/erp/crm/scheme-logs', {
+    data: operatorId != null ? { operator_id: operatorId } : { operator_id: null, clear_unassigned: false },
+  })
+}

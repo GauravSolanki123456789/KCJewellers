@@ -1,18 +1,21 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { fetchSchemeStats, type SchemeStats } from '@/lib/erp-crm'
+import { fetchSchemeStats, deleteSchemeActivityLogs, type SchemeStats } from '@/lib/erp-crm'
 import { exportTableExcel } from '@/lib/erp-customer-routing'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
 import { downloadRoutingTablePdf } from '@/lib/erp-routing-report-pdf'
 import { erpDaysAgoIso, erpTodayIso } from '@/lib/erp-date-format'
+import { appConfirm } from '@/lib/app-notice'
 import { Diamond, Loader2 } from 'lucide-react'
 
 type Props = {
   onErr?: (m: string) => void
+  onMsg?: (m: string) => void
+  jainavUnlocked?: boolean
 }
 
-export function ErpRoutingSchemesPanel({ onErr }: Props) {
+export function ErpRoutingSchemesPanel({ onErr, onMsg, jainavUnlocked }: Props) {
   const [fromDate, setFromDate] = useState(erpDaysAgoIso(30))
   const [toDate, setToDate] = useState(erpTodayIso())
   const [stats, setStats] = useState<SchemeStats | null>(null)
@@ -132,6 +135,7 @@ export function ErpRoutingSchemesPanel({ onErr }: Props) {
               <th className="py-2 pr-2">Interested</th>
               <th className="py-2 pr-2">Joined</th>
               <th className="py-2">Join rate</th>
+              {jainavUnlocked ? <th className="py-2"> </th> : null}
             </tr>
           </thead>
           <tbody>
@@ -142,6 +146,27 @@ export function ErpRoutingSchemesPanel({ onErr }: Props) {
                 <td className="py-2 pr-2 tabular-nums">{r.interested}</td>
                 <td className="py-2 pr-2 tabular-nums">{r.joined}</td>
                 <td className="py-2 tabular-nums">{r.join_rate_pct}%</td>
+                {jainavUnlocked ? (
+                  <td className="py-2">
+                    <button
+                      type="button"
+                      className="min-h-[36px] rounded-lg px-2 text-xs font-semibold text-rose-700"
+                      onClick={() => {
+                        void appConfirm(`Delete scheme activity for ${r.name}?`).then((ok) => {
+                          if (!ok) return
+                          return deleteSchemeActivityLogs(r.operator_id ?? null)
+                            .then(() => {
+                              onMsg?.('Scheme activity deleted')
+                              return load()
+                            })
+                            .catch(() => onErr?.('Delete failed — unlock Jainav mode'))
+                        })
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

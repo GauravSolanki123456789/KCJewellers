@@ -31,6 +31,8 @@ export type WholesaleUserFields = {
   reseller_product_uploads_enabled?: boolean
   /** Admin enables staff to edit live (approved) products without re-review. */
   reseller_product_edits_enabled?: boolean
+  /** Admin lets this reseller set own gift MRP / silver prices for their website & catalogues. */
+  reseller_own_prices_enabled?: boolean
   /** Admin hides PDF shortlist option on shared catalogues — WhatsApp text only. */
   reseller_hide_shared_catalog_pdf?: boolean
   /** Admin enables staff live rate updates at `/reseller/rates`. */
