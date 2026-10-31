@@ -238,6 +238,95 @@ function buildTrailFromInteractions(interactions) {
     return steps;
 }
 
+async function loadVisitOutcomes(query, userId, from, to) {
+    const params = [userId];
+    let dateFilter = '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+        params.push(from);
+        dateFilter += ` AND v.started_at >= $${params.length}::date`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        params.push(to);
+        dateFilter += ` AND v.started_at < ($${params.length}::date + interval '1 day')`;
+    }
+    const visits = await query(
+        `SELECT v.id, v.started_at, v.ended_at, v.status,
+                c.id AS customer_id, c.name AS customer_name, c.mobile AS customer_mobile
+         FROM reseller_erp_customer_visits v
+         JOIN reseller_erp_customers c ON c.id = v.customer_id
+         WHERE v.reseller_user_id = $1 ${dateFilter}
+         ORDER BY v.started_at DESC
+         LIMIT 150`,
+        params,
+    );
+    const rows = [];
+    for (const v of visits) {
+        const interactions = await query(
+            `SELECT i.*, sc.name AS counter_name, fc.name AS forward_counter_name,
+                    o.display_name AS operator_name
+             FROM reseller_erp_visit_interactions i
+             LEFT JOIN reseller_erp_store_counters sc ON sc.id = i.counter_id
+             LEFT JOIN reseller_erp_store_counters fc ON fc.id = i.forward_counter_id
+             LEFT JOIN reseller_erp_operators o ON o.id = i.operator_id
+             WHERE i.visit_id = $1
+             ORDER BY i.created_at ASC`,
+            [v.id],
+        );
+        const schemeRows = await query(
+            `SELECT BOOL_OR(l.interested) AS interested, BOOL_OR(l.joined) AS joined,
+                    COUNT(*) FILTER (WHERE l.explained)::int AS explained_count
+             FROM reseller_erp_visit_scheme_logs l
+             WHERE l.visit_id = $1 AND l.reseller_user_id = $2`,
+            [v.id, userId],
+        ).catch(() => [{ interested: false, joined: false, explained_count: 0 }]);
+        const counters = [];
+        const staffNames = [];
+        for (const i of interactions) {
+            if (i.counter_name && !counters.includes(i.counter_name)) counters.push(i.counter_name);
+            if (i.operator_name && !staffNames.includes(i.operator_name)) staffNames.push(i.operator_name);
+        }
+        const sales = interactions.filter((i) =>
+            ['sale_closed', 'sale_and_forward'].includes(String(i.outcome || '').toLowerCase()),
+        );
+        let finalResult = 'completed';
+        if (String(v.status || '').toLowerCase() === 'active') finalResult = 'in_progress';
+        else if (sales.length) finalResult = 'purchased';
+        else if (interactions.some((i) => ['no_sale', 'left_shop'].includes(String(i.outcome || '').toLowerCase()))) {
+            finalResult = 'no_purchase';
+        } else if (interactions.some((i) => String(i.outcome || '').toLowerCase() === 'forward')) {
+            finalResult = 'transferred';
+        }
+        const lastNoSale = [...interactions]
+            .reverse()
+            .find((i) => ['no_sale', 'left_shop'].includes(String(i.outcome || '').toLowerCase()));
+        const totalBill = sales.reduce((sum, i) => sum + (Number(i.bill_amount_inr) || 0), 0);
+        const sch = schemeRows[0] || {};
+        let schemeLabel = '—';
+        if (sch.joined) schemeLabel = 'Joined';
+        else if (sch.interested) schemeLabel = 'Interested';
+        else if (Number(sch.explained_count || 0) > 0) schemeLabel = 'Explained';
+        rows.push({
+            visit_id: v.id,
+            customer_id: v.customer_id,
+            customer_name: v.customer_name,
+            customer_mobile: v.customer_mobile,
+            started_at: v.started_at,
+            ended_at: v.ended_at,
+            visit_status: v.status,
+            counters_trail: counters.join(' → ') || '—',
+            salespersons: staffNames.join(' / ') || '—',
+            final_result: finalResult,
+            amount_inr: totalBill > 0 ? Math.round(totalBill * 100) / 100 : null,
+            no_purchase_reason: lastNoSale?.no_sale_reason || null,
+            scheme: schemeLabel,
+            transfer_count: interactions.filter((i) =>
+                ['forward', 'sale_and_forward'].includes(String(i.outcome || '').toLowerCase()),
+            ).length,
+        });
+    }
+    return rows;
+}
+
 async function closeVisitWhenNoOpenQueue(query, visitId) {
     const pending = await query(
         `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_queue
@@ -294,6 +383,23 @@ async function loadLiveCounterStations(query, userId) {
              WHERE reseller_user_id = $1 AND counter_id = $2 AND billing_status = 'pending'`,
             [userId, c.id],
         );
+        const completedToday = await query(
+            `SELECT COUNT(*)::int AS n FROM reseller_erp_visit_queue q
+             JOIN reseller_erp_customer_visits v ON v.id = q.visit_id
+             WHERE q.counter_id = $1 AND q.status = 'completed'
+               AND v.reseller_user_id = $2
+               AND ${istDateExpr('q.completed_at')} = (NOW() AT TIME ZONE 'Asia/Kolkata')::date`,
+            [c.id, userId],
+        );
+        const salesToday = await query(
+            `SELECT COALESCE(SUM(i.bill_amount_inr), 0)::numeric AS total
+             FROM reseller_erp_visit_interactions i
+             JOIN reseller_erp_customer_visits v ON v.id = i.visit_id
+             WHERE i.counter_id = $1 AND v.reseller_user_id = $2
+               AND i.outcome IN ('sale_closed', 'sale_and_forward')
+               AND ${istDateExpr('i.created_at')} = (NOW() AT TIME ZONE 'Asia/Kolkata')::date`,
+            [c.id, userId],
+        );
         rows.push({
             counter_id: c.id,
             counter_name: c.name,
@@ -302,6 +408,8 @@ async function loadLiveCounterStations(query, userId) {
             active_customer: serving[0]?.customer_name || null,
             waiting_count: Number(waiting[0]?.n || 0),
             billing_pending: Number(billing[0]?.n || 0),
+            completed_today: Number(completedToday[0]?.n || 0),
+            sales_today_inr: Math.round(Number(salesToday[0]?.total || 0) * 100) / 100,
         });
     }
     return rows;
@@ -1060,7 +1168,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         },
     );
 
-    app.get('/api/reseller/erp/customer-routing/live-stations', checkAuth, erpGate, gate, routingAdmin, async (req, res) => {
+    app.get('/api/reseller/erp/customer-routing/live-stations', checkAuth, erpGate, gate, async (req, res) => {
         try {
             const stations = await loadLiveCounterStations(query, req.user.id);
             res.json({ stations });
@@ -1219,6 +1327,18 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
         } catch (e) {
             console.error('routing analytics:', e);
             res.status(500).json({ error: e.message || 'Failed to load analytics' });
+        }
+    });
+
+    app.get('/api/reseller/erp/customer-routing/visit-outcomes', checkAuth, erpGate, gate, routingAdmin, async (req, res) => {
+        try {
+            const from = String(req.query.from || '').trim().slice(0, 10);
+            const to = String(req.query.to || '').trim().slice(0, 10);
+            const visits = await loadVisitOutcomes(query, req.user.id, from, to);
+            res.json({ visits });
+        } catch (e) {
+            console.error('visit outcomes:', e);
+            res.status(500).json({ error: e.message || 'Failed to load visit outcomes' });
         }
     });
 

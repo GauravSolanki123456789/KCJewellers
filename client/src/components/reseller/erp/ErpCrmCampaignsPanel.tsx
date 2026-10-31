@@ -110,10 +110,6 @@ export function ErpCrmCampaignsPanel() {
           <Sparkles className="mr-1 inline size-4 text-[var(--kc-accent,#c41e3a)]" />
           WhatsApp campaigns
         </p>
-        <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-          Birthday / anniversary templates with image, message, discount and a coupon (1 or 2 uses per year).
-          Placeholders: {'{{name}}'} {'{{discount}}'} {'{{coupon}}'}
-        </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <select
             className={erpInputCls}
@@ -267,9 +263,6 @@ export function ErpCrmCampaignsPanel() {
         <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
           <Gift className="mr-1 inline size-4 text-[var(--kc-accent,#c41e3a)]" />
           Savings schemes
-        </p>
-        <p className="mt-1 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">
-          Admin enters schemes. Staff tick which ones they explained, who is interested, and who joined — no page refresh.
         </p>
         {stats ? (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">

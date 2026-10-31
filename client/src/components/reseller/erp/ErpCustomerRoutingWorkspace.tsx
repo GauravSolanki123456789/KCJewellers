@@ -33,6 +33,10 @@ import {
 } from '@/components/reseller/erp/ErpRoutingCustomerSuggest'
 import { ErpRoutingBillingQueue } from '@/components/reseller/erp/ErpRoutingBillingQueue'
 import { ErpRoutingManagementDashboard } from '@/components/reseller/erp/ErpRoutingManagementDashboard'
+import { ErpRoutingLiveStationsPanel } from '@/components/reseller/erp/ErpRoutingLiveStationsPanel'
+import { ErpRoutingFollowUpReport } from '@/components/reseller/erp/ErpRoutingFollowUpReport'
+import { ErpRoutingSchemesPanel } from '@/components/reseller/erp/ErpRoutingSchemesPanel'
+import { ErpRoutingVisitOutcomesPanel } from '@/components/reseller/erp/ErpRoutingVisitOutcomesPanel'
 import { erpBtnGhost, erpBtnPrimary, erpCardCls, erpInputCls, useErpErrorFlash, useErpFlash } from '@/components/reseller/erp/erp-ui'
 import { appPrompt } from '@/lib/app-notice'
 import { fetchCrmSchemes, fetchSchemeStats, type CrmScheme, type SchemeStats, type SchemeTick } from '@/lib/erp-crm'
@@ -75,6 +79,8 @@ export function ErpCustomerRoutingWorkspace() {
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [operators, setOperators] = useState<{ id: number; displayName: string }[]>([])
   const [pickedCustomer, setPickedCustomer] = useState<RoutingCustomer | null>(null)
+  const [routePickerKey, setRoutePickerKey] = useState(0)
+  const [workspaceTab, setWorkspaceTab] = useState<'operations' | 'live-stations'>('operations')
   const [floorVisits, setFloorVisits] = useState<FloorVisit[]>([])
   const [floorBusy, setFloorBusy] = useState<{ counter_name: string; active_count: number }[]>([])
   const [floorSearch, setFloorSearch] = useState('')
@@ -115,7 +121,14 @@ export function ErpCustomerRoutingWorkspace() {
   )
   const [reportBusy, setReportBusy] = useState(false)
   const [adminTab, setAdminTab] = useState<
-    'counters' | 'analytics' | 'billing' | 'management'
+    | 'counters'
+    | 'analytics'
+    | 'billing'
+    | 'management'
+    | 'live-stations'
+    | 'follow-ups'
+    | 'schemes'
+    | 'visit-outcomes'
   >('counters')
   const [reportView, setReportView] = useState<'summary' | 'detailed'>('summary')
 
@@ -228,6 +241,7 @@ export function ErpCustomerRoutingWorkspace() {
       })
       setMsg('Customer routed to counter')
       setPickedCustomer(null)
+      setRoutePickerKey((k) => k + 1)
       await Promise.all([reloadQueue(), reloadFloor()])
     } catch (e: unknown) {
       const m =
@@ -366,6 +380,8 @@ export function ErpCustomerRoutingWorkspace() {
     isRoutingAdmin || (boot?.myCounterIds?.length ?? 0) > 0
   const greeterAlsoCounter =
     (boot?.isStoreGreeter || role === 'greeter') && (boot?.myCounterIds?.length ?? 0) > 0
+  const canSeeLiveStations =
+    role !== 'viewer' && (showLiveFloor || canWorkCounterQueue || isRoutingAdmin)
 
   if (loading) {
     return (
@@ -399,6 +415,35 @@ export function ErpCustomerRoutingWorkspace() {
         </button>
       </div>
 
+      {canSeeLiveStations ? (
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ['operations', 'Operations'],
+              ['live-stations', 'Live counter station'],
+            ] as const
+          ).map(([t, label]) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setWorkspaceTab(t)}
+              className={cn(
+                'min-h-[40px] rounded-xl px-3 text-sm font-semibold sm:px-4',
+                workspaceTab === t
+                  ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                  : 'border border-[var(--color-slate-700,#e8e4df)] text-[var(--color-jewelry-black,#1a1814)]/75',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {workspaceTab === 'live-stations' && canSeeLiveStations ? (
+        <ErpRoutingLiveStationsPanel />
+      ) : (
+        <>
       {showLiveFloor ? (
         <div className={`${erpCardCls} space-y-3`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -553,15 +598,6 @@ export function ErpCustomerRoutingWorkspace() {
         </div>
       ) : null}
 
-      {msg ? (
-        <p className="rounded-xl border border-emerald-600/25 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-          {msg}
-        </p>
-      ) : null}
-      {err ? (
-        <p className="rounded-xl border border-rose-500/30 bg-rose-50 px-3 py-2 text-sm text-rose-800">{err}</p>
-      ) : null}
-
       {(role === 'greeter' || isRoutingAdmin) && (
         <div className={`${erpCardCls} space-y-3`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -579,7 +615,11 @@ export function ErpCustomerRoutingWorkspace() {
                 Customer
               </label>
               <div className="mt-1">
-                <ErpRoutingCustomerSuggest selected={pickedCustomer} onSelect={setPickedCustomer} />
+                <ErpRoutingCustomerSuggest
+                  selected={pickedCustomer}
+                  onSelect={setPickedCustomer}
+                  resetKey={routePickerKey}
+                />
               </div>
             </div>
             <div>
@@ -890,8 +930,12 @@ export function ErpCustomerRoutingWorkspace() {
               [
                 ['counters', 'Counters & staff'],
                 ['billing', 'Billing queue'],
+                ['live-stations', 'Live station'],
                 ['management', 'Management'],
-                ['analytics', 'Analytics'],
+                ['analytics', 'Business reports'],
+                ['visit-outcomes', 'Visit outcomes'],
+                ['follow-ups', 'Follow-ups'],
+                ['schemes', 'Schemes'],
               ] as const
             ).map(([t, label]) => (
               <button
@@ -912,6 +956,14 @@ export function ErpCustomerRoutingWorkspace() {
 
           {adminTab === 'billing' ? (
             <ErpRoutingBillingQueue onMsg={setMsg} onErr={setErr} />
+          ) : adminTab === 'live-stations' ? (
+            <ErpRoutingLiveStationsPanel />
+          ) : adminTab === 'follow-ups' ? (
+            <ErpRoutingFollowUpReport onMsg={setMsg} onErr={setErr} />
+          ) : adminTab === 'schemes' ? (
+            <ErpRoutingSchemesPanel onErr={setErr} />
+          ) : adminTab === 'visit-outcomes' ? (
+            <ErpRoutingVisitOutcomesPanel onErr={setErr} />
           ) : adminTab === 'management' ? (
             <ErpRoutingManagementDashboard
               operators={operators}
@@ -1248,6 +1300,8 @@ export function ErpCustomerRoutingWorkspace() {
             </div>
           )}
         </div>
+      )}
+        </>
       )}
 
       {timelineVisitId ? (

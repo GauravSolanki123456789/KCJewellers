@@ -605,11 +605,6 @@ export function CustomersWorkspace() {
           placeholder="Search name, mobile, GSTIN, PAN, address…"
           className="w-full"
         />
-        {!q.trim() ? (
-          <p className="mt-2 text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-            Type to see matches. Use Download All for a full Excel list.
-          </p>
-        ) : null}
       </div>
 
       <ErpCrmCampaignsPanel />

@@ -228,6 +228,8 @@ export type LiveStation = {
   active_customer: string | null
   waiting_count: number
   billing_pending: number
+  completed_today?: number
+  sales_today_inr?: number
 }
 
 export type ManagementDashboard = {
@@ -290,6 +292,34 @@ export async function fetchLiveStations(): Promise<LiveStation[]> {
     '/api/reseller/erp/customer-routing/live-stations',
   )
   return data.stations || []
+}
+
+export type VisitOutcomeRow = {
+  visit_id: number
+  customer_id: number
+  customer_name: string
+  customer_mobile: string | null
+  started_at: string
+  ended_at: string | null
+  visit_status: string
+  counters_trail: string
+  salespersons: string
+  final_result: string
+  amount_inr: number | null
+  no_purchase_reason: string | null
+  scheme: string
+  transfer_count: number
+}
+
+export async function fetchVisitOutcomes(params: {
+  from?: string
+  to?: string
+}): Promise<VisitOutcomeRow[]> {
+  const { data } = await axios.get<{ visits: VisitOutcomeRow[] }>(
+    '/api/reseller/erp/customer-routing/visit-outcomes',
+    { params },
+  )
+  return data.visits || []
 }
 
 export async function saveOperatorSalesTarget(body: {

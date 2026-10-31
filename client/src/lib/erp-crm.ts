@@ -103,6 +103,14 @@ export type SchemeStats = {
   schemes: { id: number; name: string; explained: number; interested: number; joined: number }[]
   totals: { explained: number; interested: number; joined: number }
   join_rate_pct: number
+  by_operator?: {
+    operator_id: number | null
+    name: string
+    explained: number
+    interested: number
+    joined: number
+    join_rate_pct: number
+  }[]
 }
 
 export async function fetchSchemeStats(from?: string, to?: string): Promise<SchemeStats> {

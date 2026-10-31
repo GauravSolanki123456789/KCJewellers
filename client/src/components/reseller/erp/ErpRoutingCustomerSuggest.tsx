@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
 import { ErpBillingSuggestField } from '@/components/reseller/erp/ErpBillingSuggestField'
 import { erpInputCls } from '@/components/reseller/erp/erp-ui'
@@ -10,17 +10,27 @@ export type RoutingCustomer = { id: number; name: string; mobile?: string | null
 type Props = {
   selected: RoutingCustomer | null
   onSelect: (c: RoutingCustomer | null) => void
+  /** Bump to reset the field after a successful route. */
+  resetKey?: number
 }
 
-export function ErpRoutingCustomerSuggest({ selected, onSelect }: Props) {
+export function ErpRoutingCustomerSuggest({ selected, onSelect, resetKey = 0 }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<RoutingCustomer[]>([])
+  const prevResetKey = useRef(resetKey)
 
   useEffect(() => {
-    if (selected && !query.trim()) {
+    if (prevResetKey.current === resetKey) return
+    prevResetKey.current = resetKey
+    setQuery('')
+    setResults([])
+  }, [resetKey])
+
+  useEffect(() => {
+    if (selected) {
       setQuery(selected.mobile ? `${selected.name} · ${selected.mobile}` : selected.name)
     }
-  }, [selected?.id])
+  }, [selected?.id, selected?.name, selected?.mobile])
 
   useEffect(() => {
     const q = query.trim()

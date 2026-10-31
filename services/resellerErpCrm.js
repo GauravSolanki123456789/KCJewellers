@@ -557,11 +557,43 @@ function registerResellerErpCrmRoutes(app, deps) {
                 },
                 { explained: 0, interested: 0, joined: 0 },
             );
+            const opParams = [req.user.id];
+            let opDateFilter = '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+                opParams.push(`${from}T00:00:00+05:30`, `${to}T23:59:59+05:30`);
+                opDateFilter = `AND l.created_at >= $2 AND l.created_at <= $3`;
+            }
+            const byOperator = await query(
+                `SELECT l.operator_id,
+                        COALESCE(o.display_name, o.username, 'Staff') AS name,
+                        COUNT(*) FILTER (WHERE l.explained)::int AS explained,
+                        COUNT(*) FILTER (WHERE l.interested)::int AS interested,
+                        COUNT(*) FILTER (WHERE l.joined)::int AS joined
+                 FROM reseller_erp_visit_scheme_logs l
+                 LEFT JOIN reseller_erp_operators o ON o.id = l.operator_id
+                 WHERE l.reseller_user_id = $1 ${opDateFilter}
+                 GROUP BY l.operator_id, o.display_name, o.username
+                 HAVING COUNT(*) FILTER (WHERE l.explained) > 0
+                 ORDER BY explained DESC, name ASC
+                 LIMIT 50`,
+                opParams,
+            );
             res.json({
                 schemes: rows,
                 totals,
                 join_rate_pct:
                     totals.explained > 0 ? Math.round((totals.joined / totals.explained) * 1000) / 10 : 0,
+                by_operator: byOperator.map((r) => ({
+                    operator_id: r.operator_id,
+                    name: r.name,
+                    explained: Number(r.explained || 0),
+                    interested: Number(r.interested || 0),
+                    joined: Number(r.joined || 0),
+                    join_rate_pct:
+                        Number(r.explained || 0) > 0
+                            ? Math.round((Number(r.joined || 0) / Number(r.explained || 0)) * 1000) / 10
+                            : 0,
+                })),
             });
         } catch (e) {
             console.error('crm scheme stats:', e);
