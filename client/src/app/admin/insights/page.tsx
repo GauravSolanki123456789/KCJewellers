@@ -70,11 +70,32 @@ function getTargetDisplay(log: ActivityLog): string {
   return barcode || '—'
 }
 
+function logActorMeta(log: ActivityLog): { email: string | null; name: string | null } {
+  const m = log.metadata
+  if (!m || typeof m !== 'object') return { email: null, name: null }
+  const meta = m as Record<string, unknown>
+  const email =
+    meta.login_email != null && String(meta.login_email).trim()
+      ? String(meta.login_email).trim().toLowerCase()
+      : null
+  const name =
+    meta.login_name != null && String(meta.login_name).trim()
+      ? String(meta.login_name).trim()
+      : null
+  return { email, name }
+}
+
+function groupKeyForLog(log: ActivityLog): GroupKey {
+  if (log.user_id == null) return log.session_id || `anon_${log.id}`
+  const actor = logActorMeta(log)
+  if (actor.email) return `user_${log.user_id}_${actor.email}`
+  return `user_${log.user_id}`
+}
+
 function groupLogsByUser(logs: ActivityLog[]): GroupedUser[] {
   const map = new Map<GroupKey, ActivityLog[]>()
   for (const log of logs) {
-    const key: GroupKey =
-      log.user_id != null ? `user_${log.user_id}` : log.session_id || `anon_${log.id}`
+    const key = groupKeyForLog(log)
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(log)
   }
@@ -84,15 +105,14 @@ function groupLogsByUser(logs: ActivityLog[]): GroupedUser[] {
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
     const lastActive = sorted[0]?.created_at || ''
-    const firstLog = sorted[sorted.length - 1]
-    const customerDisplay =
-      firstLog?.customer_name ||
-      firstLog?.customer_mobile ||
-      firstLog?.customer_email ||
-      'Guest'
-    const customerEmail =
+    const actorFromLatest =
+      sorted.map((l) => logActorMeta(l)).find((a) => a.email || a.name) || logActorMeta(sorted[0])
+    const ownerEmail =
       sorted.find((l) => l.customer_email && String(l.customer_email).trim())?.customer_email?.trim() ||
       null
+    const ownerName = sorted.find((l) => l.customer_name && String(l.customer_name).trim())?.customer_name?.trim() || null
+    const customerDisplay = actorFromLatest.name || actorFromLatest.email || ownerName || ownerEmail || 'Guest'
+    const customerEmail = actorFromLatest.email || ownerEmail
     const counts = { view_product: 0, add_to_cart: 0, login: 0 }
     for (const l of userLogs) {
       if (l.action_type === 'view_product') counts.view_product++

@@ -20,12 +20,6 @@ function ResellerOwnPricesContent() {
   }, [auth.hasChecked, auth.isAuthenticated, closeLoginModal])
 
   const authReady = auth.hasChecked === true
-  const pricesEnabled = Boolean(
-    auth.isAuthenticated &&
-      auth.user &&
-      customerTier === CUSTOMER_TIER.RESELLER &&
-      (auth.user as { reseller_own_prices_enabled?: boolean }).reseller_own_prices_enabled,
-  )
 
   if (!authReady || !tierReady) {
     return (
@@ -76,11 +70,6 @@ function ResellerOwnPricesContent() {
               <ReceiptIndianRupee className="size-5 shrink-0 text-[var(--kc-accent,#c41e3a)]" />
               Your prices
             </h1>
-            {pricesEnabled ? (
-              <p className="truncate text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-                Gift items and silver — MRP on your website and catalogues
-              </p>
-            ) : null}
           </div>
         </div>
       </div>

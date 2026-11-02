@@ -426,10 +426,6 @@ export default function StorefrontEditor() {
           <h1 className="font-[family-name:var(--font-display)] text-2xl text-[var(--color-jewelry-black,#1a1814)]">
             Your website
           </h1>
-          <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]/60">
-            Banners, videos, text, layout and custom HTML for {branding.businessName || "your storefront"}.
-            Customers who open your domain stay on your site.
-          </p>
         </header>
 
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1">

@@ -482,14 +482,19 @@ async function resolveInquiryCustomerIdentity(query, req, body) {
     if (req?.isAuthenticated && req.isAuthenticated()) {
         const mobile = normalizeStoredMobile(req.user?.mobile_number);
         if (mobile.length >= 8 && req.user?.id != null) {
+            const loginName =
+                req.user?.loginName != null && String(req.user.loginName).trim()
+                    ? String(req.user.loginName).trim()
+                    : null;
             const name =
-                req.user?.name != null && String(req.user.name).trim()
+                loginName ||
+                (req.user?.name != null && String(req.user.name).trim()
                     ? String(req.user.name).trim()
-                    : `Customer ${mobile.slice(-4)}`;
+                    : `Customer ${mobile.slice(-4)}`);
             return {
                 customerUserId: req.user.id,
                 customerMobile: mobile,
-                customerName: name,
+                customerName: name.slice(0, 255),
             };
         }
     }

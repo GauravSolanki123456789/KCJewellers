@@ -797,7 +797,7 @@ app.get('/auth/google/callback', authLimiter, (req, res, next) => {
                 }
                 if (req.user.account_status === 'active') {
                     console.log(`✅ Login successful: ${email} (Role: ${req.user.role})`);
-                    logUserActivity({ user_id: req.user.id, action_type: 'login' }).catch(() => {});
+                    logUserActivity({ user_id: req.user.id, action_type: 'login', user: req.user }).catch(() => {});
                     const returnTo = takeReturnToPath(req, res);
                     return res.redirect(buildPostLoginRedirect(clientUrl, returnTo, req.user));
                 }
@@ -1232,7 +1232,7 @@ async function loginCustomerByMobile(req, res, mobile_number) {
                 return;
             }
             try {
-                await logUserActivity({ user_id: user.id, action_type: 'login' });
+                await logUserActivity({ user_id: user.id, action_type: 'login', user });
                 const tier = String(user.customer_tier || 'B2C_CUSTOMER').toUpperCase();
                 const rawCatIds = user.allowed_category_ids;
                 let allowed_category_ids = null;
@@ -2178,7 +2178,7 @@ app.post('/api/auth/verify-otp', authLimiter, requireJson, async (req, res) => {
                 console.error('OTP login session error:', error);
                 return res.status(500).json({ error: 'Login failed' });
             }
-            await logUserActivity({ user_id: user.id, action_type: 'login' });
+            await logUserActivity({ user_id: user.id, action_type: 'login', user });
             const tier = String(user.customer_tier || 'B2C_CUSTOMER').toUpperCase();
             const rawCatIds = user.allowed_category_ids;
             let allowed_category_ids = null;
@@ -2252,9 +2252,34 @@ app.post('/api/auth/register-mobile', authLimiter, requireJson, async (req, res)
 // ANALYTICS: First-party activity tracking
 // ==========================================
 const ALLOWED_ACTION_TYPES = ['login', 'view_product', 'add_to_cart'];
+
+function activityActorFromUser(user) {
+    if (!user || typeof user !== 'object') return {};
+    const loginEmail = String(user.loginEmail || user.email || '')
+        .toLowerCase()
+        .trim();
+    const loginName = String(user.loginName || user.name || '').trim();
+    const out = {};
+    if (loginEmail) out.login_email = loginEmail.slice(0, 255);
+    if (loginName) out.login_name = loginName.slice(0, 255);
+    return out;
+}
+
+function mergeActivityMetadata(user, metadata) {
+    const base =
+        metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+            ? { ...metadata }
+            : {};
+    const actor = activityActorFromUser(user);
+    if (actor.login_email && !base.login_email) base.login_email = actor.login_email;
+    if (actor.login_name && !base.login_name) base.login_name = actor.login_name;
+    return base;
+}
+
 async function logUserActivity(payload) {
-    const { user_id, session_id, action_type, target_id, metadata } = payload || {};
+    const { user_id, session_id, action_type, target_id, metadata, user } = payload || {};
     if (!action_type || !ALLOWED_ACTION_TYPES.includes(String(action_type))) return;
+    const meta = mergeActivityMetadata(user, metadata);
     try {
         await query(
             `INSERT INTO user_activity_logs (user_id, session_id, action_type, target_id, metadata, created_at)
@@ -2264,7 +2289,7 @@ async function logUserActivity(payload) {
                 session_id ? String(session_id).slice(0, 255) : null,
                 String(action_type).slice(0, 50),
                 target_id ? String(target_id).slice(0, 255) : null,
-                metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : '{}',
+                JSON.stringify(meta),
             ]
         );
     } catch (e) { console.warn('logUserActivity:', e?.message); }
@@ -2278,6 +2303,7 @@ app.post('/api/analytics/track', globalLimiter, requireJson, async (req, res) =>
         }
         const uid = req.isAuthenticated() && req.user?.id ? req.user.id : (user_id ? parseInt(user_id, 10) : null);
         const sid = session_id ? String(session_id).slice(0, 255) : null;
+        const meta = mergeActivityMetadata(req.isAuthenticated() ? req.user : null, metadata);
         await query(
             `INSERT INTO user_activity_logs (user_id, session_id, action_type, target_id, metadata, created_at)
              VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
@@ -2286,7 +2312,7 @@ app.post('/api/analytics/track', globalLimiter, requireJson, async (req, res) =>
                 sid,
                 String(action_type).slice(0, 50),
                 target_id ? String(target_id).slice(0, 255) : null,
-                metadata && typeof metadata === 'object' ? JSON.stringify(metadata) : '{}',
+                JSON.stringify(meta),
             ]
         );
         res.json({ success: true });

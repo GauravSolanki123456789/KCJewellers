@@ -397,7 +397,6 @@ function ProfilePageContent() {
                     href={RESELLER_OWN_PRICES_PATH}
                     icon={ReceiptIndianRupee}
                     title="Your prices"
-                    subtitle="Gift items and silver — MRP as shown on your website"
                     primary
                   />
                 ) : null}

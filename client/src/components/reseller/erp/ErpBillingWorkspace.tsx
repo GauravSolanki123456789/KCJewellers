@@ -2294,7 +2294,6 @@ export function ErpBillingWorkspace() {
       effectiveGstEnabled === false ||
       bill.gst_enabled === false ||
       billNo.startsWith('OFF-') ||
-      /^SCB/i.test(billNo) ||
       shadowBill.lane === 'jainav' ||
       shadowBill.lane === 'hitesh'
     if (skipGstInvoice) {

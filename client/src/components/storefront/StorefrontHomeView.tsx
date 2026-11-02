@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CATALOG_PATH } from "@/lib/routes";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import type { PublicResellerBranding } from "@/lib/reseller-branding-server";
@@ -111,12 +110,30 @@ function gridClass(columns?: number) {
 function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) {
   const slides = site.hero.slides.filter(Boolean);
   const [idx, setIdx] = useState(0);
+  const touchStartX = useRef<number | null>(null);
   const slide = slides[idx] || slides[0];
   useEffect(() => {
     if (slides.length < 2) return;
     const t = window.setInterval(() => setIdx((i) => (i + 1) % slides.length), 7000);
     return () => window.clearInterval(t);
   }, [slides.length]);
+  const goTo = (next: number) => {
+    if (slides.length < 2) return;
+    setIdx(((next % slides.length) + slides.length) % slides.length);
+  };
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.changedTouches[0]?.clientX ?? null;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStartX.current;
+    touchStartX.current = null;
+    if (start == null || slides.length < 2) return;
+    const end = e.changedTouches[0]?.clientX ?? start;
+    const delta = end - start;
+    if (Math.abs(delta) < 48) return;
+    if (delta < 0) goTo(idx + 1);
+    else goTo(idx - 1);
+  };
   if (!site.hero.enabled || !slide) return null;
   const bg = mediaSrc(slide.imageUrl);
   const yt = youtubeEmbedId(slide.videoUrl || "");
@@ -127,7 +144,11 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
         ? "items-end text-right"
         : "items-start text-left";
   return (
-    <section className="relative min-h-[58vw] w-full overflow-hidden bg-[#1a1510] sm:min-h-[420px] md:min-h-[520px] lg:min-h-[600px]">
+    <section
+      className="relative min-h-[58vw] w-full touch-pan-y overflow-hidden bg-[#1a1510] sm:min-h-[420px] md:min-h-[520px] lg:min-h-[600px]"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       {yt ? (
         <iframe
           title={slide.headline || brandName}
@@ -169,24 +190,25 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
         ) : null}
       </div>
       {slides.length > 1 ? (
-        <>
-          <button
-            type="button"
-            aria-label="Previous banner"
-            className="absolute left-2 top-1/2 z-20 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[var(--color-jewelry-black,#1a1814)] shadow sm:left-4"
-            onClick={() => setIdx((i) => (i - 1 + slides.length) % slides.length)}
-          >
-            <ChevronLeft className="size-5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Next banner"
-            className="absolute right-2 top-1/2 z-20 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[var(--color-jewelry-black,#1a1814)] shadow sm:right-4"
-            onClick={() => setIdx((i) => (i + 1) % slides.length)}
-          >
-            <ChevronRight className="size-5" />
-          </button>
-        </>
+        <div
+          className="absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center gap-2 sm:bottom-6"
+          role="tablist"
+          aria-label="Hero banners"
+        >
+          {slides.map((s, i) => (
+            <button
+              key={s.id || i}
+              type="button"
+              role="tab"
+              aria-selected={i === idx}
+              aria-label={`Banner ${i + 1} of ${slides.length}`}
+              onClick={() => goTo(i)}
+              className={`h-2.5 rounded-full transition-all ${
+                i === idx ? "w-7 bg-white" : "w-2.5 bg-white/45 hover:bg-white/70"
+              }`}
+            />
+          ))}
+        </div>
       ) : null}
     </section>
   );
