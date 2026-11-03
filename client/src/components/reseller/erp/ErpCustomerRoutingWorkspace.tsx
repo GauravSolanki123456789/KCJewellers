@@ -70,7 +70,7 @@ const NO_SALE_PRESETS = [
 ]
 
 export function ErpCustomerRoutingWorkspace() {
-  const { operator, shadowUnlocked } = useErpOperator()
+  const { operator, canDeleteRecords } = useErpOperator()
   const [boot, setBoot] = useState<RoutingBootstrap | null>(null)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useErpFlash()
@@ -613,7 +613,7 @@ export function ErpCustomerRoutingWorkspace() {
                             ? 'done'
                             : v.current_queue_status || 'in store'}
                         </span>
-                        {shadowUnlocked && operator?.role === 'admin' ? (
+                        {canDeleteRecords ? (
                           <button
                             type="button"
                             className="rounded-lg border border-rose-500/30 p-1.5 text-rose-700"
@@ -1113,13 +1113,13 @@ export function ErpCustomerRoutingWorkspace() {
             <ErpRoutingFollowUpReport
               onMsg={setMsg}
               onErr={setErr}
-              jainavUnlocked={shadowUnlocked && operator?.role === 'admin'}
+              jainavUnlocked={canDeleteRecords}
             />
           ) : adminTab === 'schemes' ? (
             <ErpRoutingSchemesPanel
               onErr={setErr}
               onMsg={setMsg}
-              jainavUnlocked={shadowUnlocked && operator?.role === 'admin'}
+              jainavUnlocked={canDeleteRecords}
             />
           ) : adminTab === 'visit-outcomes' ? (
             <ErpRoutingVisitOutcomesPanel onErr={setErr} />
@@ -1217,7 +1217,7 @@ export function ErpCustomerRoutingWorkspace() {
                           </option>
                         ))}
                       </select>
-                      {shadowUnlocked && operator?.role === 'admin' ? (
+                      {canDeleteRecords ? (
                         <button
                           type="button"
                           className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-500/30 px-2 text-xs text-rose-700"

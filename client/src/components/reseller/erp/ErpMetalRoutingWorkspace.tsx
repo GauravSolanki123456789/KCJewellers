@@ -521,7 +521,7 @@ export function ErpMetalRoutingWorkspace() {
       setActiveLotId(null)
       setJourney(null)
       await reloadLots()
-      appAlert(`Lot #${n} deleted — number is free to reuse`, 'success')
+      appAlert(`Lot #${n} deleted`, 'success')
     } catch (e: unknown) {
       appAlert(extractErr(e) || 'Delete failed', 'error')
     }

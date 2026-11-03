@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { getPolicyPlainText } from "@/lib/policy-content";
 import { POLICY_SHIPPING_PATH } from "@/lib/routes";
-import { policyPageMetadata } from "@/lib/policy-metadata";
+import { getBrandedPolicyBody, policyPageMetadata } from "@/lib/policy-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
   return policyPageMetadata({
@@ -13,14 +12,14 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const revalidate = 3600;
 
-export default function ShippingPolicyPage() {
-  const body = getPolicyPlainText("shipping");
+export default async function ShippingPolicyPage() {
+  const body = await getBrandedPolicyBody("shipping");
   return (
     <>
-      <h1 className="text-2xl font-bold tracking-tight gold-text md:text-3xl">
+      <h1 className="text-2xl font-bold tracking-tight text-[var(--color-jewelry-black,#1a1814)] md:text-3xl">
         Shipping & Delivery Policy
       </h1>
-      <article className="mt-8 whitespace-pre-wrap text-sm leading-relaxed text-slate-300 md:text-base">
+      <article className="mt-8 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90 md:text-base">
         {body}
       </article>
     </>

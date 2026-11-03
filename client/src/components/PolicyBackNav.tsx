@@ -10,7 +10,7 @@ export default function PolicyBackNav() {
     <nav aria-label="Back to profile" className="mb-6 sm:mb-8">
       <Link
         href={PROFILE_PATH}
-        className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2.5 text-sm font-medium text-slate-200 shadow-sm transition-colors hover:border-amber-500/30 hover:bg-slate-800/80 hover:text-amber-400 active:scale-[0.99]"
+        className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:border-[var(--color-jewelry-gold)]/40 hover:bg-muted active:scale-[0.99]"
       >
         <ChevronLeft className="size-4 shrink-0" aria-hidden />
         Back to profile

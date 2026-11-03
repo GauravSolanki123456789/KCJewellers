@@ -38,7 +38,7 @@ type ErpOperatorContextValue = {
   unlockShadow: (sequence: string) => Promise<void>
   lockShadow: () => Promise<void>
   canAccessModule: (moduleId: ResellerErpModuleId | string) => boolean
-  /** Document / stock deletes: admin operator after Jainav unlock (F9Rs* + Enter). */
+  /** Document / stock deletes: ERP admin after Jainav unlock (limited tab access still allowed). */
   canDeleteRecords: boolean
   /** Save completed sales bill in Scan & Bill (staff permission). */
   canSaveBill: boolean
@@ -130,7 +130,7 @@ export function ErpOperatorProvider({ children }: { children: ReactNode }) {
     [operator],
   )
 
-  const canDeleteRecords = !!operator?.fullAccess && shadowUnlocked
+  const canDeleteRecords = operator?.role === 'admin' && shadowUnlocked
 
   const canSaveBill = useMemo(() => {
     if (!operator) return true

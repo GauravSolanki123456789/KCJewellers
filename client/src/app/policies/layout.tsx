@@ -6,8 +6,8 @@ export default function PoliciesLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10 pb-28 md:pb-16">
+    <div className="min-h-screen bg-background text-foreground">
+      <main className="mx-auto max-w-3xl px-4 py-6 pb-28 sm:py-10 md:pb-16">
         <PolicyBackNav />
         {children}
       </main>
