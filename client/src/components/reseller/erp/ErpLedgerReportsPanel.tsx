@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   Loader2,
+  Receipt,
   Users,
 } from 'lucide-react'
 import { ErpDateInput } from '@/components/reseller/erp/ErpDateInput'
@@ -25,8 +26,14 @@ import {
   customerBalancesReportToPdfPayload,
   previewCustomerBalancesPdf,
 } from '@/lib/erp-ledger-customer-balances-pdf'
+import { ErpLedgerSalesReportsSection } from '@/components/reseller/erp/ErpLedgerSalesReportsSection'
 
-type ReportId = 'customer_balances' | 'fixed_asset_metals' | 'metal_balances_by_type'
+type ReportId =
+  | 'customer_balances'
+  | 'fixed_asset_metals'
+  | 'metal_balances_by_type'
+  | 'gst_sales_register'
+  | 'lane_all_bills_detail'
 
 type ReportMeta = {
   id: ReportId
@@ -296,11 +303,25 @@ export function ErpLedgerReportsPanel({
   }
 
   if (!activeReport) {
+    const salesReport: ReportMeta = laneMode
+      ? {
+          id: 'lane_all_bills_detail',
+          title: 'All bills (lane ledger)',
+          description: 'Official + lane shadow bills with line detail',
+          icon: Receipt,
+        }
+      : {
+          id: 'gst_sales_register',
+          title: 'GST sales bills register',
+          description: 'Completed GST sales — summary & metal totals',
+          icon: Receipt,
+        }
+    const allReports = [...REPORTS, salesReport]
     return (
       <div className="space-y-3">
         <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Ledger reports</p>
         <div className="grid gap-3 sm:grid-cols-2">
-          {REPORTS.map((r) => {
+          {allReports.map((r) => {
             const Icon = r.icon
             return (
               <button
@@ -321,6 +342,18 @@ export function ErpLedgerReportsPanel({
           })}
         </div>
       </div>
+    )
+  }
+
+  if (activeReport === 'gst_sales_register' || activeReport === 'lane_all_bills_detail') {
+    return (
+      <ErpLedgerSalesReportsSection
+        reportId={activeReport}
+        laneMode={laneMode}
+        defaultFrom={defaultFrom}
+        defaultTo={defaultTo}
+        onBack={() => setActiveReport(null)}
+      />
     )
   }
 

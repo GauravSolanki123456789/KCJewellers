@@ -304,6 +304,16 @@ async function ensureCmsSchema() {
         CREATE INDEX IF NOT EXISTS idx_storefront_contact_reseller_created
             ON reseller_storefront_contact_messages (reseller_user_id, created_at DESC)
     `);
+    await pool.query(`
+        ALTER TABLE reseller_storefront_contact_messages
+            ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open',
+            ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS reseller_note TEXT
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_storefront_contact_reseller_open
+            ON reseller_storefront_contact_messages (reseller_user_id, status, created_at DESC)
+    `);
 }
 
 async function brandingForReseller(user) {
@@ -620,6 +630,84 @@ function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, ge
             } catch (error) {
                 console.error('reseller storefront media:', error);
                 res.status(500).json({ error: error.message || 'Upload failed' });
+            }
+        },
+    );
+
+    app.get('/api/reseller/storefront-contact-messages', requireSharedCatalogCreator, requireWebsite, async (req, res) => {
+        try {
+            await ensureCmsSchema();
+            const status = clip(req.query.status, 20).toLowerCase();
+            const params = [req.user.id];
+            let sql = `SELECT id, sender_name, sender_mobile, sender_email, message, source_domain,
+                              status, closed_at, reseller_note, created_at
+                       FROM reseller_storefront_contact_messages
+                       WHERE reseller_user_id = $1`;
+            if (status === 'open' || status === 'closed') {
+                params.push(status);
+                sql += ` AND status = $${params.length}`;
+            }
+            sql += ` ORDER BY created_at DESC LIMIT 200`;
+            const rows = await query(sql, params);
+            const openRows = await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_storefront_contact_messages
+                 WHERE reseller_user_id = $1 AND status = 'open'`,
+                [req.user.id],
+            );
+            res.json({
+                messages: rows,
+                open_count: Number(openRows[0]?.n || 0),
+            });
+        } catch (error) {
+            console.error('reseller storefront-contact list:', error);
+            res.status(500).json({ error: error.message || 'Failed to load messages' });
+        }
+    });
+
+    app.patch(
+        '/api/reseller/storefront-contact-messages/:id',
+        requireSharedCatalogCreator,
+        requireWebsite,
+        requireJson,
+        async (req, res) => {
+            try {
+                const id = parseInt(String(req.params.id || ''), 10);
+                if (!Number.isFinite(id) || id <= 0) {
+                    return res.status(400).json({ error: 'Invalid message id' });
+                }
+                await ensureCmsSchema();
+                const statusRaw = clip(req.body?.status, 20).toLowerCase();
+                const note = clip(req.body?.reseller_note ?? req.body?.note, 2000).trim();
+                const sets = [];
+                const params = [req.user.id, id];
+                if (statusRaw === 'open' || statusRaw === 'closed') {
+                    params.push(statusRaw);
+                    sets.push(`status = $${params.length}`);
+                    if (statusRaw === 'closed') {
+                        sets.push('closed_at = NOW()');
+                    } else {
+                        sets.push('closed_at = NULL');
+                    }
+                }
+                if (req.body?.reseller_note !== undefined || req.body?.note !== undefined) {
+                    params.push(note || null);
+                    sets.push(`reseller_note = $${params.length}`);
+                }
+                if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+                sets.push('created_at = created_at');
+                const rows = await query(
+                    `UPDATE reseller_storefront_contact_messages
+                     SET ${sets.join(', ')}
+                     WHERE id = $2 AND reseller_user_id = $1
+                     RETURNING id, sender_name, sender_mobile, sender_email, message, source_domain,
+                               status, closed_at, reseller_note, created_at`,
+                    params,
+                );
+                if (!rows[0]) return res.status(404).json({ error: 'Message not found' });
+                res.json({ success: true, message: rows[0] });
+            } catch (error) {
+                console.error('reseller storefront-contact patch:', error);
+                res.status(500).json({ error: error.message || 'Failed to update message' });
             }
         },
     );

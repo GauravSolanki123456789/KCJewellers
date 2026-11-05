@@ -159,7 +159,7 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
     return (
       <div
         key={slideKey}
-        className="relative min-h-[58vw] w-full shrink-0 snap-start snap-always bg-[#faf7f2] sm:min-h-[420px] md:min-h-[520px] lg:min-h-[600px]"
+        className="relative min-h-[58vw] w-full shrink-0 snap-start snap-always bg-[#faf7f2] sm:min-h-[420px] md:min-h-0 md:aspect-[21/9] lg:aspect-[2.4/1]"
       >
         {yt ? (
           <iframe
@@ -182,7 +182,7 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
             src={bg}
             alt={slide.headline || brandName}
             fill
-            className="object-cover object-center"
+            className="object-cover object-center md:object-contain md:object-center"
             priority
             unoptimized
             draggable={false}
@@ -316,7 +316,7 @@ function SectionBlock({ section }: { section: StorefrontSection }) {
             {section.ctaText ? (
               <Link
                 href={normalizeStorefrontHref(section.ctaHref)}
-                className="inline-flex min-h-11 items-center rounded-md bg-[var(--kc-accent,#9a1c2e)] px-5 text-sm font-semibold text-white"
+                className="kc-storefront-accent-pill inline-flex min-h-11 items-center rounded-md bg-[var(--kc-accent,#9a1c2e)] px-5 text-sm font-semibold text-white shadow-sm"
               >
                 {section.ctaText}
               </Link>
@@ -428,7 +428,7 @@ export default function StorefrontHomeView({
             ))}
             <Link
               href={shopAllHref}
-              className="ml-auto whitespace-nowrap rounded-full bg-[var(--kc-accent,#9a1c2e)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white"
+              className="kc-storefront-accent-pill ml-auto whitespace-nowrap rounded-full bg-[var(--kc-accent,#9a1c2e)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white shadow-sm"
             >
               {shopAllLabel}
             </Link>

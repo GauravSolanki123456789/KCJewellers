@@ -1205,6 +1205,11 @@ body {
     color: inherit;
   }
 
+  .kc-storefront-home a.kc-storefront-accent-pill,
+  .kc-storefront-home a.kc-storefront-accent-pill:hover {
+    color: #ffffff !important;
+  }
+
   /* Profile page — readable on reseller light themes */
   .kc-profile-page {
     color: var(--color-jewelry-black, #1a1814);

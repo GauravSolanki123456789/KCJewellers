@@ -8849,6 +8849,20 @@ app.get('/api/reseller/inbox-summary', requireSharedCatalogCreator, async (req, 
         );
         const catalogInquiriesPending = Number(pendingRows[0]?.n || 0);
 
+        let storefrontContactOpen = 0;
+        try {
+            const contactRows = await query(
+                `SELECT COUNT(*)::int AS n FROM reseller_storefront_contact_messages
+                 WHERE reseller_user_id = $1 AND status = 'open'`,
+                [userId],
+            );
+            storefrontContactOpen = Number(contactRows[0]?.n || 0);
+        } catch (e) {
+            if (!String(e.message || '').includes('reseller_storefront_contact_messages')) {
+                console.warn('reseller inbox storefront contact:', e.message);
+            }
+        }
+
         let catalogInquiriesUnread = catalogInquiriesPending;
         if (seenInquiries) {
             const unreadRows = await query(
@@ -8862,15 +8876,16 @@ app.get('/api/reseller/inbox-summary', requireSharedCatalogCreator, async (req, 
             catalogInquiriesUnread = Number(unreadRows[0]?.n || 0);
         }
 
-        const navAttentionCount = Math.min(99, catalogInquiriesUnread);
+        const navAttentionCount = Math.min(99, catalogInquiriesUnread + storefrontContactOpen);
 
         res.json({
             success: true,
             data: {
-                counts: { catalogInquiriesPending },
+                counts: { catalogInquiriesPending, storefrontContactOpen },
                 badgesByHref: {
                     '/reseller/inquiries': catalogInquiriesUnread,
                     '/profile': navAttentionCount,
+                    '/profile/storefront-messages': storefrontContactOpen,
                 },
                 navAttentionCount,
                 generatedAt: new Date().toISOString(),

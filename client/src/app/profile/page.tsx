@@ -14,6 +14,7 @@ import {
   PROFILE_DIGI_PATH,
   PROFILE_SIPS_PATH,
   PROFILE_STOREFRONT_PATH,
+  PROFILE_STOREFRONT_MESSAGES_PATH,
   RESELLER_PRODUCTS_PATH,
   RESELLER_OWN_PRICES_PATH,
   RESELLER_RATES_PATH,
@@ -60,6 +61,7 @@ import {
   LayoutGrid,
   ListOrdered,
   Palette,
+  Mail,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -445,6 +447,26 @@ function ProfilePageContent() {
                             : undefined
                         }
                         primary
+                      />
+                    ) : null}
+                    {resellerStorefrontWebsiteEnabled ? (
+                      <ProfileActionCard
+                        href={PROFILE_STOREFRONT_MESSAGES_PATH}
+                        icon={Mail}
+                        title="Website messages"
+                        subtitle={
+                          resellerInbox && (resellerInbox.counts.storefrontContactOpen ?? 0) > 0
+                            ? `${resellerInbox.counts.storefrontContactOpen} open contact form message${resellerInbox.counts.storefrontContactOpen === 1 ? '' : 's'}`
+                            : 'Contact form from your storefront'
+                        }
+                        badge={
+                          resellerInbox &&
+                          (resellerInbox.badgesByHref?.[PROFILE_STOREFRONT_MESSAGES_PATH] ?? 0) > 0
+                            ? formatAdminInboxBadge(
+                                resellerInbox.badgesByHref[PROFILE_STOREFRONT_MESSAGES_PATH] ?? 0,
+                              )
+                            : undefined
+                        }
                       />
                     ) : null}
                     <ProfileActionCard

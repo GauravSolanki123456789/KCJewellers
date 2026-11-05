@@ -26,6 +26,12 @@ const {
     customerBalancesReportToCsv,
     daybookToCsv,
 } = require('./resellerErpCustomerAccount');
+const {
+    buildGstSalesRegisterReport,
+    buildLaneAllBillsDetailReport,
+    gstSalesRegisterToCsv,
+    laneBillsDetailToCsv,
+} = require('./resellerErpLedgerSalesReports');
 const { normDateIso } = require('./erpDateNormalize');
 const { deletePurchaseVoucherById } = require('./resellerErpPurchaseVouchers');
 const { requireJainavUnlockedAdmin } = require('./resellerErpOperators');
@@ -1948,6 +1954,94 @@ function registerResellerErpLedgerRoutes(app, deps) {
                     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Customer balances</title></head><body><h1>Customer balances</h1><p>Receivable: ₹${report.summary.total_receivable_inr} · Payable: ₹${report.summary.total_payable_inr}</p><table border="1" cellpadding="4"><tr><th>Customer</th><th>Mobile</th><th>GSTIN</th><th>Balance ₹</th><th>Bills</th></tr>${bodyRows}</table></body></html>`,
                 );
             }
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send('\ufeff' + csv);
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Export failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/gst-sales-register', checkAuth, erpGate, async (req, res) => {
+        try {
+            const scope = String(req.query.ledger_scope || 'official').toLowerCase();
+            if (scope === 'lane') {
+                return res.status(403).json({
+                    error: 'Run this report from the official Payment ledger (Reports tab), not lane ledger.',
+                });
+            }
+            const report = await buildGstSalesRegisterReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+            });
+            res.json(report);
+        } catch (e) {
+            console.error('erp ledger gst-sales-register:', e);
+            res.status(500).json({ error: e.message || 'Failed to load GST sales register' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/gst-sales-register/export', checkAuth, erpGate, async (req, res) => {
+        try {
+            const scope = String(req.query.ledger_scope || 'official').toLowerCase();
+            if (scope === 'lane') {
+                return res.status(403).json({ error: 'Use official ledger for this export.' });
+            }
+            const report = await buildGstSalesRegisterReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+            });
+            const csv = gstSalesRegisterToCsv(report);
+            const fname = `gst-sales-register-${new Date().toISOString().slice(0, 10)}.csv`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+            res.send('\ufeff' + csv);
+        } catch (e) {
+            res.status(500).json({ error: e.message || 'Export failed' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/lane-all-bills', checkAuth, erpGate, async (req, res) => {
+        try {
+            const scope = String(req.query.ledger_scope || '').toLowerCase();
+            if (scope !== 'lane') {
+                return res.status(403).json({
+                    error: 'Open Jainav lane Payment ledger → Reports to run all-bills report.',
+                });
+            }
+            if (req.session?.shadowUnlocked !== true) {
+                return res.status(403).json({ error: 'Unlock Jainav mode first.' });
+            }
+            const report = await buildLaneAllBillsDetailReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+            });
+            res.json(report);
+        } catch (e) {
+            console.error('erp ledger lane-all-bills:', e);
+            res.status(500).json({ error: e.message || 'Failed to load lane bills report' });
+        }
+    });
+
+    app.get('/api/reseller/erp/ledger/reports/lane-all-bills/export', checkAuth, erpGate, async (req, res) => {
+        try {
+            const scope = String(req.query.ledger_scope || '').toLowerCase();
+            if (scope !== 'lane') {
+                return res.status(403).json({ error: 'Use lane ledger for this export.' });
+            }
+            if (req.session?.shadowUnlocked !== true) {
+                return res.status(403).json({ error: 'Jainav lane ledger required for this export.' });
+            }
+            const report = await buildLaneAllBillsDetailReport(query, req.user.id, {
+                from: parseDateOrNull(req.query.from),
+                to: parseDateOrNull(req.query.to),
+                on: parseDateOrNull(req.query.on),
+            });
+            const csv = laneBillsDetailToCsv(report);
+            const fname = `lane-all-bills-${new Date().toISOString().slice(0, 10)}.csv`;
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
             res.send('\ufeff' + csv);

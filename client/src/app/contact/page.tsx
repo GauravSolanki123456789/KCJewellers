@@ -62,10 +62,6 @@ export default async function StorefrontContactPage() {
         <h1 className="font-[family-name:var(--font-display)] text-2xl font-medium tracking-[0.08em] text-[var(--color-jewelry-black,#1a1814)] uppercase md:text-3xl">
           Contact us
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/65 sm:text-base">
-          Reach {brandName} directly for orders, catalogue questions, or store visits. Call or WhatsApp for
-          quick help, or send a message using the form below.
-        </p>
 
         <ul className="mt-8 space-y-3">
           {telHref ? (

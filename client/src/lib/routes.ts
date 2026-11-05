@@ -26,6 +26,8 @@ export const CHECKOUT_B2B_SUCCESS_PATH = '/checkout/b2b-success'
 export const PROFILE_PATH = '/profile'
 /** RESELLER tier — homepage banners, videos, sections & custom HTML. */
 export const PROFILE_STOREFRONT_PATH = '/profile/storefront'
+/** Contact form submissions from vanity storefront. */
+export const PROFILE_STOREFRONT_MESSAGES_PATH = '/profile/storefront-messages'
 export const PROFILE_SIPS_PATH = '/profile/sips'
 /** B2B wholesale quick order matrix (requires `customer_tier` B2B / ADMIN). */
 export const WHOLESALE_ORDER_PATH = '/wholesale-order'
