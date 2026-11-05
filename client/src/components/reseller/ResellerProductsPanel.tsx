@@ -734,59 +734,6 @@ export function ResellerProductsPanel({
         </div>
       ) : null}
 
-      {showLiveStockEnabled ? (
-        <div className="kc-upload-card mb-6 rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 shadow-sm sm:p-6">
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
-              <PackageCheck className="size-5" aria-hidden />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                Update live stock
-              </h2>
-              <p className="mt-1 text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/75">
-                Upload your offline store Excel to refresh <strong>weight</strong> and{' '}
-                <strong>quantity</strong> on products that already have photos on the site. Rows for
-                products not uploaded yet are ignored. Live SKUs missing from the sheet are marked{' '}
-                <strong>make on order</strong> and move below in-stock items in the catalogue.
-              </p>
-            </div>
-          </div>
-          <input
-            ref={stockSyncInputRef}
-            type="file"
-            accept={RESELLER_EXCEL_ACCEPT}
-            className="sr-only"
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) void handleStockSyncExcel(f)
-            }}
-          />
-          <button
-            type="button"
-            disabled={stockSyncParsing}
-            onClick={() => stockSyncInputRef.current?.click()}
-            className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-600/35 bg-white px-4 py-4 text-sm font-semibold text-emerald-900 transition hover:border-emerald-600/60 hover:bg-emerald-50/80 disabled:opacity-60"
-          >
-            {stockSyncParsing ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <Upload className="size-5 text-emerald-700" />
-            )}
-            Upload store sheet (.xlsx / .csv)
-          </button>
-          {stockSyncResult ? (
-            <p className="mt-4 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-900">
-              {stockSyncResult}
-            </p>
-          ) : null}
-          <p className="mt-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-            Use <strong>Bulk Excel import</strong> below only when you need new draft rows for photo
-            upload. Do not use it for daily stock counts.
-          </p>
-        </div>
-      ) : null}
-
       {tab === 'add' ? (
         <div className="kc-upload-card space-y-5 rounded-2xl p-4 shadow-sm sm:p-6">
           <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Add one product</h2>
@@ -987,6 +934,46 @@ export function ResellerProductsPanel({
 
       {tab === 'batches' ? (
         <div className="space-y-4">
+          {showLiveStockEnabled ? (
+            <div className="kc-upload-card rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 shadow-sm sm:p-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                  <PackageCheck className="size-5" aria-hidden />
+                </div>
+                <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                  Update live stock
+                </h2>
+              </div>
+              <input
+                ref={stockSyncInputRef}
+                type="file"
+                accept={RESELLER_EXCEL_ACCEPT}
+                className="sr-only"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void handleStockSyncExcel(f)
+                }}
+              />
+              <button
+                type="button"
+                disabled={stockSyncParsing}
+                onClick={() => stockSyncInputRef.current?.click()}
+                className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-600/35 bg-white px-4 py-4 text-sm font-semibold text-emerald-900 transition hover:border-emerald-600/60 hover:bg-emerald-50/80 disabled:opacity-60"
+              >
+                {stockSyncParsing ? (
+                  <Loader2 className="size-5 animate-spin" />
+                ) : (
+                  <Upload className="size-5 text-emerald-700" />
+                )}
+                Upload store sheet (.xlsx / .csv)
+              </button>
+              {stockSyncResult ? (
+                <p className="mt-4 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-900">
+                  {stockSyncResult}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="kc-upload-card rounded-2xl p-4 shadow-sm sm:p-6">
             <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">Bulk Excel import</h2>
             <input

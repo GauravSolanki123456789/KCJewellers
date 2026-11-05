@@ -330,10 +330,27 @@ export default function SharedCatalogClient({
     [uploadedMcSlabRows, uploadedMcSlabKey],
   )
 
+  const showLiveStock = useMemo(() => {
+    if (isLoadedBrochure(payload) && 'showLiveStock' in payload) {
+      return !!payload.showLiveStock
+    }
+    return !!initialBranding?.showLiveStock
+  }, [payload, initialBranding])
+
   const rows = useMemo(() => {
     if (!isLoadedBrochure(payload)) return []
+    let products = payload.products ?? []
+    if (showLiveStock && products.length > 1) {
+      const hasIn = products.some((p) => parseProductStockQty(p.quantity ?? p.pcs) > 0)
+      const hasOut = products.some((p) => parseProductStockQty(p.quantity ?? p.pcs) <= 0)
+      if (hasIn && hasOut) {
+        const inStock = products.filter((p) => parseProductStockQty(p.quantity ?? p.pcs) > 0)
+        const mto = products.filter((p) => parseProductStockQty(p.quantity ?? p.pcs) <= 0)
+        products = [...inStock, ...mto]
+      }
+    }
     const built = buildSharedCatalogPricingRows(
-      payload.products ?? [],
+      products,
       payload.rates ?? [],
       parseMarkupPercentage(payload.markupPercentage),
       payload.creatorWholesalePricing ?? null,
@@ -342,7 +359,7 @@ export default function SharedCatalogClient({
       slabPayload,
     )
     return built
-  }, [payload, giftingGstEnabled, slabPayload])
+  }, [payload, giftingGstEnabled, slabPayload, showLiveStock])
 
   const groupedRows = useMemo(() => groupSharedCatalogPricingRows(rows), [rows])
 
@@ -422,27 +439,21 @@ export default function SharedCatalogClient({
     [canShortlist],
   )
 
-  const showLiveStock = useMemo(() => {
-    if (isLoadedBrochure(payload) && 'showLiveStock' in payload) {
-      return !!payload.showLiveStock
-    }
-    return !!initialBranding?.showLiveStock
-  }, [payload, initialBranding])
-
   const visibleGroupedRows = useMemo(() => {
     let list = showSubcategoryTabs
       ? filterSharedCatalogGroupsBySubcategory(groupedRows, activeSubcategory)
       : groupedRows
     if (showLiveStock && list.length > 1) {
-      const stockOf = (g: (typeof list)[number]) => {
-        const v = g.variants[0]
-        return parseProductStockQty(v?.product.quantity ?? v?.product.pcs)
-      }
-      const hasInStock = list.some((g) => stockOf(g) > 0)
-      const hasMakeOnOrder = list.some((g) => stockOf(g) <= 0)
+      const stockOfGroup = (g: (typeof list)[number]) =>
+        Math.max(
+          0,
+          ...g.variants.map((v) => parseProductStockQty(v.product.quantity ?? v.product.pcs)),
+        )
+      const hasInStock = list.some((g) => stockOfGroup(g) > 0)
+      const hasMakeOnOrder = list.some((g) => stockOfGroup(g) <= 0)
       if (hasInStock && hasMakeOnOrder) {
         list = [...list].sort(
-          (a, b) => compareLiveStockDisplayOrder({ quantity: stockOf(a) }, { quantity: stockOf(b) }),
+          (a, b) => compareLiveStockDisplayOrder({ quantity: stockOfGroup(a) }, { quantity: stockOfGroup(b) }),
         )
       }
     }

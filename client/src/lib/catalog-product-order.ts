@@ -27,6 +27,24 @@ function parseCatalogStockQty(p: CatalogProductOrderFields): number {
   return Number.isFinite(n) && n >= 0 ? n : 0
 }
 
+/** In-stock SKUs first, qty 0 (make on order) last — keeps relative order within each tier. */
+export function applySubcategoryLiveStockTierOrder<T extends CatalogProductOrderFields>(
+  products: T[],
+  showLiveStock: boolean,
+): T[] {
+  if (!showLiveStock || products.length <= 1) return products
+  const hasIn = products.some((p) => parseCatalogStockQty(p) > 0)
+  const hasOut = products.some((p) => parseCatalogStockQty(p) <= 0)
+  if (!hasIn || !hasOut) return products
+  const inStock: T[] = []
+  const makeOnOrder: T[] = []
+  for (const p of products) {
+    if (parseCatalogStockQty(p) > 0) inStock.push(p)
+    else makeOnOrder.push(p)
+  }
+  return [...inStock, ...makeOnOrder]
+}
+
 function compareCatalogSizeLabel(a: unknown, b: unknown): number {
   const sa = String(a ?? '').trim()
   const sb = String(b ?? '').trim()
@@ -185,5 +203,5 @@ export function sortCatalogProductsByDesignGroupOrder<T extends CatalogProductOr
     out.push(...sortWithinDesignGroup(byGroup.get(dg) ?? [], sortOpts))
   }
   out.push(...sortWithinDesignGroup(noGroup, sortOpts))
-  return out
+  return applySubcategoryLiveStockTierOrder(out, !!showLiveStock)
 }

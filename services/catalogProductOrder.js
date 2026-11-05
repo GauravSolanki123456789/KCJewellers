@@ -28,7 +28,7 @@ function compareCatalogSizeLabel(a, b) {
 }
 
 function parseCatalogStockQty(p) {
-    const n = parseInt(String(p?.quantity ?? ''), 10);
+    const n = parseInt(String(p?.quantity ?? p?.pcs ?? ''), 10);
     return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
@@ -122,6 +122,21 @@ function sortWithinDesignGroup(list, options) {
     });
 }
 
+/** In-stock SKUs first, qty 0 (make on order label) last — keeps relative order within each tier. */
+function applySubcategoryLiveStockTierOrder(products, showLiveStock) {
+    if (!showLiveStock || !Array.isArray(products) || products.length <= 1) return products;
+    const hasIn = products.some((p) => parseCatalogStockQty(p) > 0);
+    const hasOut = products.some((p) => parseCatalogStockQty(p) <= 0);
+    if (!hasIn || !hasOut) return products;
+    const inStock = [];
+    const makeOnOrder = [];
+    for (const p of products) {
+        if (parseCatalogStockQty(p) > 0) inStock.push(p);
+        else makeOnOrder.push(p);
+    }
+    return [...inStock, ...makeOnOrder];
+}
+
 /**
  * Sort products within one SKU/subcategory for storefront + shared brochure.
  */
@@ -182,7 +197,7 @@ function sortCatalogProductsByDesignGroupOrder(products, designGroupOrder, optio
         out.push(...sortWithinDesignGroup(byGroup.get(dg) ?? [], sortOpts));
     }
     out.push(...sortWithinDesignGroup(noGroup, sortOpts));
-    return out;
+    return applySubcategoryLiveStockTierOrder(out, showLiveStock);
 }
 
 /** Compare two catalogue rows (shared catalogue / cross-SKU sort). */
