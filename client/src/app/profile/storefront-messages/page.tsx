@@ -79,9 +79,6 @@ function StorefrontMessagesGate() {
       <h1 className="font-[family-name:var(--font-display)] text-2xl font-medium tracking-wide text-[var(--color-jewelry-black,#1a1814)]">
         Website messages
       </h1>
-      <p className="mt-1 text-sm text-[var(--color-jewelry-black,#1a1814)]/55">
-        Customers submit these from your storefront contact form. Reply by call or WhatsApp, then mark closed.
-      </p>
       <div className="mt-6">
         <StorefrontContactInbox />
       </div>

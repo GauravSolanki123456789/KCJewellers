@@ -2,6 +2,7 @@ import { Document, Page, StyleSheet, Text, View, pdf } from '@react-pdf/renderer
 import { presentPdfBlob } from '@/lib/pdf-share'
 import { formatPdfInr } from '@/lib/erp-ledger-labels'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import { sanitizePdfText } from '@/lib/pdf-text-utils'
 
 export type GstSalesRegisterBillRow = {
   bill_number: string
@@ -9,13 +10,15 @@ export type GstSalesRegisterBillRow = {
   customer_name: string
   item_count: number
   total_inr: number
-  status: string
-  gst_enabled: boolean
+  status?: string
+  gst_enabled?: boolean
 }
 
 export type GstSalesRegisterPdfReport = {
   shopName?: string
   periodLabel: string
+  /** Shown under shop name in PDF */
+  reportTitle?: string
   summary: { total: number; totalValue: number; monthCount: number; todayCount: number }
   metal: {
     goldWeightGm: number
@@ -26,43 +29,50 @@ export type GstSalesRegisterPdfReport = {
   bills: GstSalesRegisterBillRow[]
 }
 
+const BORDER = '#1a1814'
+
 const styles = StyleSheet.create({
-  page: { paddingTop: 36, paddingHorizontal: 32, paddingBottom: 52, fontSize: 9, fontFamily: 'Helvetica' },
-  shopName: { fontSize: 14, fontWeight: 'bold', textAlign: 'center', color: '#1a1814', marginBottom: 4 },
+  page: { paddingTop: 32, paddingHorizontal: 28, paddingBottom: 48, fontSize: 8, fontFamily: 'Helvetica', color: '#1a1814' },
+  shopName: { fontSize: 14, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
   title: { fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 2 },
-  sub: { fontSize: 9, color: '#444', textAlign: 'center', marginBottom: 12 },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 10, gap: 6 },
-  kpi: { borderWidth: 0.5, borderColor: '#bbb', padding: 6, minWidth: '22%' },
+  sub: { fontSize: 9, color: '#444', textAlign: 'center', marginBottom: 10 },
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 8, gap: 4 },
+  kpi: { borderWidth: 0.75, borderColor: BORDER, padding: 5, minWidth: '22%' },
   kpiLabel: { fontSize: 7, color: '#555', marginBottom: 2 },
-  kpiVal: { fontSize: 10, fontWeight: 'bold' },
-  metalTitle: { fontSize: 8, fontWeight: 'bold', marginTop: 8, marginBottom: 4, color: '#333' },
-  tableHeader: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#666',
+  kpiVal: { fontSize: 9, fontWeight: 'bold' },
+  metalTitle: { fontSize: 8, fontWeight: 'bold', marginTop: 6, marginBottom: 4, color: '#333' },
+  tableOuter: { borderWidth: 1, borderColor: BORDER, marginTop: 10 },
+  tableHeader: { flexDirection: 'row', backgroundColor: '#f7f4ef' },
+  tableRow: { flexDirection: 'row' },
+  th: {
+    borderRightWidth: 0.75,
+    borderBottomWidth: 0.75,
+    borderColor: BORDER,
     paddingVertical: 4,
+    paddingHorizontal: 3,
+    fontSize: 7,
     fontWeight: 'bold',
-    backgroundColor: '#f5f2ed',
   },
-  tableRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#ccc',
+  td: {
+    borderRightWidth: 0.75,
+    borderBottomWidth: 0.75,
+    borderColor: BORDER,
     paddingVertical: 4,
+    paddingHorizontal: 3,
+    fontSize: 7,
   },
+  tdRight: { textAlign: 'right' },
+  lastCol: { borderRightWidth: 0 },
   cBill: { width: '14%' },
   cDate: { width: '12%' },
-  cCust: { width: '32%' },
-  cItems: { width: '8%', textAlign: 'right' },
-  cNet: { width: '16%', textAlign: 'right' },
-  cStat: { width: '12%' },
-  cGst: { width: '6%', textAlign: 'center' },
+  cCust: { width: '44%' },
+  cItems: { width: '10%' },
+  cNet: { width: '20%' },
   footer: {
     position: 'absolute',
-    bottom: 24,
-    left: 32,
-    right: 32,
+    bottom: 20,
+    left: 28,
+    right: 28,
     textAlign: 'center',
     fontSize: 8,
     color: '#666',
@@ -71,22 +81,25 @@ const styles = StyleSheet.create({
 
 function Footer() {
   return (
-    <Text
-      style={styles.footer}
-      render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
-      fixed
-    />
+    <Text style={styles.footer} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} fixed />
   )
 }
 
+function hasGoldMetal(metal: GstSalesRegisterPdfReport['metal']) {
+  return (metal.goldWeightGm || 0) > 0.0005 || (metal.goldValueInr || 0) > 0.005
+}
+
 function GstSalesRegisterDocument({ report }: { report: GstSalesRegisterPdfReport }) {
-  const shop = report.shopName?.trim() || 'GST sales register'
+  const shop = report.shopName?.trim() || 'Sales register'
+  const reportTitle = report.reportTitle?.trim() || 'Sales bills register'
+  const showGold = hasGoldMetal(report.metal)
+
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        <Text style={styles.shopName}>{shop}</Text>
-        <Text style={styles.title}>GST sales bills register</Text>
-        <Text style={styles.sub}>{report.periodLabel}</Text>
+      <Page size="A4" style={styles.page} wrap>
+        <Text style={styles.shopName}>{sanitizePdfText(shop)}</Text>
+        <Text style={styles.title}>{sanitizePdfText(reportTitle)}</Text>
+        <Text style={styles.sub}>{sanitizePdfText(report.periodLabel)}</Text>
         <View style={styles.kpiRow}>
           <View style={styles.kpi}>
             <Text style={styles.kpiLabel}>Total sales</Text>
@@ -105,45 +118,49 @@ function GstSalesRegisterDocument({ report }: { report: GstSalesRegisterPdfRepor
             <Text style={styles.kpiVal}>{report.summary.todayCount}</Text>
           </View>
         </View>
-        <Text style={styles.metalTitle}>Metal summary — selected period (GST sales only)</Text>
+        <Text style={styles.metalTitle}>Metal summary — selected period</Text>
         <View style={styles.kpiRow}>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Gold weight</Text>
-            <Text style={styles.kpiVal}>{report.metal.goldWeightGm.toFixed(3)} g</Text>
-          </View>
+          {showGold ? (
+            <>
+              <View style={styles.kpi}>
+                <Text style={styles.kpiLabel}>Gold weight</Text>
+                <Text style={styles.kpiVal}>{report.metal.goldWeightGm.toFixed(3)} g</Text>
+              </View>
+              <View style={styles.kpi}>
+                <Text style={styles.kpiLabel}>Gold value</Text>
+                <Text style={styles.kpiVal}>{formatPdfInr(report.metal.goldValueInr)}</Text>
+              </View>
+            </>
+          ) : null}
           <View style={styles.kpi}>
             <Text style={styles.kpiLabel}>Silver weight</Text>
             <Text style={styles.kpiVal}>{report.metal.silverWeightGm.toFixed(3)} g</Text>
-          </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Gold value</Text>
-            <Text style={styles.kpiVal}>{formatPdfInr(report.metal.goldValueInr)}</Text>
           </View>
           <View style={styles.kpi}>
             <Text style={styles.kpiLabel}>Silver value</Text>
             <Text style={styles.kpiVal}>{formatPdfInr(report.metal.silverValueInr)}</Text>
           </View>
         </View>
-        <View style={[styles.tableHeader, { marginTop: 12 }]}>
-          <Text style={styles.cBill}>Bill no</Text>
-          <Text style={styles.cDate}>Date</Text>
-          <Text style={styles.cCust}>Customer</Text>
-          <Text style={styles.cItems}>Items</Text>
-          <Text style={styles.cNet}>Net total</Text>
-          <Text style={styles.cStat}>Status</Text>
-          <Text style={styles.cGst}>GST</Text>
-        </View>
-        {report.bills.map((b, i) => (
-          <View key={`${b.bill_number}-${i}`} style={styles.tableRow} wrap={false}>
-            <Text style={styles.cBill}>{b.bill_number}</Text>
-            <Text style={styles.cDate}>{formatErpDateDdMmYyyy(b.bill_date)}</Text>
-            <Text style={styles.cCust}>{b.customer_name || '—'}</Text>
-            <Text style={styles.cItems}>{b.item_count}</Text>
-            <Text style={styles.cNet}>{formatPdfInr(b.total_inr)}</Text>
-            <Text style={styles.cStat}>{String(b.status || '').toUpperCase()}</Text>
-            <Text style={styles.cGst}>{b.gst_enabled ? '✓' : '—'}</Text>
+        <View style={styles.tableOuter}>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, styles.cBill]}>Bill no</Text>
+            <Text style={[styles.th, styles.cDate]}>Date</Text>
+            <Text style={[styles.th, styles.cCust]}>Customer</Text>
+            <Text style={[styles.th, styles.cItems, styles.tdRight]}>Items</Text>
+            <Text style={[styles.th, styles.cNet, styles.tdRight, styles.lastCol]}>Net total</Text>
           </View>
-        ))}
+          {report.bills.map((b, i) => (
+            <View key={`${b.bill_number}-${i}`} style={styles.tableRow} wrap={false}>
+              <Text style={[styles.td, styles.cBill]}>{sanitizePdfText(b.bill_number)}</Text>
+              <Text style={[styles.td, styles.cDate]}>{formatErpDateDdMmYyyy(b.bill_date)}</Text>
+              <Text style={[styles.td, styles.cCust]}>{sanitizePdfText(b.customer_name || '—')}</Text>
+              <Text style={[styles.td, styles.cItems, styles.tdRight]}>{String(b.item_count)}</Text>
+              <Text style={[styles.td, styles.cNet, styles.tdRight, styles.lastCol]}>
+                {formatPdfInr(b.total_inr)}
+              </Text>
+            </View>
+          ))}
+        </View>
         <Footer />
       </Page>
     </Document>
@@ -160,10 +177,14 @@ export function buildGstSalesPeriodLabel(from: string, to: string, onDate: strin
   return `Generated ${formatErpDateDdMmYyyy(new Date().toISOString().slice(0, 10))}`
 }
 
-export async function previewGstSalesRegisterPdf(report: GstSalesRegisterPdfReport): Promise<void> {
+export async function previewGstSalesRegisterPdf(
+  report: GstSalesRegisterPdfReport,
+  opts?: { downloadName?: string; viewerTitle?: string },
+): Promise<void> {
   const blob = await pdf(<GstSalesRegisterDocument report={report} />).toBlob()
-  await presentPdfBlob(blob, `gst-sales-register-${new Date().toISOString().slice(0, 10)}.pdf`, {
-    title: 'GST sales register',
+  const fname = opts?.downloadName || `sales-register-${new Date().toISOString().slice(0, 10)}.pdf`
+  await presentPdfBlob(blob, fname, {
+    title: opts?.viewerTitle || report.reportTitle || 'Sales bills register',
     text: report.periodLabel,
   })
 }

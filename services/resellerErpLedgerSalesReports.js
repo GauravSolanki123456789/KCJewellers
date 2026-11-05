@@ -149,7 +149,7 @@ async function buildGstSalesRegisterReport(query, userId, opts = {}) {
                  AND COALESCE(gst_enabled, true) = true
                  AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`;
     sql += billDateSqlFragment(params, { from, to, on });
-    sql += ` ORDER BY bill_date DESC, id DESC LIMIT 2000`;
+    sql += ` ORDER BY bill_date ASC, id ASC LIMIT 2000`;
     const rows = await query(sql, params);
     const bills = rows.map(mapOfficialBillRow);
     return {
@@ -171,14 +171,14 @@ async function buildLaneAllBillsDetailReport(query, userId, opts = {}) {
                     AND bill_type = 'sale'
                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`;
     sqlOff += billDateSqlFragment(paramsOff, { from, to, on });
-    sqlOff += ` ORDER BY bill_date DESC, id DESC LIMIT 1500`;
+    sqlOff += ` ORDER BY bill_date ASC, id ASC LIMIT 1500`;
 
     const paramsSh = [userId];
     let sqlSh = `SELECT * FROM reseller_erp_shadow_bills
                  WHERE reseller_user_id = $1
                    AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'void')`;
     sqlSh += billDateSqlFragment(paramsSh, { from, to, on }, '');
-    sqlSh += ` ORDER BY bill_date DESC, id DESC LIMIT 1500`;
+    sqlSh += ` ORDER BY bill_date ASC, id ASC LIMIT 1500`;
 
     const [offRows, shRows] = await Promise.all([query(sqlOff, paramsOff), query(sqlSh, paramsSh)]);
     const bills = [
@@ -187,8 +187,11 @@ async function buildLaneAllBillsDetailReport(query, userId, opts = {}) {
     ].sort((a, b) => {
         const da = String(a.bill_date || '');
         const db = String(b.bill_date || '');
-        if (da !== db) return db.localeCompare(da);
-        return String(b.bill_number || '').localeCompare(String(a.bill_number || ''));
+        if (da !== db) return da.localeCompare(db);
+        return String(a.bill_number || '').localeCompare(String(b.bill_number || ''), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+        });
     });
 
     return {
@@ -199,8 +202,8 @@ async function buildLaneAllBillsDetailReport(query, userId, opts = {}) {
     };
 }
 
-function gstSalesRegisterToCsv(report) {
-    const header = ['Bill no', 'Date', 'Customer', 'Items', 'Net total', 'Status', 'GST'];
+function salesRegisterToCsv(report) {
+    const header = ['Bill no', 'Date', 'Customer', 'Items', 'Net total'];
     const lines = [header.join(',')];
     for (const b of report.bills || []) {
         const row = [
@@ -209,41 +212,18 @@ function gstSalesRegisterToCsv(report) {
             `"${String(b.customer_name || '').replace(/"/g, '""')}"`,
             b.item_count,
             Number(b.total_inr).toFixed(2),
-            b.status,
-            b.gst_enabled ? 'Yes' : 'No',
         ];
         lines.push(row.join(','));
     }
     return lines.join('\n');
 }
 
+function gstSalesRegisterToCsv(report) {
+    return salesRegisterToCsv(report);
+}
+
 function laneBillsDetailToCsv(report) {
-    const header = ['Source', 'Lane', 'Bill no', 'Date', 'Customer', 'Barcode', 'Product', 'Wt', 'Rate', 'Amount', 'Bill net'];
-    const lines = [header.join(',')];
-    for (const b of report.bills || []) {
-        const billLines = b.lines?.length ? b.lines : [{}];
-        billLines.forEach((line, idx) => {
-            const wt = line.weightGm ?? line.weight_gm ?? '';
-            const rate = line.unitInr ?? line.rate ?? '';
-            const amt = lineValueInr(line);
-            lines.push(
-                [
-                    b.source,
-                    b.lane || '',
-                    b.bill_number,
-                    b.bill_date,
-                    `"${String(b.customer_name || '').replace(/"/g, '""')}"`,
-                    line.barcode || line.code || '',
-                    `"${String(line.invoice_item_name || line.name || '').replace(/"/g, '""')}"`,
-                    wt,
-                    rate,
-                    idx === 0 || amt ? Number(amt).toFixed(2) : '',
-                    idx === 0 ? Number(b.total_inr).toFixed(2) : '',
-                ].join(','),
-            );
-        });
-    }
-    return lines.join('\n');
+    return salesRegisterToCsv(report);
 }
 
 module.exports = {

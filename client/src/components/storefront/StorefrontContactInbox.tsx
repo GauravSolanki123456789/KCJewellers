@@ -93,17 +93,13 @@ export default function StorefrontContactInbox() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
-          Messages from your storefront <strong className="text-[var(--color-jewelry-black,#1a1814)]">Contact us</strong>{' '}
-          form. Reply by phone or WhatsApp; mark closed when done.
-        </p>
-        {openCount > 0 ? (
+      {openCount > 0 ? (
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-950">
             {openCount} open
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {(['open', 'closed', 'all'] as const).map((f) => (

@@ -22,12 +22,38 @@ function TileImage({
   src,
   alt,
   className,
+  priority,
 }: {
   src?: string;
   alt: string;
   className?: string;
+  priority?: boolean;
 }) {
   const url = mediaSrc(src);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const [showImg, setShowImg] = useState(!!priority);
+
+  useEffect(() => {
+    if (priority || !url) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setShowImg(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setShowImg(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "320px 0px", threshold: 0.01 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [priority, url]);
+
   if (!url) {
     return (
       <div
@@ -40,8 +66,22 @@ function TileImage({
     );
   }
   return (
-    <span className={`relative block overflow-hidden ${className || ""}`}>
-      <Image src={url} alt={alt} fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" unoptimized />
+    <span ref={wrapRef} className={`relative block overflow-hidden ${className || ""}`}>
+      {showImg ? (
+        <Image
+          src={url}
+          alt={alt}
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 33vw"
+          unoptimized
+          loading={priority ? "eager" : "lazy"}
+          priority={priority}
+          decoding="async"
+        />
+      ) : (
+        <span className="absolute inset-0 animate-pulse bg-gradient-to-br from-amber-50 via-[#f7f1e6] to-stone-100" aria-hidden />
+      )}
     </span>
   );
 }
@@ -182,7 +222,7 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
             src={bg}
             alt={slide.headline || brandName}
             fill
-            className="object-cover object-center md:object-contain md:object-center"
+            className="object-cover object-center"
             priority
             unoptimized
             draggable={false}

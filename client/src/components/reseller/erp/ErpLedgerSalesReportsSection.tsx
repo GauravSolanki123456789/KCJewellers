@@ -13,21 +13,11 @@ import {
   previewGstSalesRegisterPdf,
   type GstSalesRegisterPdfReport,
 } from '@/lib/erp-ledger-gst-sales-register-pdf'
-import {
-  previewLaneBillsDetailPdf,
-  type LaneBillDetail,
-} from '@/lib/erp-ledger-lane-bills-detail-pdf'
 
-type GstApiReport = {
+type SalesApiReport = {
   bills: GstSalesRegisterPdfReport['bills']
   summary: GstSalesRegisterPdfReport['summary']
   metal: GstSalesRegisterPdfReport['metal']
-}
-
-type LaneApiReport = {
-  bills: LaneBillDetail[]
-  summary: { total: number; totalValue: number; monthCount: number; todayCount: number }
-  metal: GstApiReport['metal']
 }
 
 type Props = {
@@ -36,6 +26,58 @@ type Props = {
   defaultFrom: string
   defaultTo: string
   onBack: () => void
+}
+
+const tableBorder = 'border border-[var(--color-slate-700,#e8e4df)]'
+const cellBorder = `${tableBorder} px-2 py-2 sm:px-3 sm:py-2.5`
+
+function hasGoldMetal(metal: SalesApiReport['metal']) {
+  return (metal.goldWeightGm || 0) > 0.0005 || (metal.goldValueInr || 0) > 0.005
+}
+
+function SalesBillsTable({
+  bills,
+  busy,
+  emptyMessage,
+}: {
+  bills: GstSalesRegisterPdfReport['bills']
+  busy: boolean
+  emptyMessage: string
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl bg-white">
+      <table className={`min-w-full border-collapse text-left text-xs ${tableBorder}`}>
+        <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
+          <tr>
+            <th className={cellBorder}>Bill no</th>
+            <th className={cellBorder}>Date</th>
+            <th className={cellBorder}>Customer</th>
+            <th className={`${cellBorder} text-right`}>Items</th>
+            <th className={`${cellBorder} text-right`}>Net total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {!bills.length && !busy ? (
+            <tr>
+              <td colSpan={5} className={`${cellBorder} py-10 text-center text-[var(--color-jewelry-black,#1a1814)]/45`}>
+                {emptyMessage}
+              </td>
+            </tr>
+          ) : (
+            bills.map((b) => (
+              <tr key={`${b.bill_date}-${b.bill_number}`}>
+                <td className={`${cellBorder} font-semibold text-emerald-800`}>{b.bill_number}</td>
+                <td className={cellBorder}>{formatErpDateDdMmYyyy(b.bill_date)}</td>
+                <td className={`${cellBorder} break-words`}>{b.customer_name || '—'}</td>
+                <td className={`${cellBorder} text-right tabular-nums`}>{b.item_count}</td>
+                <td className={`${cellBorder} text-right font-semibold tabular-nums`}>{formatErpInr(b.total_inr)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 export function ErpLedgerSalesReportsSection({
@@ -51,8 +93,7 @@ export function ErpLedgerSalesReportsSection({
   const [onDate, setOnDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [gstData, setGstData] = useState<GstApiReport | null>(null)
-  const [laneData, setLaneData] = useState<LaneApiReport | null>(null)
+  const [data, setData] = useState<SalesApiReport | null>(null)
 
   useEffect(() => {
     setFrom(defaultFrom)
@@ -78,19 +119,15 @@ export function ErpLedgerSalesReportsSection({
         if (fromIso) params.from = fromIso
         if (toIso) params.to = toIso
       }
-      if (reportId === 'gst_sales_register') {
-        const res = await axios.get<GstApiReport>('/api/reseller/erp/ledger/reports/gst-sales-register', { params })
-        setGstData(res.data)
-        setLaneData(null)
-      } else {
-        const res = await axios.get<LaneApiReport>('/api/reseller/erp/ledger/reports/lane-all-bills', { params })
-        setLaneData(res.data)
-        setGstData(null)
-      }
+      const path =
+        reportId === 'gst_sales_register'
+          ? '/api/reseller/erp/ledger/reports/gst-sales-register'
+          : '/api/reseller/erp/ledger/reports/lane-all-bills'
+      const res = await axios.get<SalesApiReport>(path, { params })
+      setData(res.data)
     } catch (e) {
       setErr(erpErr(e))
-      setGstData(null)
-      setLaneData(null)
+      setData(null)
     } finally {
       setBusy(false)
     }
@@ -121,7 +158,7 @@ export function ErpLedgerSalesReportsSection({
     a.download =
       reportId === 'gst_sales_register'
         ? `gst-sales-register-${new Date().toISOString().slice(0, 10)}.csv`
-        : `lane-all-bills-${new Date().toISOString().slice(0, 10)}.csv`
+        : `sales-bills-register-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(a.href)
   }
@@ -135,21 +172,24 @@ export function ErpLedgerSalesReportsSection({
     setBusy(true)
     setErr(null)
     try {
-      if (reportId === 'gst_sales_register' && gstData) {
-        await previewGstSalesRegisterPdf({
+      if (!data) return
+      const isGst = reportId === 'gst_sales_register'
+      await previewGstSalesRegisterPdf(
+        {
           shopName,
           periodLabel,
-          summary: gstData.summary,
-          metal: gstData.metal,
-          bills: gstData.bills,
-        })
-      } else if (reportId === 'lane_all_bills_detail' && laneData) {
-        await previewLaneBillsDetailPdf({
-          shopName,
-          periodLabel,
-          bills: laneData.bills,
-        })
-      }
+          reportTitle: isGst ? 'GST sales bills register' : 'Sales bills register',
+          summary: data.summary,
+          metal: data.metal,
+          bills: data.bills,
+        },
+        {
+          downloadName: isGst
+            ? `gst-sales-register-${new Date().toISOString().slice(0, 10)}.pdf`
+            : `sales-bills-register-${new Date().toISOString().slice(0, 10)}.pdf`,
+          viewerTitle: isGst ? 'GST sales bills register' : 'Sales bills register',
+        },
+      )
     } catch (e) {
       setErr(erpErr(e))
     } finally {
@@ -160,10 +200,10 @@ export function ErpLedgerSalesReportsSection({
   const title =
     reportId === 'gst_sales_register' ? 'GST sales bills register' : 'All bills (lane ledger)'
 
-  const summary = gstData?.summary || laneData?.summary
-  const metal = gstData?.metal || laneData?.metal
-  const bills = gstData?.bills || []
-  const laneBills = laneData?.bills || []
+  const summary = data?.summary
+  const metal = data?.metal
+  const bills = data?.bills || []
+  const showGold = metal ? hasGoldMetal(metal) : false
 
   return (
     <div className="space-y-3">
@@ -205,7 +245,7 @@ export function ErpLedgerSalesReportsSection({
           <button
             type="button"
             className={erpBtnGhost}
-            disabled={busy || (!gstData?.bills?.length && !laneData?.bills?.length)}
+            disabled={busy || !data?.bills?.length}
             onClick={() => void previewPdf()}
           >
             <FileText className="size-4" />
@@ -229,7 +269,7 @@ export function ErpLedgerSalesReportsSection({
           ].map((k) => (
             <div key={k.label} className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2">
               <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/45">{k.label}</p>
-              <p className="text-lg font-semibold tabular-nums">{k.value}</p>
+              <p className="text-lg font-semibold tabular-nums text-[var(--color-jewelry-black,#1a1814)]">{k.value}</p>
             </div>
           ))}
         </div>
@@ -240,111 +280,26 @@ export function ErpLedgerSalesReportsSection({
           <p className="text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/50">
             Metal summary — selected period
           </p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <p className="text-xs">
-              Gold: <strong>{metal.goldWeightGm.toFixed(3)} g</strong> · {formatErpInr(metal.goldValueInr)}
-            </p>
-            <p className="text-xs">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-[var(--color-jewelry-black,#1a1814)]">
+            {showGold ? (
+              <p>
+                Gold: <strong>{metal.goldWeightGm.toFixed(3)} g</strong> · {formatErpInr(metal.goldValueInr)}
+              </p>
+            ) : null}
+            <p>
               Silver: <strong>{metal.silverWeightGm.toFixed(3)} g</strong> · {formatErpInr(metal.silverValueInr)}
             </p>
           </div>
         </div>
       ) : null}
 
-      {reportId === 'gst_sales_register' ? (
-        <div className="overflow-x-auto rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white">
-          <table className="min-w-full text-left text-xs">
-            <thead className="bg-[var(--color-slate-900,#f7f4ef)] text-[10px] font-bold uppercase text-[var(--color-jewelry-black,#1a1814)]/55">
-              <tr>
-                <th className="px-3 py-2.5">Bill no</th>
-                <th className="px-3 py-2.5">Date</th>
-                <th className="px-3 py-2.5">Customer</th>
-                <th className="px-3 py-2.5 text-right">Items</th>
-                <th className="px-3 py-2.5 text-right">Net total</th>
-                <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5">GST</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!bills.length && !busy ? (
-                <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                    No GST sales in this period.
-                  </td>
-                </tr>
-              ) : (
-                bills.map((b) => (
-                  <tr key={b.bill_number} className="border-t border-[var(--color-slate-700,#e8e4df)]/60">
-                    <td className="px-3 py-2.5 font-semibold text-emerald-800">{b.bill_number}</td>
-                    <td className="px-3 py-2.5">{formatErpDateDdMmYyyy(b.bill_date)}</td>
-                    <td className="px-3 py-2.5">{b.customer_name || '—'}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{b.item_count}</td>
-                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatErpInr(b.total_inr)}</td>
-                    <td className="px-3 py-2.5">{String(b.status || '').toUpperCase()}</td>
-                    <td className="px-3 py-2.5">{b.gst_enabled ? 'Yes' : '—'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {!laneBills.length && !busy ? (
-            <p className="text-center text-sm text-[var(--color-jewelry-black,#1a1814)]/45">No bills in this period.</p>
-          ) : (
-            laneBills.slice(0, 40).map((b) => (
-              <details
-                key={`${b.source}-${b.bill_number}`}
-                className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
-              >
-                <summary className="cursor-pointer text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  {b.bill_number} — {b.customer_name} — {formatErpInr(b.total_inr)}
-                  <span className="ml-2 text-[10px] font-normal uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                    {b.source === 'shadow' ? `Lane ${b.lane}` : 'Official'}
-                  </span>
-                </summary>
-                <div className="mt-2 overflow-x-auto">
-                  <table className="min-w-full text-[11px]">
-                    <thead>
-                      <tr className="text-[10px] uppercase text-[var(--color-jewelry-black,#1a1814)]/45">
-                        <th className="px-2 py-1 text-left">#</th>
-                        <th className="px-2 py-1 text-left">Barcode</th>
-                        <th className="px-2 py-1 text-left">Product</th>
-                        <th className="px-2 py-1 text-right">Wt</th>
-                        <th className="px-2 py-1 text-right">Rate</th>
-                        <th className="px-2 py-1 text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(b.lines || []).map((line, i) => (
-                        <tr key={i} className="border-t border-stone-100">
-                          <td className="px-2 py-1">{i + 1}</td>
-                          <td className="px-2 py-1">{line.barcode || line.code || '—'}</td>
-                          <td className="px-2 py-1">{line.invoice_item_name || line.name || '—'}</td>
-                          <td className="px-2 py-1 text-right">{Number(line.weightGm ?? line.weight_gm ?? 0).toFixed(2)}</td>
-                          <td className="px-2 py-1 text-right">{Number(line.unitInr ?? line.rate ?? 0).toFixed(2)}</td>
-                          <td className="px-2 py-1 text-right">
-                            {formatErpInr(
-                              Number(line.lineTotalInr ?? line.line_total_inr) ||
-                                (Number(line.unitInr ?? line.rate) || 0) * (Number(line.qty) || 1),
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            ))
-          )}
-          {laneBills.length > 40 ? (
-            <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/50">
-              Showing first 40 bills — use PDF export for the full set ({laneBills.length} total).
-            </p>
-          ) : null}
-        </div>
-      )}
+      <SalesBillsTable
+        bills={bills}
+        busy={busy}
+        emptyMessage={
+          reportId === 'gst_sales_register' ? 'No GST sales in this period.' : 'No bills in this period.'
+        }
+      />
     </div>
   )
 }

@@ -2041,7 +2041,7 @@ function registerResellerErpLedgerRoutes(app, deps) {
                 on: parseDateOrNull(req.query.on),
             });
             const csv = laneBillsDetailToCsv(report);
-            const fname = `lane-all-bills-${new Date().toISOString().slice(0, 10)}.csv`;
+            const fname = `sales-bills-register-${new Date().toISOString().slice(0, 10)}.csv`;
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
             res.send('\ufeff' + csv);

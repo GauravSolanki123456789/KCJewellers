@@ -20,6 +20,32 @@ import {
   shouldOptimizeCatalogImage,
 } from "@/lib/catalog-image-next";
 
+function useDeferImageUntilNearView(skip: boolean) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(skip);
+  useEffect(() => {
+    if (skip) return;
+    const el = rootRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setReady(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setReady(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "280px 0px", threshold: 0.01 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [skip]);
+  return { rootRef, ready: skip || ready };
+}
+
 type SlideImageProps = {
   src: string;
   alt: string;
@@ -284,6 +310,7 @@ export default function DualJewelleryProductImage({
   const fetchP = fetchPriority ?? (priority ? "high" : undefined);
   const slideCount = slides.length;
   const dualDesktopHover = slideCount === 2 && slides[0]?.kind === "image" && slides[1]?.kind === "image";
+  const { rootRef: lazyRootRef, ready: imageReady } = useDeferImageUntilNearView(!!priority);
 
   const syncIdxFromScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -350,27 +377,31 @@ export default function DualJewelleryProductImage({
 
   if (slideCount <= 1 && slides[0]?.kind === "image") {
     return (
-      <div className={productImageViewportWrapperClass()}>
-        <Image
-          key={`${slides[0].src}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`}
-          src={slides[0].src}
-          alt={slides[0].alt}
-          fill
-          quality={CATALOG_CARD_IMAGE_QUALITY}
-          sizes={sizes}
-          className={cn(
-            catalogProductImageClass(subcategorySlug),
-            "transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]",
-            imageClassName,
-          )}
-          unoptimized={renderUnoptimized || fallbackPrimUnopt}
-          decoding="async"
-          loading={priority ? "eager" : "lazy"}
-          priority={priority}
-          fetchPriority={fetchP}
-          draggable={false}
-          onError={handlePrimaryError}
-        />
+      <div ref={lazyRootRef} className={cn("relative h-full w-full", productImageViewportWrapperClass())}>
+        {imageReady ? (
+          <Image
+            key={`${slides[0].src}-${fallbackPrimUnopt ? "u" : "o"}-${primaryAltIdx}`}
+            src={slides[0].src}
+            alt={slides[0].alt}
+            fill
+            quality={CATALOG_CARD_IMAGE_QUALITY}
+            sizes={sizes}
+            className={cn(
+              catalogProductImageClass(subcategorySlug),
+              "transition-[filter,transform] duration-300 ease-out group-hover:brightness-105 group-hover:scale-[1.02]",
+              imageClassName,
+            )}
+            unoptimized={renderUnoptimized || fallbackPrimUnopt}
+            decoding="async"
+            loading={priority ? "eager" : "lazy"}
+            priority={priority}
+            fetchPriority={fetchP}
+            draggable={false}
+            onError={handlePrimaryError}
+          />
+        ) : (
+          <div className={cn("absolute inset-0 animate-pulse", productImageEmptyWellClass)} aria-hidden />
+        )}
       </div>
     );
   }
@@ -424,7 +455,10 @@ export default function DualJewelleryProductImage({
   };
 
   return (
-    <>
+    <div ref={lazyRootRef} className="absolute inset-0">
+      {!imageReady ? (
+        <div className={cn("absolute inset-0 animate-pulse", productImageEmptyWellClass)} aria-hidden />
+      ) : null}
       <div
         ref={scrollRef}
         role="region"
@@ -447,14 +481,16 @@ export default function DualJewelleryProductImage({
           >
             {slide.kind === "video" ? (
               <SlideVideo src={slide.src} poster={slide.poster} />
-            ) : (
+            ) : imageReady ? (
               renderImageSlide(slide, idx)
+            ) : (
+              <div className={cn("absolute inset-0", productImageEmptyWellClass)} aria-hidden />
             )}
           </div>
         ))}
       </div>
 
-      {dualDesktopHover && slides[0]?.kind === "image" && slides[1]?.kind === "image" ? (
+      {dualDesktopHover && slides[0]?.kind === "image" && slides[1]?.kind === "image" && imageReady ? (
         <div
           className="absolute inset-0 z-[3] hidden md:block"
           onMouseEnter={() => {
@@ -487,6 +523,6 @@ export default function DualJewelleryProductImage({
       ) : null}
 
       <GalleryDots count={slideCount} active={mobileIdx} />
-    </>
+    </div>
   );
 }

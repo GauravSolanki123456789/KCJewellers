@@ -121,9 +121,6 @@ function LedgerStatementDocument({
       <Page size="A4" style={styles.page}>
         <Text style={styles.shopName}>{shop.toUpperCase()}</Text>
         <Text style={styles.title}>{headline}</Text>
-        {account.customer.mobile ? (
-          <Text style={styles.sub}>Mobile: {account.customer.mobile}</Text>
-        ) : null}
         <View style={styles.row}>
           <Text style={styles.label}>Balance due</Text>
           <Text>{formatPdfInr(account.summary.balance_due_inr)}</Text>
