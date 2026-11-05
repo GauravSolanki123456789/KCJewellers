@@ -859,6 +859,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerImageSearchEnabled = !!resolvedUser.reseller_image_search_enabled;
         let resellerStorefrontWebsiteEnabled = !!resolvedUser.reseller_storefront_website_enabled;
         let resellerOwnPricesEnabled = !!resolvedUser.reseller_own_prices_enabled;
+        let resellerShowLiveStock = !!resolvedUser.reseller_show_live_stock;
         try {
             const fresh = await query(
                 `SELECT COALESCE(reseller_product_uploads_enabled, false) AS product_uploads,
@@ -876,6 +877,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_image_search_enabled, false) AS image_search_enabled,
                         COALESCE(reseller_storefront_website_enabled, false) AS storefront_website,
                         COALESCE(reseller_own_prices_enabled, false) AS own_prices,
+                        COALESCE(reseller_show_live_stock, false) AS show_live_stock,
                         COALESCE(reseller_slab_settings, '{}'::jsonb) AS reseller_slab_settings
                  FROM users WHERE id = $1`,
                 [resolvedUser.id],
@@ -896,6 +898,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerImageSearchEnabled = !!fresh[0].image_search_enabled;
                 resellerStorefrontWebsiteEnabled = !!fresh[0].storefront_website;
                 resellerOwnPricesEnabled = !!fresh[0].own_prices;
+                resellerShowLiveStock = !!fresh[0].show_live_stock;
                 resellerSlabSettings = parseResellerSlabSettingsServer(fresh[0].reseller_slab_settings);
             }
         } catch (e) {
@@ -1039,6 +1042,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_image_search_enabled: resellerImageSearchEnabled,
                 reseller_storefront_website_enabled: resellerStorefrontWebsiteEnabled,
                 reseller_own_prices_enabled: resellerOwnPricesEnabled,
+                reseller_show_live_stock: resellerShowLiveStock,
                 reseller_website_subscription: websiteSubscription,
                 reseller_erp_subscription: erpSubscription,
                 reseller_website_from_date: websiteSubscription.from_date,
@@ -7520,9 +7524,10 @@ function sharedCatalogSlabJsonFields(row) {
 }
 
 /** Sort shared-catalog barcodes to match public catalogue order (style → SKU → design group → size). */
-async function sortSharedCatalogProductIds(barcodes) {
+async function sortSharedCatalogProductIds(barcodes, options = {}) {
     const ids = [...new Set((barcodes || []).map((x) => String(x).trim()).filter(Boolean))];
     if (ids.length <= 1) return ids;
+    const catalogShowLiveStock = !!options.showLiveStock;
 
     const rows = await query(
         `SELECT
@@ -7531,6 +7536,9 @@ async function sortSharedCatalogProductIds(barcodes) {
             wp.size,
             wp.updated_at,
             wp.id,
+            COALESCE(wp.quantity, 0)::int AS quantity,
+            COALESCE(wp.make_to_order_only, false) AS make_to_order_only,
+            COALESCE(u.reseller_show_live_stock, false) AS reseller_show_live_stock,
             ws.id AS subcategory_id,
             COALESCE(ws.sort_order, 0)::int AS subcategory_sort,
             ws.design_group_order,
@@ -7538,13 +7546,22 @@ async function sortSharedCatalogProductIds(barcodes) {
         FROM web_products wp
         JOIN web_subcategories ws ON ws.id = wp.subcategory_id
         JOIN web_categories wc ON wc.id = ws.category_id
+        LEFT JOIN users u ON u.id = wp.submitted_by_user_id
         WHERE wp.barcode::text = ANY($1::text[])`,
         [ids],
     );
     const byBarcode = new Map(rows.map((r) => [String(r.barcode), r]));
+    const rowForSort = (id) => {
+        const r = byBarcode.get(id);
+        if (!r) return r;
+        return {
+            ...r,
+            show_live_stock: catalogShowLiveStock || !!r.reseller_show_live_stock,
+        };
+    };
     const sorted = ids
         .filter((id) => byBarcode.has(id))
-        .sort((a, b) => compareCatalogProductRows(byBarcode.get(a), byBarcode.get(b)));
+        .sort((a, b) => compareCatalogProductRows(rowForSort(a), rowForSort(b)));
     for (const id of ids) {
         if (!sorted.includes(id)) sorted.push(id);
     }
@@ -7848,7 +7865,6 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
         }
 
         const id = randomUUID();
-        const sortedIds = await sortSharedCatalogProductIds(ids);
         const hidePrices =
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHidePricesForUser(creatorUid)
@@ -7857,6 +7873,7 @@ app.post('/api/admin/shared-catalog', adminLimiter, requireJson, requireSharedCa
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerShowLiveStockForUser(creatorUid)
                 : false;
+        const sortedIds = await sortSharedCatalogProductIds(ids, { showLiveStock });
         const hidePdf =
             Number.isFinite(creatorUid) && creatorUid > 0
                 ? await resellerHideSharedCatalogPdfForUser(creatorUid)
@@ -8153,7 +8170,8 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
 
         const rows = await query(
             `SELECT id, product_ids, expires_at, created_by_user_id,
-                    COALESCE(pricing_slab, 'standard') AS pricing_slab
+                    COALESCE(pricing_slab, 'standard') AS pricing_slab,
+                    COALESCE(show_live_stock, false) AS show_live_stock
              FROM shared_catalogs WHERE id = $1::uuid`,
             [uuid],
         );
@@ -8185,7 +8203,9 @@ app.patch('/api/admin/shared-catalog/:uuid/products', adminLimiter, requireJson,
         for (const id of addIds) {
             if (!merged.includes(id)) merged.push(id);
         }
-        const sortedMerged = await sortSharedCatalogProductIds(merged);
+        const sortedMerged = await sortSharedCatalogProductIds(merged, {
+            showLiveStock: !!row.show_live_stock,
+        });
         if (sortedMerged.length > PLATFORM_MAX_PRODUCTS) {
             return res.status(400).json({ error: `Too many products (max ${PLATFORM_MAX_PRODUCTS})` });
         }
@@ -8435,6 +8455,7 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
 
         const barcodes = await sortSharedCatalogProductIds(
             Array.isArray(row.product_ids) ? row.product_ids.map(String) : [],
+            { showLiveStock },
         );
         const ratesForBrochure = await getLiveRatesForSharedCatalogCreator(
             row.created_by_user_id,
@@ -8515,7 +8536,9 @@ app.get('/api/shared-catalog/:uuid', async (req, res) => {
         const expandedBarcodes = productsWithSizeVariants
             .map((p) => String(p.barcode || '').trim())
             .filter(Boolean);
-        const sortedExpandedBarcodes = await sortSharedCatalogProductIds(expandedBarcodes);
+        const sortedExpandedBarcodes = await sortSharedCatalogProductIds(expandedBarcodes, {
+            showLiveStock,
+        });
         const productByBarcode = new Map(
             productsWithSizeVariants.map((p) => [String(p.barcode || '').trim(), p]),
         );

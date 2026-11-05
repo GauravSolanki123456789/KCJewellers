@@ -131,12 +131,17 @@ export default function ProductCard({
   }, [product, variants, storefrontWeightOnly])
 
   const active = hasVariants ? activeVariant : product
-  const makeToOrderOnly = isMakeToOrderOnlyProduct(active) || isMakeToOrderOnlyProduct(product)
+  const liveStockCatalog = !!(
+    product.reseller_show_live_stock ??
+    active.reseller_show_live_stock ??
+    storefrontShowLiveStock
+  )
+  const makeToOrderOnly =
+    isMakeToOrderOnlyProduct(active, { catalogShowLiveStock: liveStockCatalog }) ||
+    isMakeToOrderOnlyProduct(product, { catalogShowLiveStock: liveStockCatalog })
   const productHidePrices = !!(product.reseller_hide_prices ?? active.reseller_hide_prices)
   const hidePriceDisplay = storefrontWeightOnly || productHidePrices || makeToOrderOnly
-  const showLiveStock =
-    !makeToOrderOnly &&
-    !!(product.reseller_show_live_stock ?? active.reseller_show_live_stock ?? storefrontShowLiveStock)
+  const showLiveStock = liveStockCatalog && !makeToOrderOnly
   const stockQty = parseProductStockQty(active.quantity ?? active.pcs ?? product.quantity ?? product.pcs)
   const stockLabel = makeToOrderOnly
     ? makeToOrderStockLabel()

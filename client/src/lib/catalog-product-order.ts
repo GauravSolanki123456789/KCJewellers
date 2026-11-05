@@ -8,6 +8,13 @@ export type CatalogProductOrderFields = {
   size?: string | null
   updated_at?: string | Date | null
   id?: number | string | null
+  quantity?: number | string | null
+  pcs?: number | string | null
+  reseller_show_live_stock?: boolean | null
+}
+
+export type CatalogProductSortOptions = {
+  showLiveStock?: boolean
 }
 
 function productUpdatedMs(p: CatalogProductOrderFields): number {
@@ -15,10 +22,21 @@ function productUpdatedMs(p: CatalogProductOrderFields): number {
   return Number.isFinite(t) ? t : 0
 }
 
+function parseCatalogStockQty(p: CatalogProductOrderFields): number {
+  const n = parseInt(String(p.quantity ?? p.pcs ?? ''), 10)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
 function compareCatalogSizeLabel(a: unknown, b: unknown): number {
   const sa = String(a ?? '').trim()
   const sb = String(b ?? '').trim()
   return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function compareLiveStockTier(a: CatalogProductOrderFields, b: CatalogProductOrderFields): number {
+  const liveA = parseCatalogStockQty(a) > 0 ? 0 : 1
+  const liveB = parseCatalogStockQty(b) > 0 ? 0 : 1
+  return liveA - liveB
 }
 
 function normalizeSavedOrder(saved: string[] | null | undefined): string[] {
@@ -83,8 +101,21 @@ export function mergeDesignGroupOrderWithRecency(
   return out
 }
 
-function sortWithinDesignGroup<T extends CatalogProductOrderFields>(list: T[]): T[] {
+function sortWithinDesignGroup<T extends CatalogProductOrderFields>(
+  list: T[],
+  options?: CatalogProductSortOptions,
+): T[] {
+  const showLiveStock =
+    !!options?.showLiveStock || list.some((p) => p.reseller_show_live_stock === true)
+  const hasMix =
+    showLiveStock &&
+    list.some((p) => parseCatalogStockQty(p) > 0) &&
+    list.some((p) => parseCatalogStockQty(p) <= 0)
   return [...list].sort((a, b) => {
+    if (hasMix) {
+      const tier = compareLiveStockTier(a, b)
+      if (tier !== 0) return tier
+    }
     const sizeCmp = compareCatalogSizeLabel(a.size, b.size)
     if (sizeCmp !== 0) return sizeCmp
     const tb = productUpdatedMs(b) - productUpdatedMs(a)
@@ -97,8 +128,13 @@ function sortWithinDesignGroup<T extends CatalogProductOrderFields>(list: T[]): 
 export function sortCatalogProductsByDesignGroupOrder<T extends CatalogProductOrderFields>(
   products: T[],
   designGroupOrder: string[] | null | undefined,
+  options?: CatalogProductSortOptions,
 ): T[] {
   if (!products.length) return products
+
+  const showLiveStock =
+    !!options?.showLiveStock || products.some((p) => p.reseller_show_live_stock === true)
+  const sortOpts: CatalogProductSortOptions | undefined = showLiveStock ? { showLiveStock: true } : options
 
   const saved = normalizeSavedOrder(designGroupOrder)
   const savedLower = new Set(saved.map((s) => s.toLowerCase()))
@@ -146,8 +182,8 @@ export function sortCatalogProductsByDesignGroupOrder<T extends CatalogProductOr
 
   const out: T[] = []
   for (const dg of orderedGroupKeys) {
-    out.push(...sortWithinDesignGroup(byGroup.get(dg) ?? []))
+    out.push(...sortWithinDesignGroup(byGroup.get(dg) ?? [], sortOpts))
   }
-  out.push(...sortWithinDesignGroup(noGroup))
+  out.push(...sortWithinDesignGroup(noGroup, sortOpts))
   return out
 }

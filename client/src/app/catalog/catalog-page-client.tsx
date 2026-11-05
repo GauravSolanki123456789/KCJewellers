@@ -344,7 +344,7 @@ export default function CatalogPageClient() {
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
   const { pricingOptions } = useCatalogPricingSettings()
-  const { active: resellerBrandingActive, businessName: resellerBrandName, customDomainHost, storefrontMarginPct } = useResellerBranding()
+  const { active: resellerBrandingActive, businessName: resellerBrandName, customDomainHost, storefrontMarginPct, showLiveStock: storefrontShowLiveStock } = useResellerBranding()
   const {
     catalogBuilderMode,
     setCatalogBuilderMode,
@@ -836,9 +836,14 @@ export default function CatalogPageClient() {
 
   const rawProducts = useMemo(() => {
     const list = activeSku?.products ?? []
-    const sorted = sortCatalogProductsByDesignGroupOrder(list, activeSku?.design_group_order) as typeof list
+    const showLiveStockSort =
+      storefrontShowLiveStock ||
+      list.some((p) => !!(p as { reseller_show_live_stock?: boolean }).reseller_show_live_stock)
+    const sorted = sortCatalogProductsByDesignGroupOrder(list, activeSku?.design_group_order, {
+      showLiveStock: showLiveStockSort,
+    }) as typeof list
     return selectedMetal === 'gifting' ? enrichGiftingCatalogListPrices(sorted) : sorted
-  }, [activeSku?.products, activeSku?.design_group_order, savedDgOrderKey, selectedMetal])
+  }, [activeSku?.products, activeSku?.design_group_order, savedDgOrderKey, selectedMetal, storefrontShowLiveStock])
 
   const designGroups = useMemo(() => {
     const seen = new Set<string>()

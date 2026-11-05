@@ -48,7 +48,7 @@ import {
   productHasBoxOption,
 } from '@/lib/product-box-pricing'
 import { getProductSelectionKey } from '@/lib/catalog-product-filters'
-import { isMakeToOrderOnlyProduct, makeToOrderStockLabel } from '@/lib/make-to-order-product'
+import { isMakeToOrderOnlyProduct, makeToOrderStockLabel, compareLiveStockDisplayOrder } from '@/lib/make-to-order-product'
 import { productImageWellClass } from '@/lib/product-image-theme'
 import type { PublicResellerBranding } from '@/lib/reseller-branding-server'
 import {
@@ -422,13 +422,32 @@ export default function SharedCatalogClient({
     [canShortlist],
   )
 
-  const visibleGroupedRows = useMemo(
-    () =>
-      showSubcategoryTabs
-        ? filterSharedCatalogGroupsBySubcategory(groupedRows, activeSubcategory)
-        : groupedRows,
-    [groupedRows, activeSubcategory, showSubcategoryTabs],
-  )
+  const showLiveStock = useMemo(() => {
+    if (isLoadedBrochure(payload) && 'showLiveStock' in payload) {
+      return !!payload.showLiveStock
+    }
+    return !!initialBranding?.showLiveStock
+  }, [payload, initialBranding])
+
+  const visibleGroupedRows = useMemo(() => {
+    let list = showSubcategoryTabs
+      ? filterSharedCatalogGroupsBySubcategory(groupedRows, activeSubcategory)
+      : groupedRows
+    if (showLiveStock && list.length > 1) {
+      const stockOf = (g: (typeof list)[number]) => {
+        const v = g.variants[0]
+        return parseProductStockQty(v?.product.quantity ?? v?.product.pcs)
+      }
+      const hasInStock = list.some((g) => stockOf(g) > 0)
+      const hasMakeOnOrder = list.some((g) => stockOf(g) <= 0)
+      if (hasInStock && hasMakeOnOrder) {
+        list = [...list].sort(
+          (a, b) => compareLiveStockDisplayOrder({ quantity: stockOf(a) }, { quantity: stockOf(b) }),
+        )
+      }
+    }
+    return list
+  }, [groupedRows, activeSubcategory, showSubcategoryTabs, showLiveStock])
 
   const rowKeys = useMemo(() => rows.map((r, i) => stableProductKey(r.product, i)), [rows])
 
@@ -437,13 +456,6 @@ export default function SharedCatalogClient({
     rows.forEach((row, i) => m.set(row, rowKeys[i]))
     return m
   }, [rows, rowKeys])
-
-  const showLiveStock = useMemo(() => {
-    if (isLoadedBrochure(payload) && 'showLiveStock' in payload) {
-      return !!payload.showLiveStock
-    }
-    return !!initialBranding?.showLiveStock
-  }, [payload, initialBranding])
 
   const stockByKey = useMemo(() => {
     const m = new Map<string, number>()
@@ -691,7 +703,9 @@ export default function SharedCatalogClient({
           name: customer.name,
         },
         lines: selectionPicks.map((pick) => {
-          const makeToOrderOnly = isMakeToOrderOnlyProduct(pick.row.product)
+          const makeToOrderOnly = isMakeToOrderOnlyProduct(pick.row.product, {
+            catalogShowLiveStock: showLiveStock,
+          })
           const stripPrices = weightOnly || makeToOrderOnly
           const uploadedMc = makeToOrderOnly ? null : lookupProductUploadedMc(pick.row.product)
           const waLine = sharedCatalogPickToWhatsAppLine(
@@ -1177,7 +1191,9 @@ export default function SharedCatalogClient({
               const hasVariants = group.variants.length > 1
               const { item, product, unitTotalInr, unitCompareAtInr, discountBadge, showInclGst, slabDiscountLines, savingsInr, priceBreakdown } =
                 activeRow
-              const makeToOrderOnly = isMakeToOrderOnlyProduct(product)
+              const makeToOrderOnly = isMakeToOrderOnlyProduct(product, {
+                catalogShowLiveStock: showLiveStock,
+              })
               const stockLabel = makeToOrderOnly
                 ? makeToOrderStockLabel()
                 : showLiveStock

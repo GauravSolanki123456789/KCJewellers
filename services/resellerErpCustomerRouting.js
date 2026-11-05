@@ -914,7 +914,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                 if (outcome === 'forward' || outcome === 'sale_and_forward') {
                     forwardId = parseInt(String(req.body.forward_counter_id), 10);
                     if (!Number.isFinite(forwardId) || forwardId <= 0) {
-                        return res.status(400).json({ error: 'forward_counter_id required' });
+                    return res.status(400).json({ error: 'forward_counter_id required' });
                     }
                     const fcCheck = await query(
                         `SELECT id FROM reseller_erp_store_counters
@@ -1115,7 +1115,7 @@ function registerResellerErpCustomerRoutingRoutes(app, deps) {
                     );
                 }
                 if (!transferToBilling) {
-                    await closeVisitWhenNoOpenQueue(query, row.visit_id);
+                await closeVisitWhenNoOpenQueue(query, row.visit_id);
                 }
                 res.json({ success: true, transfer_to_billing: transferToBilling });
             } catch (e) {

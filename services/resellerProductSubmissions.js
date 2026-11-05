@@ -723,6 +723,109 @@ async function syncLiveWebProductWeightsFromFields(query, userId, productId, fie
     return (result?.rowCount ?? 0) > 0;
 }
 
+function normalizeStockSyncProductKey(productId) {
+    return String(productId || '').trim().toLowerCase();
+}
+
+function parseStockSyncQuantity(raw) {
+    if (raw == null || String(raw).trim() === '') return 0;
+    const n = parseInt(String(raw), 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseStockQtyFromSyncItem(item) {
+    if (!item || typeof item !== 'object') return 0;
+    const raw =
+        item.quantity ??
+        item.Quantity ??
+        item.PCS ??
+        item.pcs ??
+        item.Qty ??
+        item.qty;
+    return parseStockSyncQuantity(raw);
+}
+
+async function loadApprovedLiveSubmissionsWithPhotos(query, userId) {
+    const uid = parseInt(String(userId), 10);
+    if (!Number.isFinite(uid) || uid <= 0) return [];
+    const rows = await query(
+        `SELECT DISTINCT ON (rps.id) rps.*
+         FROM reseller_product_submissions rps
+         INNER JOIN web_products wp ON wp.reseller_submission_id = rps.id
+         WHERE rps.submitted_by_user_id = $1
+           AND rps.submission_status = 'approved'
+           AND (wp.is_active IS NULL OR wp.is_active = true)
+           AND TRIM(COALESCE(NULLIF(TRIM(wp.image_url), ''), NULLIF(TRIM(rps.image_url), ''), '')) <> ''
+         ORDER BY rps.id, rps.updated_at DESC`,
+        [uid],
+    );
+    return (rows || []).map((r) => enrichSubmissionRow(r));
+}
+
+function indexLiveSubmissionsByProductId(rows) {
+    const map = new Map();
+    for (const row of rows || []) {
+        for (const raw of [row.web_product_sku, row.barcode]) {
+            const key = normalizeStockSyncProductKey(raw);
+            if (!key || map.has(key)) continue;
+            map.set(key, row);
+        }
+    }
+    return map;
+}
+
+async function applyStockSyncToLiveSubmission(query, submissionRow, fields, qty) {
+    if (!submissionRow?.id) return { changed: false, row: submissionRow, quantity: 0 };
+    const q = parseStockSyncQuantity(qty);
+    let row = submissionRow;
+    let changed = false;
+    if (fields) {
+        const mergeResult = await mergeExcelCatalogFieldsIntoSubmission(query, row, fields);
+        row = mergeResult.row;
+        if (mergeResult.changed) changed = true;
+    }
+    const prevQty = parseStockSyncQuantity(row.quantity);
+    if (prevQty !== q) {
+        await query(
+            `UPDATE reseller_product_submissions
+             SET quantity = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [row.id, q],
+        );
+        row.quantity = q;
+        changed = true;
+    }
+    const sku = String(row.web_product_sku || row.barcode || '').trim();
+    if (sku) {
+        await syncWebProductQuantity(query, sku, q, row.submitted_by_user_id);
+        if (fields) {
+            const weightChanged = await syncLiveWebProductWeightsFromFields(
+                query,
+                row.submitted_by_user_id,
+                sku,
+                fields,
+            );
+            if (weightChanged) changed = true;
+        }
+    }
+    return { changed, row, quantity: q };
+}
+
+async function assertResellerLiveStockEnabled(query, userId) {
+    const rows = await query(
+        `SELECT COALESCE(reseller_show_live_stock, false) AS reseller_show_live_stock
+         FROM users WHERE id = $1`,
+        [userId],
+    );
+    if (!rows[0]?.reseller_show_live_stock) {
+        const er = new Error(
+            'Offline stock sync requires “Show live stock” on your reseller account. Contact KC admin.',
+        );
+        er.status = 403;
+        throw er;
+    }
+}
+
 /** When size/barcode changes, retire the previous live `web_products` row so only one variant shows. */
 async function deactivateSupersededWebProductSku(query, oldSku, newSku) {
     const prev = String(oldSku || '').trim();
@@ -1625,6 +1728,86 @@ function registerResellerProductRoutes(app, deps) {
             });
         } catch (e) {
             res.status(500).json({ error: e.message });
+        }
+    });
+
+    // ---- Reseller: offline store sheet → update live stock only (no new product rows) ----
+    app.post('/api/reseller/product-submissions/stock-sync', requireResellerUpload, async (req, res) => {
+        try {
+            await assertResellerLiveStockEnabled(query, req.user.id);
+            const products = Array.isArray(req.body?.products) ? req.body.products : [];
+            if (!products.length) return res.status(400).json({ error: 'products array is required' });
+
+            const liveSubmissions = await loadApprovedLiveSubmissionsWithPhotos(query, req.user.id);
+            const liveByKey = indexLiveSubmissionsByProductId(liveSubmissions);
+            const parsedItems = products.map((raw) => {
+                const base = raw && typeof raw === 'object' ? raw : {};
+                return excelRowToSyncItem(base) || base;
+            });
+            const gpPairedBases = detectGpPairedBases(parsedItems);
+
+            const excelKeys = new Set();
+            let updatedCount = 0;
+            let unchangedCount = 0;
+            let ignoredNotLiveCount = 0;
+            let markedMakeOnOrderCount = 0;
+            const errors = [];
+
+            for (let i = 0; i < parsedItems.length; i++) {
+                try {
+                    const item = applyGpVariantPairing(parsedItems[i], gpPairedBases);
+                    const resolved = resolveNormalizedVariant(item);
+                    const key = normalizeStockSyncProductKey(resolved.prodSku);
+                    if (!key) {
+                        throw new Error('ProductName or Barcode required');
+                    }
+                    excelKeys.add(key);
+                    const liveRow = liveByKey.get(key);
+                    if (!liveRow) {
+                        ignoredNotLiveCount += 1;
+                        continue;
+                    }
+                    const qtyFromExcel = parseStockQtyFromSyncItem(item);
+                    const fields = buildSubmissionFieldsFromItem(item, req.user.id, null);
+                    const result = await applyStockSyncToLiveSubmission(
+                        query,
+                        liveRow,
+                        fields,
+                        qtyFromExcel,
+                    );
+                    liveByKey.set(key, result.row);
+                    if (result.changed) updatedCount += 1;
+                    else unchangedCount += 1;
+                } catch (rowErr) {
+                    errors.push({ row: i, error: rowErr.message });
+                }
+            }
+
+            for (const row of liveSubmissions) {
+                const keys = [row.web_product_sku, row.barcode]
+                    .map(normalizeStockSyncProductKey)
+                    .filter(Boolean);
+                const listed = keys.some((k) => excelKeys.has(k));
+                if (listed) continue;
+                const result = await applyStockSyncToLiveSubmission(query, row, null, 0);
+                for (const k of keys) {
+                    if (liveByKey.get(k)?.id === row.id) liveByKey.set(k, result.row);
+                }
+                if (result.changed) markedMakeOnOrderCount += 1;
+            }
+
+            res.json({
+                success: updatedCount > 0 || markedMakeOnOrderCount > 0,
+                updated_count: updatedCount,
+                unchanged_count: unchangedCount,
+                ignored_not_live_count: ignoredNotLiveCount,
+                marked_make_on_order_count: markedMakeOnOrderCount,
+                live_catalog_count: liveSubmissions.length,
+                expected_count: products.length,
+                errors,
+            });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message || 'Stock sync failed' });
         }
     });
 

@@ -59,6 +59,7 @@ import {
   Images,
   Loader2,
   Package,
+  PackageCheck,
   Pencil,
   Plus,
   Send,
@@ -134,9 +135,12 @@ const inputCls =
 export function ResellerProductsPanel({
   uploadsEnabled = true,
   editsEnabled = false,
+  showLiveStockEnabled = false,
 }: {
   uploadsEnabled?: boolean
   editsEnabled?: boolean
+  /** Admin B2B “Show live stock” — enables offline sheet sync (no new products). */
+  showLiveStockEnabled?: boolean
 }) {
   const [tab, setTab] = useState<Tab>(uploadsEnabled ? 'add' : 'list')
   const [form, setForm] = useState<ResellerProductPayload>(emptyProductPayload())
@@ -152,6 +156,8 @@ export function ResellerProductsPanel({
 
   const [bulkParsing, setBulkParsing] = useState(false)
   const [bulkResult, setBulkResult] = useState<string | null>(null)
+  const [stockSyncParsing, setStockSyncParsing] = useState(false)
+  const [stockSyncResult, setStockSyncResult] = useState<string | null>(null)
   const [batches, setBatches] = useState<ResellerProductBatch[]>([])
   const [batchesLoading, setBatchesLoading] = useState(false)
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null)
@@ -160,6 +166,7 @@ export function ResellerProductsPanel({
   const [submittingBatchId, setSubmittingBatchId] = useState<string | null>(null)
   const [liveRates, setLiveRates] = useState<unknown>(null)
   const excelInputRef = useRef<HTMLInputElement>(null)
+  const stockSyncInputRef = useRef<HTMLInputElement>(null)
   const primaryInputRef = useRef<HTMLInputElement>(null)
   const secondaryInputRef = useRef<HTMLInputElement>(null)
   const [editRow, setEditRow] = useState<ResellerProductSubmission | null>(null)
@@ -482,6 +489,66 @@ export function ResellerProductsPanel({
     }
   }
 
+  const handleStockSyncExcel = async (file: File) => {
+    if (!showLiveStockEnabled) return
+    setStockSyncParsing(true)
+    setStockSyncResult(null)
+    setError(null)
+    try {
+      const products = await parseExcelFile(file)
+      if (!products.length) {
+        setError('No rows found in spreadsheet')
+        return
+      }
+      const res = await axios.post<{
+        updated_count?: number
+        unchanged_count?: number
+        ignored_not_live_count?: number
+        marked_make_on_order_count?: number
+        live_catalog_count?: number
+        errors?: { row: number; error: string }[]
+      }>('/api/reseller/product-submissions/stock-sync', { products })
+      const updated = res.data.updated_count ?? 0
+      const unchanged = res.data.unchanged_count ?? 0
+      const ignored = res.data.ignored_not_live_count ?? 0
+      const marked = res.data.marked_make_on_order_count ?? 0
+      const live = res.data.live_catalog_count ?? 0
+      const errs = res.data.errors ?? []
+      const parts = [
+        updated > 0 ? `${updated} product${updated === 1 ? '' : 's'} updated (weight & quantity)` : null,
+        unchanged > 0 ? `${unchanged} already matched your sheet` : null,
+        marked > 0
+          ? `${marked} live product${marked === 1 ? '' : 's'} set to make on order (missing from sheet)`
+          : null,
+        ignored > 0
+          ? `${ignored} row${ignored === 1 ? '' : 's'} skipped (not in your photo catalogue yet)`
+          : null,
+        live > 0 ? `${live} live SKU${live === 1 ? '' : 's'} in catalogue` : null,
+      ].filter(Boolean)
+      if (!parts.length && errs.length) {
+        setError(errs[0]?.error || 'Stock sync failed')
+        return
+      }
+      setStockSyncResult(
+        parts.length
+          ? `${parts.join(' · ')}. Refresh the shop / shared catalogue to see new order (in-stock first).`
+          : 'No changes — check ProductName/Barcode columns match your live SKUs.',
+      )
+      if (errs.length) {
+        setStockSyncResult((prev) => `${prev ?? ''} ${errs.length} row${errs.length === 1 ? '' : 's'} had errors.`)
+      }
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+          : null
+      setError(msg || 'Live stock update failed')
+    } finally {
+      setStockSyncParsing(false)
+      if (stockSyncInputRef.current) stockSyncInputRef.current.value = ''
+    }
+  }
+
   const deleteDraftBatch = async (batch: ResellerProductBatch) => {
     const allDraft =
       (batch.draft_count ?? 0) > 0 && (batch.draft_count ?? 0) === (batch.product_count ?? 0)
@@ -664,6 +731,59 @@ export function ResellerProductsPanel({
       {error ? (
         <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
+        </div>
+      ) : null}
+
+      {showLiveStockEnabled ? (
+        <div className="kc-upload-card mb-6 rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
+              <PackageCheck className="size-5" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Update live stock
+              </h2>
+              <p className="mt-1 text-sm leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/75">
+                Upload your offline store Excel to refresh <strong>weight</strong> and{' '}
+                <strong>quantity</strong> on products that already have photos on the site. Rows for
+                products not uploaded yet are ignored. Live SKUs missing from the sheet are marked{' '}
+                <strong>make on order</strong> and move below in-stock items in the catalogue.
+              </p>
+            </div>
+          </div>
+          <input
+            ref={stockSyncInputRef}
+            type="file"
+            accept={RESELLER_EXCEL_ACCEPT}
+            className="sr-only"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void handleStockSyncExcel(f)
+            }}
+          />
+          <button
+            type="button"
+            disabled={stockSyncParsing}
+            onClick={() => stockSyncInputRef.current?.click()}
+            className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-600/35 bg-white px-4 py-4 text-sm font-semibold text-emerald-900 transition hover:border-emerald-600/60 hover:bg-emerald-50/80 disabled:opacity-60"
+          >
+            {stockSyncParsing ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <Upload className="size-5 text-emerald-700" />
+            )}
+            Upload store sheet (.xlsx / .csv)
+          </button>
+          {stockSyncResult ? (
+            <p className="mt-4 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-900">
+              {stockSyncResult}
+            </p>
+          ) : null}
+          <p className="mt-3 text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+            Use <strong>Bulk Excel import</strong> below only when you need new draft rows for photo
+            upload. Do not use it for daily stock counts.
+          </p>
         </div>
       ) : null}
 

@@ -27,6 +27,18 @@ function compareCatalogSizeLabel(a, b) {
     return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+function parseCatalogStockQty(p) {
+    const n = parseInt(String(p?.quantity ?? ''), 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function compareLiveStockTier(a, b) {
+    if (!a?.show_live_stock || !b?.show_live_stock) return 0;
+    const liveA = parseCatalogStockQty(a) > 0 ? 0 : 1;
+    const liveB = parseCatalogStockQty(b) > 0 ? 0 : 1;
+    return liveA - liveB;
+}
+
 function productUpdatedMs(p) {
     const t = p?.updated_at != null ? new Date(p.updated_at).getTime() : 0;
     return Number.isFinite(t) ? t : 0;
@@ -88,8 +100,20 @@ function mergeDesignGroupOrderWithRecency(saved, discovered, products) {
     return out;
 }
 
-function sortWithinDesignGroup(list) {
+function sortWithinDesignGroup(list, options) {
+    const showLiveStock = !!options?.showLiveStock;
+    const hasMix =
+        showLiveStock &&
+        list.some((p) => parseCatalogStockQty(p) > 0) &&
+        list.some((p) => parseCatalogStockQty(p) <= 0);
     return [...list].sort((a, b) => {
+        if (hasMix) {
+            const tier = compareLiveStockTier(
+                { ...a, show_live_stock: true },
+                { ...b, show_live_stock: true },
+            );
+            if (tier !== 0) return tier;
+        }
         const sizeCmp = compareCatalogSizeLabel(a.size, b.size);
         if (sizeCmp !== 0) return sizeCmp;
         const tb = productUpdatedMs(b) - productUpdatedMs(a);
@@ -101,8 +125,13 @@ function sortWithinDesignGroup(list) {
 /**
  * Sort products within one SKU/subcategory for storefront + shared brochure.
  */
-function sortCatalogProductsByDesignGroupOrder(products, designGroupOrder) {
+function sortCatalogProductsByDesignGroupOrder(products, designGroupOrder, options) {
     if (!Array.isArray(products) || products.length <= 1) return products || [];
+
+    const showLiveStock =
+        !!options?.showLiveStock ||
+        products.some((p) => p?.reseller_show_live_stock === true);
+    const sortOpts = showLiveStock ? { showLiveStock: true } : undefined;
 
     const saved = normalizeDesignGroupOrder(designGroupOrder);
     const savedLower = new Set(saved.map((s) => s.toLowerCase()));
@@ -150,9 +179,9 @@ function sortCatalogProductsByDesignGroupOrder(products, designGroupOrder) {
 
     const out = [];
     for (const dg of orderedGroupKeys) {
-        out.push(...sortWithinDesignGroup(byGroup.get(dg) ?? []));
+        out.push(...sortWithinDesignGroup(byGroup.get(dg) ?? [], sortOpts));
     }
-    out.push(...sortWithinDesignGroup(noGroup));
+    out.push(...sortWithinDesignGroup(noGroup, sortOpts));
     return out;
 }
 
@@ -165,6 +194,9 @@ function compareCatalogProductRows(a, b) {
     const subA = Number(a.subcategory_sort ?? 0);
     const subB = Number(b.subcategory_sort ?? 0);
     if (subA !== subB) return subA - subB;
+
+    const liveTier = compareLiveStockTier(a, b);
+    if (liveTier !== 0) return liveTier;
 
     const mtoA = a.make_to_order_only ? 1 : 0;
     const mtoB = b.make_to_order_only ? 1 : 0;

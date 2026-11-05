@@ -33,7 +33,13 @@ function ResellerProductsContent() {
       customerTier === CUSTOMER_TIER.RESELLER &&
       (auth.user as { reseller_product_edits_enabled?: boolean }).reseller_product_edits_enabled,
   )
-  const portalEnabled = uploadsEnabled || editsEnabled
+  const showLiveStockEnabled = Boolean(
+    auth.isAuthenticated &&
+      auth.user &&
+      customerTier === CUSTOMER_TIER.RESELLER &&
+      (auth.user as { reseller_show_live_stock?: boolean }).reseller_show_live_stock,
+  )
+  const portalEnabled = uploadsEnabled || editsEnabled || showLiveStockEnabled
 
   if (!authReady || !tierReady) {
     return (
@@ -74,7 +80,7 @@ function ResellerProductsContent() {
         <Package className="mx-auto size-12 text-[var(--color-jewelry-black,#1a1814)]/30" />
         <h1 className="mt-4 text-xl font-semibold text-[var(--color-jewelry-black,#1a1814)]">Products not enabled yet</h1>
         <p className="mt-2 text-sm text-[var(--color-jewelry-black,#1a1814)]/65">
-          Ask KC admin to enable product uploads or live edits (B2B clients → Edit reseller).
+          Ask KC admin to enable product uploads, live edits, or show live stock (B2B clients → Edit reseller).
         </p>
         <Link href={PROFILE_PATH} className="mt-6 inline-block text-sm font-medium text-[var(--kc-accent,#c41e3a)]">
           Go to profile
@@ -102,7 +108,11 @@ function ResellerProductsContent() {
         </div>
       </div>
       <main className="mx-auto px-4 py-6">
-        <ResellerProductsPanel uploadsEnabled={uploadsEnabled} editsEnabled={editsEnabled} />
+        <ResellerProductsPanel
+          uploadsEnabled={uploadsEnabled}
+          editsEnabled={editsEnabled}
+          showLiveStockEnabled={showLiveStockEnabled}
+        />
       </main>
     </div>
   )
