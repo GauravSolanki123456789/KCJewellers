@@ -3,6 +3,8 @@
  * Use these across the frontend and backend for consistency.
  */
 export const CATALOG_PATH = '/catalog'
+/** Reseller vanity storefront — contact form + phone / WhatsApp. */
+export const CONTACT_PATH = '/contact'
 /** Global search results page (`?q=`). */
 export const SEARCH_PATH = '/search'
 /** Today bullion rates + book-rate flow (single “Today Rates” destination). */

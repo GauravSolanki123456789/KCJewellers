@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CATALOG_PATH } from "@/lib/routes";
+import { CATALOG_PATH, CONTACT_PATH } from "@/lib/routes";
 import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import type { PublicResellerBranding } from "@/lib/reseller-branding-server";
 import {
@@ -110,88 +110,131 @@ function gridClass(columns?: number) {
 function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) {
   const slides = site.hero.slides.filter(Boolean);
   const [idx, setIdx] = useState(0);
-  const touchStartX = useRef<number | null>(null);
-  const slide = slides[idx] || slides[0];
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const autoTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (slides.length < 2) return;
-    const t = window.setInterval(() => setIdx((i) => (i + 1) % slides.length), 7000);
-    return () => window.clearInterval(t);
+    autoTimerRef.current = window.setInterval(() => {
+      const el = scrollerRef.current;
+      if (!el || el.clientWidth <= 0) return;
+      const w = el.clientWidth;
+      const current = Math.round(el.scrollLeft / w);
+      const next = (current + 1) % slides.length;
+      el.scrollTo({ left: next * w, behavior: "smooth" });
+    }, 7000);
+    return () => {
+      if (autoTimerRef.current != null) window.clearInterval(autoTimerRef.current);
+    };
   }, [slides.length]);
+
+  const syncIndexFromScroll = () => {
+    const el = scrollerRef.current;
+    if (!el || slides.length < 2) return;
+    const w = el.clientWidth;
+    if (w <= 0) return;
+    const i = Math.round(el.scrollLeft / w);
+    setIdx(Math.min(slides.length - 1, Math.max(0, i)));
+  };
+
   const goTo = (next: number) => {
-    if (slides.length < 2) return;
-    setIdx(((next % slides.length) + slides.length) % slides.length);
+    const el = scrollerRef.current;
+    if (!el || slides.length < 2) return;
+    const i = ((next % slides.length) + slides.length) % slides.length;
+    el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
+    setIdx(i);
   };
-  const onTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.changedTouches[0]?.clientX ?? null;
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const start = touchStartX.current;
-    touchStartX.current = null;
-    if (start == null || slides.length < 2) return;
-    const end = e.changedTouches[0]?.clientX ?? start;
-    const delta = end - start;
-    if (Math.abs(delta) < 48) return;
-    if (delta < 0) goTo(idx + 1);
-    else goTo(idx - 1);
-  };
-  if (!site.hero.enabled || !slide) return null;
-  const bg = mediaSrc(slide.imageUrl);
-  const yt = youtubeEmbedId(slide.videoUrl || "");
-  const align =
-    slide.align === "center"
-      ? "items-center text-center"
-      : slide.align === "right"
-        ? "items-end text-right"
-        : "items-start text-left";
-  return (
-    <section
-      className="relative min-h-[58vw] w-full touch-pan-y overflow-hidden bg-[#1a1510] sm:min-h-[420px] md:min-h-[520px] lg:min-h-[600px]"
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-    >
-      {yt ? (
-        <iframe
-          title={slide.headline || brandName}
-          src={`https://www.youtube.com/embed/${yt}?autoplay=1&mute=1&controls=0&loop=1&playlist=${yt}`}
-          className="absolute inset-0 h-full w-full"
-          allow="autoplay; encrypted-media"
-        />
-      ) : slide.videoUrl && mediaSrc(slide.videoUrl) ? (
-        <video
-          className="absolute inset-0 h-full w-full object-cover"
-          src={mediaSrc(slide.videoUrl)}
-          autoPlay
-          muted
-          loop
-          playsInline
-        />
-      ) : bg ? (
-        <Image src={bg} alt={slide.headline || brandName} fill className="object-cover" priority unoptimized />
-      ) : (
-        <div className="absolute inset-0 bg-[url('/opengraph-image')] bg-cover bg-center opacity-40" />
-      )}
-      {slide.overlay !== false ? (
-        <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent" />
-      ) : null}
-      <div className={`relative z-10 flex min-h-[inherit] flex-col justify-center px-5 py-16 sm:px-12 md:px-16 ${align}`}>
-        <p className="mb-3 font-[family-name:var(--font-display)] text-2xl text-white drop-shadow sm:text-4xl md:text-5xl lg:text-6xl">
-          {slide.headline || brandName}
-        </p>
-        {slide.subhead ? (
-          <p className="max-w-xl text-sm text-white/90 drop-shadow sm:text-lg">{slide.subhead}</p>
+
+  if (!site.hero.enabled || !slides.length) return null;
+
+  const renderSlide = (slide: (typeof slides)[0], slideKey: string) => {
+    const bg = mediaSrc(slide.imageUrl);
+    const yt = youtubeEmbedId(slide.videoUrl || "");
+    const align =
+      slide.align === "center"
+        ? "items-center text-center"
+        : slide.align === "right"
+          ? "items-end text-right"
+          : "items-start text-left";
+    return (
+      <div
+        key={slideKey}
+        className="relative min-h-[58vw] w-full shrink-0 snap-start snap-always bg-[#faf7f2] sm:min-h-[420px] md:min-h-[520px] lg:min-h-[600px]"
+      >
+        {yt ? (
+          <iframe
+            title={slide.headline || brandName}
+            src={`https://www.youtube.com/embed/${yt}?autoplay=1&mute=1&controls=0&loop=1&playlist=${yt}`}
+            className="absolute inset-0 h-full w-full"
+            allow="autoplay; encrypted-media"
+          />
+        ) : slide.videoUrl && mediaSrc(slide.videoUrl) ? (
+          <video
+            className="absolute inset-0 h-full w-full object-cover"
+            src={mediaSrc(slide.videoUrl)}
+            autoPlay
+            muted
+            loop
+            playsInline
+          />
+        ) : bg ? (
+          <Image
+            src={bg}
+            alt={slide.headline || brandName}
+            fill
+            className="object-cover object-center"
+            priority
+            unoptimized
+            draggable={false}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-[#f7f1e6] to-stone-100 opacity-90" />
+        )}
+        {slide.overlay !== false ? (
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/50 via-black/20 to-transparent" />
         ) : null}
-        {slide.ctaText ? (
-          <Link
-            href={normalizeStorefrontHref(slide.ctaHref)}
-            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-white px-6 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] shadow-md transition hover:bg-amber-50"
-          >
-            {slide.ctaText}
-          </Link>
-        ) : null}
+        <div
+          className={`relative z-10 flex min-h-[inherit] flex-col justify-center px-5 py-16 sm:px-12 md:px-16 ${align}`}
+        >
+          <p className="mb-3 font-[family-name:var(--font-display)] text-2xl text-white drop-shadow sm:text-4xl md:text-5xl lg:text-6xl">
+            {slide.headline || brandName}
+          </p>
+          {slide.subhead ? (
+            <p className="max-w-xl text-sm text-white/90 drop-shadow sm:text-lg">{slide.subhead}</p>
+          ) : null}
+          {slide.ctaText ? (
+            <Link
+              href={normalizeStorefrontHref(slide.ctaHref)}
+              className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-white px-6 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)] shadow-md transition hover:bg-amber-50"
+            >
+              {slide.ctaText}
+            </Link>
+          ) : null}
+        </div>
       </div>
+    );
+  };
+
+  const slideTrack =
+    slides.length > 1 ? (
+      <div
+        ref={scrollerRef}
+        className="flex w-full cursor-grab overflow-x-auto overscroll-x-contain scroll-smooth snap-x snap-mandatory active:cursor-grabbing [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onScroll={syncIndexFromScroll}
+        aria-label="Hero banners — swipe or drag to browse"
+      >
+        {slides.map((s, i) => renderSlide(s, s.id || String(i)))}
+      </div>
+    ) : (
+      renderSlide(slides[0], slides[0].id || "0")
+    );
+
+  return (
+    <section className="relative w-full bg-[#faf7f2]">
+      {slideTrack}
       {slides.length > 1 ? (
         <div
-          className="absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center gap-2 sm:bottom-6"
+          className="pointer-events-none absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center gap-2 sm:bottom-6"
           role="tablist"
           aria-label="Hero banners"
         >
@@ -203,8 +246,8 @@ function Hero({ site, brandName }: { site: StorefrontSite; brandName: string }) 
               aria-selected={i === idx}
               aria-label={`Banner ${i + 1} of ${slides.length}`}
               onClick={() => goTo(i)}
-              className={`h-2.5 rounded-full transition-all ${
-                i === idx ? "w-7 bg-white" : "w-2.5 bg-white/45 hover:bg-white/70"
+              className={`pointer-events-auto h-2.5 rounded-full transition-all ${
+                i === idx ? "w-7 bg-[var(--kc-accent,#9a1c2e)]" : "w-2.5 bg-[var(--color-jewelry-black,#1a1814)]/25 hover:bg-[var(--color-jewelry-black,#1a1814)]/40"
               }`}
             />
           ))}
@@ -286,6 +329,14 @@ function SectionBlock({ section }: { section: StorefrontSection }) {
                 {section.secondaryText}
               </Link>
             ) : null}
+            {normalizeStorefrontHref(section.secondaryHref) !== CONTACT_PATH ? (
+              <Link
+                href={CONTACT_PATH}
+                className="inline-flex min-h-11 items-center rounded-md border border-stone-300 bg-white px-5 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]"
+              >
+                Contact us
+              </Link>
+            ) : null}
           </div>
         </div>
       </section>
@@ -327,6 +378,8 @@ export default function StorefrontHomeView({
   preview?: boolean;
 }) {
   const brandName = branding?.businessName?.trim() || "Jewellery";
+  const shopAllLabel = (site.shopAllLabel || "Shop all").trim() || "Shop all";
+  const shopAllHref = normalizeStorefrontHref(site.shopAllHref || CATALOG_PATH);
   const enabledSections = useMemo(
     () => (site.sections || []).filter((s) => s.enabled !== false),
     [site.sections],
@@ -374,10 +427,10 @@ export default function StorefrontHomeView({
               </Link>
             ))}
             <Link
-              href={CATALOG_PATH}
+              href={shopAllHref}
               className="ml-auto whitespace-nowrap rounded-full bg-[var(--kc-accent,#9a1c2e)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white"
             >
-              Shop all
+              {shopAllLabel}
             </Link>
           </div>
         </nav>
@@ -399,6 +452,9 @@ export default function StorefrontHomeView({
         <div className="mt-3 flex flex-wrap items-center justify-center gap-4 text-sm text-[var(--color-jewelry-black,#1a1814)]/70">
           {site.footer?.phone ? <a href={`tel:+91${site.footer.phone.replace(/\D/g, "").slice(-10)}`}>Call {site.footer.phone}</a> : null}
           {site.footer?.email ? <a href={`mailto:${site.footer.email}`}>{site.footer.email}</a> : null}
+          <Link href={CONTACT_PATH} className="font-medium text-[var(--kc-accent,#9a1c2e)] hover:underline">
+            Contact us
+          </Link>
         </div>
         <Link
           href={CATALOG_PATH}

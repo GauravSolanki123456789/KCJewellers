@@ -1955,7 +1955,7 @@ const {
     ensureCmsSchema,
 } = require('./services/resellerStorefrontCms');
 const { ensureStorefrontTenantSchema } = require('./services/storefrontTenantAuth');
-registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, getPublicApiBaseUrl });
+registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, getPublicApiBaseUrl, globalLimiter, requireJson });
 ensureCmsSchema().catch((e) => console.warn('storefront cms schema:', e.message));
 ensureStorefrontTenantSchema().catch((e) => console.warn('storefront tenant schema:', e.message));
 registerResellerLoginEmailRoutes(app, { isAdminStrict, requireJson });

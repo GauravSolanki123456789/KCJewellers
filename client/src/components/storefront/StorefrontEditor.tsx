@@ -607,6 +607,24 @@ export default function StorefrontEditor() {
               ))}
             </div>
             <div className="kc-profile-card grid gap-3 rounded-2xl p-4 sm:grid-cols-2">
+              <Field label="Shop all button label">
+                <input
+                  className={inputCls}
+                  value={site.shopAllLabel ?? "Shop all"}
+                  onChange={(e) => setSite({ ...site, shopAllLabel: e.target.value })}
+                  placeholder="Shop all"
+                />
+              </Field>
+              <Field label="Shop all button link">
+                <input
+                  className={inputCls}
+                  value={site.shopAllHref ?? "/catalog"}
+                  onChange={(e) => setSite({ ...site, shopAllHref: e.target.value })}
+                  placeholder="/catalog"
+                />
+              </Field>
+            </div>
+            <div className="kc-profile-card grid gap-3 rounded-2xl p-4 sm:grid-cols-2">
               <Field label="Footer tagline">
                 <input className={inputCls} value={site.footer.tagline} onChange={(e) => setSite({ ...site, footer: { ...site.footer, tagline: e.target.value } })} />
               </Field>

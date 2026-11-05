@@ -65,6 +65,9 @@ export type StorefrontSite = {
   announcement: { enabled: boolean; text: string };
   hero: { enabled: boolean; slides: StorefrontSlide[] };
   navLinks: StorefrontItem[];
+  /** Label on the accent pill at the end of the collection menu (defaults to Shop all). */
+  shopAllLabel?: string;
+  shopAllHref?: string;
   sections: StorefrontSection[];
   footer: { tagline: string; phone: string; email: string };
   customCss: string;
@@ -175,6 +178,8 @@ export function defaultStorefrontSite(brandName: string): StorefrontSite {
       emptyItem({ label: "Diamond", href: `${CATALOG_PATH}/diamond` }),
       emptyItem({ label: "Today's gold rate", href: RATES_PATH }),
     ],
+    shopAllLabel: "Shop all",
+    shopAllHref: CATALOG_PATH,
     sections: [
       emptySection("shop_by_category"),
       emptySection("banners"),

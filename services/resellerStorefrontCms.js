@@ -141,6 +141,8 @@ function defaultSite(branding) {
             { id: 'nl-4', label: 'Diamond', href: '/catalog/diamond' },
             { id: 'nl-5', label: "Today's gold rate", href: '/rates' },
         ],
+        shopAllLabel: 'Shop all',
+        shopAllHref: '/catalog',
         sections: [
             {
                 id: 'sec-cat',
@@ -252,6 +254,8 @@ function sanitizeSite(raw, branding) {
             slides: slides.length ? slides : base.hero.slides,
         },
         navLinks,
+        shopAllLabel: clip(o.shopAllLabel, 80) || base.shopAllLabel,
+        shopAllHref: safeHref(o.shopAllHref) || base.shopAllHref,
         sections,
         footer: {
             tagline: clip(footer.tagline, 240) || base.footer.tagline,
@@ -282,6 +286,23 @@ async function ensureCmsSchema() {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             published_at TIMESTAMPTZ
         )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_storefront_contact_messages (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sender_name VARCHAR(120) NOT NULL,
+            sender_mobile VARCHAR(10) NOT NULL,
+            sender_email VARCHAR(120),
+            message TEXT NOT NULL,
+            source_domain VARCHAR(255),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            read_at TIMESTAMPTZ
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_storefront_contact_reseller_created
+            ON reseller_storefront_contact_messages (reseller_user_id, created_at DESC)
     `);
 }
 
@@ -473,9 +494,54 @@ function createMediaUploader() {
     });
 }
 
-function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, getPublicApiBaseUrl }) {
+function registerResellerStorefrontRoutes(app, { requireSharedCatalogCreator, getPublicApiBaseUrl, globalLimiter, requireJson }) {
     const upload = createMediaUploader();
     const requireWebsite = requireStorefrontWebsiteModule();
+
+    app.post('/api/public/storefront-contact', globalLimiter, requireJson, async (req, res) => {
+        try {
+            const domain =
+                normalizeDomain(req.headers['x-storefront-domain']) ||
+                normalizeDomain(req.headers['x-custom-domain']) ||
+                normalizeDomain(req.body?.domain) ||
+                normalizeDomain(req.query?.domain);
+            if (!domain) {
+                return res.status(400).json({ error: 'Store not found for this request' });
+            }
+            const reseller = await findResellerByDomain(domain);
+            if (!reseller?.id) {
+                return res.status(404).json({ error: 'Store not found' });
+            }
+            const enabled = await isStorefrontWebsiteEnabledForUserId(reseller.id);
+            if (!enabled) {
+                return res.status(403).json({ error: 'Contact form is not available for this store' });
+            }
+            const name = clip(req.body?.name || req.body?.sender_name, 120).trim();
+            const mobileRaw = String(req.body?.mobile || req.body?.sender_mobile || '').replace(/\D/g, '');
+            const mobile = mobileRaw.length >= 10 ? mobileRaw.slice(-10) : mobileRaw;
+            const email = clip(req.body?.email || req.body?.sender_email, 120).trim();
+            const message = clip(req.body?.message, 4000).trim();
+            if (!name) return res.status(400).json({ error: 'Enter your name' });
+            if (mobile.length !== 10) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+            if (!message || message.length < 4) {
+                return res.status(400).json({ error: 'Please write a short message (at least a few words)' });
+            }
+            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                return res.status(400).json({ error: 'Enter a valid email address or leave it blank' });
+            }
+            await ensureCmsSchema();
+            await query(
+                `INSERT INTO reseller_storefront_contact_messages
+                    (reseller_user_id, sender_name, sender_mobile, sender_email, message, source_domain)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [reseller.id, name, mobile, email || null, message, domain],
+            );
+            res.json({ success: true });
+        } catch (error) {
+            console.error('public storefront-contact:', error);
+            res.status(500).json({ error: error.message || 'Could not send message' });
+        }
+    });
 
     app.get('/api/public/storefront-page', async (req, res) => {
         try {
