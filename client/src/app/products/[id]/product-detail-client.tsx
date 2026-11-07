@@ -71,6 +71,8 @@ import { normalizeCatalogImageSrc } from "@/lib/normalize-image-url";
 import GiftingSizeVariantPicker from "@/components/catalog/GiftingSizeVariantPicker";
 import BoxOptionToggle from "@/components/catalog/BoxOptionToggle";
 import MrpBehindBoxNote from "@/components/catalog/MrpBehindBoxNote";
+import WithBoxLabel from "@/components/catalog/WithBoxLabel";
+import { isMakeToOrderOnlyProduct } from "@/lib/make-to-order-product";
 import {
   boxImageSlideIndex,
   effectiveIncludeBox,
@@ -126,9 +128,12 @@ export default function ProductDetailClient({
     customDomainHost,
     storefrontMarginPct,
     showMrpBehindBox,
+    hidePrices,
+    showLiveStock: storefrontShowLiveStock,
     businessName,
     active: resellerBrandingActive,
   } = useResellerBranding();
+  const storefrontWeightOnly = hidePrices;
   const { pricingOptions } = useCatalogPricingSettings();
   const showInclGst = product ? productPriceShowsInclGst(product, pricingOptions) : true;
   const productRef = useRef<Item | null>(null);
@@ -149,8 +154,12 @@ export default function ProductDetailClient({
       setIncludeBox(true);
       return;
     }
+    if (storefrontWeightOnly && productHasBoxOption(product)) {
+      setIncludeBox(true);
+      return;
+    }
     setIncludeBox(productWithBoxChargesOnly(product));
-  }, [id, initialIncludeBox, product]);
+  }, [id, initialIncludeBox, product, storefrontWeightOnly]);
 
   useEffect(() => {
     let cancelled = false;
@@ -487,9 +496,10 @@ export default function ProductDetailClient({
   useEffect(() => {
     if (prevGalleryIdxRef.current === galleryIdx) return;
     prevGalleryIdxRef.current = galleryIdx;
+    if (storefrontWeightOnly) return;
     if (boxSlideIdx != null && galleryIdx === boxSlideIdx) setIncludeBox(true);
     else if (productHasBoxOption(product) && !productWithBoxChargesOnly(product)) setIncludeBox(false);
-  }, [galleryIdx, boxSlideIdx, product]);
+  }, [galleryIdx, boxSlideIdx, product, storefrontWeightOnly]);
 
   const syncGalleryFromScroll = useCallback(() => {
     const el = galleryScrollRef.current;
@@ -547,7 +557,16 @@ export default function ProductDetailClient({
   const isDiamond = isDiamondItem(product);
   const isFixedPrice = isFixedPriceCatalogItem(product);
   const barcode = product.barcode || product.sku || String(product.id || "");
-  const hasDiscount = (b?.discountPercent ?? 0) > 0;
+  const productHidePrices = !!(product.reseller_hide_prices);
+  const liveStockCatalog = !!(
+    product.reseller_show_live_stock ?? storefrontShowLiveStock
+  );
+  const makeToOrderOnly = isMakeToOrderOnlyProduct(product, {
+    catalogShowLiveStock: liveStockCatalog,
+  });
+  const hidePriceDisplay =
+    storefrontWeightOnly || productHidePrices || makeToOrderOnly;
+  const hasDiscount = !hidePriceDisplay && (b?.discountPercent ?? 0) > 0;
   const showWholesale =
     hasWholesaleAccess &&
     b?.is_wholesale_price &&
@@ -591,7 +610,12 @@ export default function ProductDetailClient({
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="mx-auto max-w-6xl px-4 pb-32 pt-4 md:mt-8 md:pb-10 md:pt-6">
+      <div
+        className={cn(
+          'mx-auto max-w-6xl px-4 pt-4 md:mt-8 md:pb-10 md:pt-6',
+          storefrontWeightOnly ? 'pb-10' : 'pb-32',
+        )}
+      >
         <button
           type="button"
           onClick={handleBackToCatalog}
@@ -845,26 +869,31 @@ export default function ProductDetailClient({
 
             {productHasBoxOption(product) ? (
               <div className="mt-4">
-                <BoxOptionToggle
-                  item={product}
-                  includeBox={resolvedIncludeBox}
-                  onChange={(withBox) => {
-                    if (boxOnly) return;
-                    setIncludeBox(withBox);
-                    if (withBox && boxSlideIdx != null) scrollGalleryTo(boxSlideIdx);
-                    else scrollGalleryTo(0);
-                  }}
-                  density="detail"
-                />
+                {hidePriceDisplay ? (
+                  <WithBoxLabel density="detail" />
+                ) : (
+                  <BoxOptionToggle
+                    item={product}
+                    includeBox={resolvedIncludeBox}
+                    onChange={(withBox) => {
+                      if (boxOnly) return;
+                      setIncludeBox(withBox);
+                      if (withBox && boxSlideIdx != null) scrollGalleryTo(boxSlideIdx);
+                      else scrollGalleryTo(0);
+                    }}
+                    density="detail"
+                  />
+                )}
               </div>
             ) : null}
 
-            {showMrpBehindBox ? (
+            {showMrpBehindBox && !hidePriceDisplay ? (
               <div className="mt-3">
                 <MrpBehindBoxNote item={product} density="detail" />
               </div>
             ) : null}
 
+            {!hidePriceDisplay ? (
             <div className="mt-6">
               {showWholesale && (
                 <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
@@ -906,6 +935,7 @@ export default function ProductDetailClient({
                 View price breakdown
               </button>
             </div>
+            ) : null}
 
             {isDiamond && (
               <div className="mt-6 rounded-xl bg-slate-900/60 border border-amber-500/20 overflow-hidden">
@@ -979,7 +1009,12 @@ export default function ProductDetailClient({
                   </span>
                 </div>
               )}
-              <ProductMetalSpecExtras item={product} breakdown={b} density="detail" />
+              <ProductMetalSpecExtras
+                item={product}
+                breakdown={b}
+                density="detail"
+                hidePriceAmounts={hidePriceDisplay}
+              />
               {purity != null && (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-800/80 px-4 py-3">
                   <span className="text-xs text-slate-500 uppercase tracking-wider block">
@@ -1021,22 +1056,24 @@ export default function ProductDetailClient({
             </div>
 
             <div className="mt-8 hidden flex-col gap-3 md:flex">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  className="kc-btn-primary order-2 w-full px-6 py-3.5 sm:order-1 sm:w-auto sm:!inline-block sm:!w-auto"
-                  onClick={handleAddToCart}
-                >
-                  Add to Cart
-                </button>
-                <button
-                  type="button"
-                  className="order-1 w-full rounded-xl border border-slate-700/50 bg-white/70 px-6 py-3 font-medium tracking-wide text-slate-100 transition-colors hover:border-slate-600 hover:bg-white sm:order-2 sm:w-auto"
-                  onClick={() => setOpen(true)}
-                >
-                  View Breakdown
-                </button>
-              </div>
+              {!storefrontWeightOnly ? (
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    className="kc-btn-primary order-2 w-full px-6 py-3.5 sm:order-1 sm:w-auto sm:!inline-block sm:!w-auto"
+                    onClick={handleAddToCart}
+                  >
+                    Add to Cart
+                  </button>
+                  <button
+                    type="button"
+                    className="order-1 w-full rounded-xl border border-slate-700/50 bg-white/70 px-6 py-3 font-medium tracking-wide text-slate-100 transition-colors hover:border-slate-600 hover:bg-white sm:order-2 sm:w-auto"
+                    onClick={() => setOpen(true)}
+                  >
+                    View Breakdown
+                  </button>
+                </div>
+              ) : null}
               <WhatsAppShareButton
                 message={shareText}
                 className="w-full sm:w-auto"
@@ -1045,26 +1082,39 @@ export default function ProductDetailClient({
           </div>
         </div>
 
-        <div className="kc-pdp-sticky-bar kc-bottom-above-mobile-nav fixed left-0 right-0 z-30 px-4 py-3 safe-area-pb md:hidden">
-          <div className="mx-auto flex max-w-lg items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold tabular-nums text-slate-100">
-                ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
-              </p>
-              {showInclGst ? (
-                <p className="text-[10px] text-slate-500">incl. GST</p>
-              ) : null}
+        {!storefrontWeightOnly ? (
+          <div className="kc-pdp-sticky-bar kc-bottom-above-mobile-nav fixed left-0 right-0 z-30 px-4 py-3 safe-area-pb md:hidden">
+            <div className="mx-auto flex max-w-lg items-center gap-3">
+              {!hidePriceDisplay ? (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold tabular-nums text-slate-100">
+                    ₹{Math.round(b?.total || 0).toLocaleString("en-IN")}
+                  </p>
+                  {showInclGst ? (
+                    <p className="text-[10px] text-slate-500">incl. GST</p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                    {displayName}
+                  </p>
+                  {netWeightLabel ? (
+                    <p className="text-[10px] text-slate-500">{netWeightLabel}</p>
+                  ) : null}
+                </div>
+              )}
+              <button
+                type="button"
+                className="kc-btn-primary shrink-0 !w-auto px-6 py-3"
+                onClick={handleAddToCart}
+              >
+                Add to Cart
+              </button>
             </div>
-            <button
-              type="button"
-              className="kc-btn-primary shrink-0 !w-auto px-6 py-3"
-              onClick={handleAddToCart}
-            >
-              Add to Cart
-            </button>
           </div>
-        </div>
-        {b && (
+        ) : null}
+        {b && !hidePriceDisplay ? (
           <BreakdownModal
             open={open}
             onClose={() => setOpen(false)}
@@ -1072,7 +1122,7 @@ export default function ProductDetailClient({
             productName={displayName}
             isFixedPrice={isFixedPrice}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );

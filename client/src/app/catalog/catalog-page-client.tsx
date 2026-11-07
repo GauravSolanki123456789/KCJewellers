@@ -344,7 +344,15 @@ export default function CatalogPageClient() {
   const auth = useAuth()
   const { wholesalePricing, customerTier } = useCustomerTier()
   const { pricingOptions } = useCatalogPricingSettings()
-  const { active: resellerBrandingActive, businessName: resellerBrandName, customDomainHost, storefrontMarginPct, showLiveStock: storefrontShowLiveStock } = useResellerBranding()
+  const {
+    active: resellerBrandingActive,
+    businessName: resellerBrandName,
+    customDomainHost,
+    storefrontMarginPct,
+    showLiveStock: storefrontShowLiveStock,
+    hidePrices: storefrontHidePrices,
+  } = useResellerBranding()
+  const storefrontWeightOnly = storefrontHidePrices
   const {
     catalogBuilderMode,
     setCatalogBuilderMode,
@@ -925,20 +933,22 @@ export default function CatalogPageClient() {
         return w >= weightLow && w <= weightHigh
       })
     }
-    list = list.filter((p) => {
-      const b = calculateStorefrontBreakdown(
-        p,
-        rates,
-        (p as { gst_rate?: number }).gst_rate ?? 3,
-        wholesalePricing,
-        pricingOptions,
-        customDomainHost,
-        storefrontMarginPct,
-      )
-      return b.total >= priceLow && b.total <= priceHigh
-    })
+    if (!storefrontWeightOnly) {
+      list = list.filter((p) => {
+        const b = calculateStorefrontBreakdown(
+          p,
+          rates,
+          (p as { gst_rate?: number }).gst_rate ?? 3,
+          wholesalePricing,
+          pricingOptions,
+          customDomainHost,
+          storefrontMarginPct,
+        )
+        return b.total >= priceLow && b.total <= priceHigh
+      })
+    }
     return list
-  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, pricingOptions, selectedMetal, customDomainHost, storefrontMarginPct])
+  }, [rawProducts, weightLow, weightHigh, priceLow, priceHigh, rates, wholesalePricing, pricingOptions, selectedMetal, customDomainHost, storefrontMarginPct, storefrontWeightOnly])
 
   const products = useMemo(() => {
     if (!hasDesignGroupFilter || activeDesignGroup === 'all') return sliderFilteredProducts
@@ -1071,8 +1081,8 @@ export default function CatalogPageClient() {
   const hasActiveFilters =
     (!isGiftingCatalog &&
       (weightLow > weightBounds[0] || weightHigh < weightBounds[1])) ||
-    priceLow > priceBounds[0] ||
-    priceHigh < priceBounds[1]
+    (!storefrontWeightOnly &&
+      (priceLow > priceBounds[0] || priceHigh < priceBounds[1]))
 
   const handleStyleClick = (cat: Category) => {
     if (cat.id === activeStyleId && cat.subcategories.length > 0) {
@@ -1647,17 +1657,19 @@ export default function CatalogPageClient() {
                   Gift items use fixed prices — filter by price only.
                 </p>
               )}
-              <DualRangeSlider
-                min={priceBounds[0]}
-                max={priceBounds[1]}
-                low={priceLow}
-                high={priceHigh}
-                onLowChange={setPriceLow}
-                onHighChange={setPriceHigh}
-                step={500}
-                label="Price (₹)"
-                formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
-              />
+              {!storefrontWeightOnly ? (
+                <DualRangeSlider
+                  min={priceBounds[0]}
+                  max={priceBounds[1]}
+                  low={priceLow}
+                  high={priceHigh}
+                  onLowChange={setPriceLow}
+                  onHighChange={setPriceHigh}
+                  step={500}
+                  label="Price (₹)"
+                  formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
+                />
+              ) : null}
               {hasActiveFilters && (
                 <button
                   onClick={() => {
@@ -1805,17 +1817,19 @@ export default function CatalogPageClient() {
                   Gift items use fixed prices — filter by price only.
                 </p>
               )}
-              <DualRangeSlider
-                min={priceBounds[0]}
-                max={priceBounds[1]}
-                low={priceLow}
-                high={priceHigh}
-                onLowChange={setPriceLow}
-                onHighChange={setPriceHigh}
-                step={500}
-                label="Price (₹)"
-                formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
-              />
+              {!storefrontWeightOnly ? (
+                <DualRangeSlider
+                  min={priceBounds[0]}
+                  max={priceBounds[1]}
+                  low={priceLow}
+                  high={priceHigh}
+                  onLowChange={setPriceLow}
+                  onHighChange={setPriceHigh}
+                  step={500}
+                  label="Price (₹)"
+                  formatValue={(v) => `₹${(v / 1000).toFixed(0)}k`}
+                />
+              ) : null}
               {hasActiveFilters && (
                 <button
                   onClick={() => {

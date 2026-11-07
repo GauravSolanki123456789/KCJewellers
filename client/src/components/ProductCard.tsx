@@ -328,7 +328,13 @@ export default function ProductCard({
         </span>
       ) : null}
       {!makeToOrderOnly ? (
-        <ProductMetalSpecExtras item={active} rates={rates} breakdown={breakdown} density="card" />
+        <ProductMetalSpecExtras
+          item={active}
+          rates={rates}
+          breakdown={breakdown}
+          density="card"
+          hidePriceAmounts={hidePriceDisplay}
+        />
       ) : null}
       {hasVariants ? (
         <div
@@ -369,7 +375,9 @@ export default function ProductCard({
         )
       ) : null}
 
-      {showMrpBehindBox && !makeToOrderOnly ? <MrpBehindBoxNote item={active} className="mt-1" /> : null}
+      {showMrpBehindBox && !makeToOrderOnly && !hidePriceDisplay ? (
+        <MrpBehindBoxNote item={active} className="mt-1" />
+      ) : null}
 
       {!hidePriceDisplay ? (
       <div className="mt-auto flex min-w-0 flex-col gap-0.5 pt-1.5">

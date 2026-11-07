@@ -26,26 +26,30 @@ export function ProductMetalSpecExtras({
   breakdown,
   density = 'card',
   className,
+  /** Weight-only storefront — hide wastage / making-charge amounts (₹). */
+  hidePriceAmounts = false,
 }: {
   item: Item
   rates?: unknown
   breakdown?: PriceBreakdown | null
   density?: Density
   className?: string
+  hidePriceAmounts?: boolean
 }) {
   const extras = getProductCardMetalExtras(item, rates, breakdown)
-  const showMc = density === 'detail' && extras.mc
-  if (!extras.wastage && !showMc && !extras.hasComponentWeights) return null
+  const showMc = !hidePriceAmounts && density === 'detail' && extras.mc
+  const showWastage = !hidePriceAmounts && extras.wastage
+  if (!showWastage && !showMc && !extras.hasComponentWeights) return null
 
   if (density === 'detail') {
     return (
       <>
-        {extras.wastage ? (
+        {showWastage ? (
           <div className={cn('rounded-lg border border-slate-800/80 bg-slate-900/60 px-4 py-3', className)}>
             <span className="block text-xs uppercase tracking-wider text-slate-500">
-              {extras.wastage.label}
+              {extras.wastage!.label}
             </span>
-            <span className="font-medium tabular-nums text-slate-100">{extras.wastage.value}</span>
+            <span className="font-medium tabular-nums text-slate-100">{extras.wastage!.value}</span>
           </div>
         ) : null}
         {extras.mc ? (
@@ -86,9 +90,9 @@ export function ProductMetalSpecExtras({
 
   return (
     <div className={cn('space-y-0.5', className)}>
-      {extras.wastage ? (
+      {showWastage ? (
         <p className={cn(specCls, 'tabular-nums')}>
-          {extras.wastage.label}: {extras.wastage.value}
+          {extras.wastage!.label}: {extras.wastage!.value}
         </p>
       ) : null}
       {showMc ? (

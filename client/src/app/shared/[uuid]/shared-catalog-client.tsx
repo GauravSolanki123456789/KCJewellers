@@ -1403,6 +1403,7 @@ export default function SharedCatalogClient({
                           rates={payload.rates ?? []}
                           breakdown={priceBreakdown}
                           density="shared"
+                          hidePriceAmounts={hidePrices}
                         />
                       ) : null}
                       {hasBox && hidePrices ? (
