@@ -53,6 +53,8 @@ export type CustomerAccountData = {
     gold_metal_balance_gm?: number
     has_gold_metal?: boolean
     transaction_count: number
+    opening_balance_inr?: number
+    opening_balance_metal_gm?: number
   }
   transactions: CustomerAccountTx[]
 }
@@ -234,6 +236,11 @@ export function ErpCustomerAccountPanel({
     if (!resetToken) return
     clear()
   }, [resetToken, clear])
+
+  useEffect(() => {
+    setFilterFrom(from)
+    setFilterTo(to)
+  }, [from, to])
 
   useEffect(() => {
     if (!focusCustomerId || focusCustomerId <= 0) return

@@ -245,7 +245,8 @@ async function recomputeRunningTagBalances(query, resellerUserId, opts = {}) {
         const intakeBookGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'book');
         const intakeShadowGm = await sumRunningTagIntakeGm(query, resellerUserId, barcode, 'shadow');
         const jainavSoldGm = await jainavSoldGmForRunningTag(query, resellerUserId, barcode);
-        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm - jainavSoldGm - approvalOutGm);
+        /** Normal (GST) books: Jainav shadow sales do not reduce the jewellery running tag. */
+        const normalBalanceGm = roundGm(intakeBookGm - gstSoldGm - approvalOutGm);
         const jainavBalanceGm = roundGm(
             intakeBookGm + intakeShadowGm - gstSoldGm - jainavSoldGm - approvalOutGm,
         );

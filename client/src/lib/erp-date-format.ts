@@ -125,6 +125,17 @@ export function erpDefaultHistoryFromIso(): string {
   return erpDaysAgoIso(2)
 }
 
+/**
+ * India financial year start (1 April) for the reference calendar date.
+ * FY 2026-27 runs 2026-04-01 … 2027-03-31.
+ */
+export function erpIndianFinancialYearStartIso(ref: Date = new Date()): string {
+  const y = ref.getFullYear()
+  const m = ref.getMonth() + 1
+  const fyStartYear = m >= 4 ? y : y - 1
+  return `${fyStartYear}-04-01`
+}
+
 /** Filter dates for API: accept dd/mm/yyyy display or ISO. */
 export function erpDateFilterToIso(input: string): string {
   if (!input.trim()) return ''

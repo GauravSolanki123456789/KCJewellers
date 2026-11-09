@@ -125,6 +125,12 @@ function LedgerStatementDocument({
           <Text style={styles.label}>Balance due</Text>
           <Text>{formatPdfInr(account.summary.balance_due_inr)}</Text>
         </View>
+        {account.summary.opening_balance_inr != null ? (
+          <View style={styles.row}>
+            <Text style={styles.label}>Opening balance</Text>
+            <Text>{formatPdfInr(account.summary.opening_balance_inr)}</Text>
+          </View>
+        ) : null}
         {account.summary.metal_balance_gm != null && Math.abs(account.summary.metal_balance_gm) >= 0.0005 ? (
           <View style={styles.row}>
             <Text style={styles.label}>Metal</Text>

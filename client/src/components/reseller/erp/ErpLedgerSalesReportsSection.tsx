@@ -89,7 +89,7 @@ export function ErpLedgerSalesReportsSection({
 }: Props) {
   const auth = useAuth()
   const [from, setFrom] = useState(defaultFrom)
-  const [to, setTo] = useState('')
+  const [to, setTo] = useState(defaultTo)
   const [onDate, setOnDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -97,7 +97,8 @@ export function ErpLedgerSalesReportsSection({
 
   useEffect(() => {
     setFrom(defaultFrom)
-  }, [defaultFrom])
+    setTo(defaultTo)
+  }, [defaultFrom, defaultTo])
 
   const shopName = (() => {
     const u = auth.user as Record<string, unknown> | null | undefined

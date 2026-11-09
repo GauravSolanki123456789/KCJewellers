@@ -32,7 +32,12 @@ import { parseBankStatementFile, type ParsedBankRow } from '@/lib/erp-bank-impor
 import { ErpCustomerAccountPanel } from '@/components/reseller/erp/ErpCustomerAccountPanel'
 import { ErpLedgerReportsPanel } from '@/components/reseller/erp/ErpLedgerReportsPanel'
 import { useErpOperator } from '@/context/ErpOperatorContext'
-import { formatErpDateTime, formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
+import {
+  erpIndianFinancialYearStartIso,
+  erpTodayIso,
+  formatErpDateTime,
+  formatErpDateDdMmYyyy,
+} from '@/lib/erp-date-format'
 import { formatPvWeightGrams } from '@/lib/erp-pv-weight'
 import { formatPvCategoryLabel, PV_CATEGORY_OPTIONS } from '@/lib/erp-pv-category'
 import { formatLedgerTransactionKind } from '@/lib/erp-ledger-labels'
@@ -365,8 +370,8 @@ function ImportEntryTypeToggle({
 }
 
 const ENTRY_LABELS: Record<string, string> = {
-  payment_in: 'Payment received',
-  payment_out: 'Payment made (out)',
+  payment_in: 'Payment',
+  payment_out: 'Payment',
   suspense_in: 'Suspense',
   bill_advance: 'Bill advance',
   adjustment: 'Adjustment',
@@ -376,12 +381,11 @@ const ENTRY_LABELS: Record<string, string> = {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10)
+  return erpTodayIso()
 }
 
-function firstOfMonthIso() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+function ledgerDefaultFromIso() {
+  return erpIndianFinancialYearStartIso()
 }
 
 function fineGmFromGrossPct(gross: string, pct: string): string {
@@ -484,7 +488,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   const [entries, setEntries] = useState<ErpLedgerEntry[]>([])
   const [customers, setCustomers] = useState<ErpCustomer[]>([])
   const [summary, setSummary] = useState<LedgerSummary | null>(null)
-  const [from, setFrom] = useState(firstOfMonthIso())
+  const [from, setFrom] = useState(ledgerDefaultFromIso())
   const [to, setTo] = useState(todayIso())
   const [dayBookDate, setDayBookDate] = useState(todayIso())
   const [dayBookUnassignedOnly, setDayBookUnassignedOnly] = useState(false)
@@ -1364,6 +1368,8 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
   }
 
   const savePurchase = async () => {
+    const generalPurchase =
+      pvForm.metal_type === 'GENERAL' || pvForm.metal_type === 'OTHER'
     const amount = Number(String(pvForm.amount_inr).replace(/[,₹\s]/g, ''))
     const weightGm = Number(String(pvForm.weight_gm).replace(/[,₹\s]/g, ''))
     const amountOptional =
@@ -1372,7 +1378,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       alert('Enter purchase amount')
       return
     }
-    if (!Number.isFinite(weightGm) || weightGm <= 0) {
+    if (!generalPurchase && (!Number.isFinite(weightGm) || weightGm <= 0)) {
       alert('Enter weight in grams')
       return
     }
@@ -1382,20 +1388,25 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
     }
     setBusy(true)
     try {
-      const res = await axios.post<{ purchase_voucher: { pv_number: string } }>(
-        '/api/reseller/erp/purchase-vouchers',
-        {
-          ...pvForm,
-          amount_inr: amountOptional ? amount > 0 ? amount : 0 : amount,
-          weight_gm: weightGm,
-          pv_category: pvForm.pv_category || null,
-          customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
-        },
-      )
-      appAlert(
-        `Purchase saved — ${res.data.purchase_voucher.pv_number}. Upload stock in Products with this PV number.`,
-        'success',
-      )
+      const res = await axios.post<{
+        purchase_voucher?: { pv_number: string }
+        general_purchase?: boolean
+      }>('/api/reseller/erp/purchase-vouchers', {
+        ...pvForm,
+        amount_inr: amountOptional ? amount > 0 ? amount : 0 : amount,
+        weight_gm: generalPurchase ? 0 : weightGm,
+        general_purchase: generalPurchase,
+        pv_category: pvForm.pv_category || null,
+        customer_id: pvForm.customer_id ? Number(pvForm.customer_id) : null,
+      })
+      if (res.data.general_purchase) {
+        appAlert('Purchase saved on the ledger (no PV).', 'success')
+      } else {
+        appAlert(
+          `Purchase saved — ${res.data.purchase_voucher?.pv_number}. Upload stock in Products with this PV number.`,
+          'success',
+        )
+      }
       setPvForm(emptyPvForm())
       setPvCustomerQ('')
       setPvCustomerLabel('')
@@ -2363,7 +2374,7 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
       {tab === 'purchase' && (
         <div className={`${erpCardCls} space-y-4`}>
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-            Record stock purchase — generates PV number (PV0001, PV0002…)
+            Record purchase — stock metal generates a PV (PV0001…); general purchases post to the ledger only.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55 sm:col-span-2 lg:col-span-3">
@@ -2518,26 +2529,29 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
                 </label>
               </>
             ) : null}
-            <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Weight (grams)
-              <input
-                className={`${erpInputCls} mt-1 tabular-nums`}
-                inputMode="decimal"
-                value={pvForm.weight_gm}
-                onChange={(e) => setPvForm({ ...pvForm, weight_gm: e.target.value.replace(/[^\d.]/g, '') })}
-                readOnly={metalLedgerShop && !!fineGmFromGrossPct(pvForm.gross_wt_gm, pvForm.metal_pct)}
-                title={
-                  metalLedgerShop && fineGmFromGrossPct(pvForm.gross_wt_gm, pvForm.metal_pct)
-                    ? 'Calculated from gross weight × metal %'
-                    : undefined
-                }
-              />
-            </label>
+            {pvForm.metal_type !== 'GENERAL' && pvForm.metal_type !== 'OTHER' ? (
+              <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
+                Weight (grams)
+                <input
+                  className={`${erpInputCls} mt-1 tabular-nums`}
+                  inputMode="decimal"
+                  value={pvForm.weight_gm}
+                  onChange={(e) => setPvForm({ ...pvForm, weight_gm: e.target.value.replace(/[^\d.]/g, '') })}
+                  readOnly={metalLedgerShop && !!fineGmFromGrossPct(pvForm.gross_wt_gm, pvForm.metal_pct)}
+                  title={
+                    metalLedgerShop && fineGmFromGrossPct(pvForm.gross_wt_gm, pvForm.metal_pct)
+                      ? 'Calculated from gross weight × metal %'
+                      : undefined
+                  }
+                />
+              </label>
+            ) : null}
             <label className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
               Metal
               <select className={`${erpInputCls} mt-1`} value={pvForm.metal_type} onChange={(e) => setPvForm({ ...pvForm, metal_type: e.target.value })}>
                 <option value="SILVER">Silver</option>
                 <option value="GOLD">Gold</option>
+                <option value="GENERAL">General purchase</option>
               </select>
             </label>
             {metalLedgerShop ? (
@@ -2572,7 +2586,9 @@ export function ErpLedgerWorkspace({ laneMode = false }: { laneMode?: boolean })
           </div>
           <button type="button" className={erpBtnPrimary} disabled={busy} onClick={() => void savePurchase()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-            Save purchase &amp; generate PV
+            {pvForm.metal_type === 'GENERAL' || pvForm.metal_type === 'OTHER'
+              ? 'Save purchase'
+              : 'Save purchase & generate PV'}
           </button>
 
           {purchaseVouchers.length > 0 ? (

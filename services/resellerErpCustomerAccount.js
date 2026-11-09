@@ -22,6 +22,14 @@ function normDate(d) {
     return normDateIso(d);
 }
 
+function dayBeforeIso(iso) {
+    const s = normDateIso(iso);
+    if (!s) return null;
+    const d = new Date(`${s}T12:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+}
+
 function accountCsvEscape(v) {
     const s = v == null ? '' : String(v);
     if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -578,6 +586,29 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
     }
     const includeShadow = !!opts.includeShadow;
 
+    const hasFromFilter = !!(from && !onDate);
+    let openingInr = 0;
+    let openingMetalGm = 0;
+    if (hasFromFilter) {
+        const priorTo = dayBeforeIso(from);
+        if (priorTo) {
+            try {
+                const prior = await buildCustomerAccount(query, resellerUserId, {
+                    customerId,
+                    to: priorTo,
+                    includeShadow,
+                });
+                const last = (prior.transactions || [])[prior.transactions.length - 1];
+                if (last) {
+                    openingInr = Math.round((Number(last.balance_inr) || 0) * 100) / 100;
+                    openingMetalGm = roundMetalGm(last.balance_metal_gm);
+                }
+            } catch {
+                /* opening optional */
+            }
+        }
+    }
+
     const metalLedgerOn = await loadJewelleryLedgerMetalEnabled(query, resellerUserId);
     const customer = await loadCustomerRow(query, resellerUserId, customerId);
     if (!customer) throw Object.assign(new Error('Customer not found'), { status: 404 });
@@ -811,8 +842,8 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
 
     const orderedRows = sortLedgerRowsChronologically(rows);
 
-    let running = 0;
-    let runningMetal = 0;
+    let running = openingInr;
+    let runningMetal = openingMetalGm;
     const transactions = orderedRows.map((r) => {
         const debitInr = Number(r.debit) || 0;
         let creditInr = Number(r.credit) || 0;
@@ -883,6 +914,26 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
         : 0;
     if (Math.abs(goldMetalBalance) >= 0.0005) hasGoldMetal = true;
 
+    let transactionsOut = withGold;
+    if (hasFromFilter) {
+        transactionsOut = [
+            {
+                date: from,
+                kind: 'opening',
+                ref: '—',
+                description: 'Opening balance',
+                debit: 0,
+                credit: 0,
+                balance_inr: openingInr,
+                balance_metal_gm: openingMetalGm,
+                weight_gm: 0,
+                debit_metal_gm: 0,
+                credit_metal_gm: 0,
+            },
+            ...withGold,
+        ];
+    }
+
     return {
         customer: {
             id: customer.id,
@@ -899,9 +950,11 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             metal_balance_gm: roundMetalGm(metalBalance),
             gold_metal_balance_gm: roundMetalGm(goldMetalBalance),
             has_gold_metal: hasGoldMetal,
-            transaction_count: withGold.length,
+            transaction_count: transactionsOut.length,
+            opening_balance_inr: hasFromFilter ? openingInr : undefined,
+            opening_balance_metal_gm: hasFromFilter ? openingMetalGm : undefined,
         },
-        transactions: withGold,
+        transactions: transactionsOut,
     };
 }
 

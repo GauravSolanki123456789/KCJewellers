@@ -469,6 +469,65 @@ function registerResellerErpPurchaseVoucherRoutes(app, deps) {
 
     app.post('/api/reseller/erp/purchase-vouchers', checkAuth, erpGate, requireJson, async (req, res) => {
         try {
+            const metalTypeRaw = trimStr(req.body.metal_type, 32).toUpperCase();
+            const isGeneralPurchase =
+                metalTypeRaw === 'GENERAL' ||
+                metalTypeRaw === 'OTHER' ||
+                !!req.body.general_purchase;
+
+            if (isGeneralPurchase) {
+                const amount = parseAmount(req.body.amount_inr);
+                if (amount == null || amount <= 0) {
+                    return res.status(400).json({ error: 'Valid amount required' });
+                }
+                const entryDate = parseDateOrNull(req.body.entry_date) || new Date().toISOString().slice(0, 10);
+                const vendorName = trimStr(req.body.vendor_name, 255);
+                const vendorBillRef = trimStr(req.body.vendor_bill_ref, 120);
+                const paymentMode = trimStr(req.body.payment_mode, 32).toLowerCase() || 'neft';
+                const narrationRaw = trimStr(req.body.narration, 2000);
+                const customerIdRaw = parseInt(String(req.body.customer_id || ''), 10);
+                const customerId =
+                    Number.isFinite(customerIdRaw) && customerIdRaw > 0 ? customerIdRaw : null;
+                if (customerId) {
+                    const cust = await query(
+                        `SELECT id FROM reseller_erp_customers WHERE id = $1 AND reseller_user_id = $2 LIMIT 1`,
+                        [customerId, req.user.id],
+                    );
+                    if (!cust.length) return res.status(400).json({ error: 'Customer not found' });
+                }
+                const ref = vendorBillRef || trimStr(req.body.reference_no, 120);
+                const ledgerNarration =
+                    narrationRaw ||
+                    (vendorName
+                        ? `Purchase from ${vendorName}${ref ? ` · ${ref}` : ''}`
+                        : ref
+                          ? `Purchase · ${ref}`
+                          : 'Purchase');
+                const ledgerRows = await query(
+                    `INSERT INTO reseller_erp_ledger_entries (
+                        reseller_user_id, entry_date, entry_type, amount_inr, payment_mode,
+                        reference_no, counterparty_name, narration, is_suspense, ledger_scope,
+                        customer_id
+                     ) VALUES ($1,$2,'purchase',$3,$4,$5,$6,$7,false,'official',$8)
+                     RETURNING id`,
+                    [
+                        req.user.id,
+                        entryDate,
+                        amount,
+                        paymentMode,
+                        ref,
+                        vendorName,
+                        ledgerNarration,
+                        customerId,
+                    ],
+                );
+                return res.json({
+                    success: true,
+                    general_purchase: true,
+                    ledger_entry_id: ledgerRows[0].id,
+                });
+            }
+
             const metalLedgerOn = await loadJewelleryLedgerMetalEnabled(query, req.user.id);
             let amount = parseAmount(req.body.amount_inr);
             const weightKg = resolvePurchaseWeightKg(req.body);
