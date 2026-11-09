@@ -63,11 +63,16 @@ function metalRatePerGFromLedgerRow(row) {
 }
 
 function sanitizeLedgerDescription(desc) {
-    return String(desc || '')
-        .replace(/\u00b9/g, '')
-        .replace(/\s*[—–-]\s*₹?\s*offset only.*$/gi, '')
-        .replace(/\s*offset only.*$/gi, '')
-        .trim();
+    try {
+        const { sanitizeLedgerDescription: compact } = require('./erpLedgerDisplayText');
+        return compact(desc);
+    } catch {
+        return String(desc || '')
+            .replace(/\u00b9/g, '')
+            .replace(/\s*[—–-]\s*₹?\s*offset only.*$/gi, '')
+            .replace(/\s*offset only.*$/gi, '')
+            .trim();
+    }
 }
 
 function virtualMetalReceiptSettlement(metalBalanceBeforeGm, receivedGm, ratePerG) {

@@ -5,14 +5,15 @@ import { formatLedgerTransactionKind, formatPdfInr } from '@/lib/erp-ledger-labe
 import { formatMetalGm, metalBalanceHint, formatLedgerDebitCell, formatLedgerBalanceCell, formatLedgerVirtualMetalCredit, formatMetalBalanceCell, type LedgerCellFormatOpts } from '@/lib/erp-ledger-metal'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
+import { compactLedgerDescriptionForPdf, compactLedgerRefDisplay } from '@/lib/erp-ledger-display'
 
 function pdfLedgerDescription(raw: string): string {
-  return String(raw || '')
-    .replace(/\u00b9/g, '')
-    .replace(/₹/g, 'Rs. ')
-    .replace(/\s*[—–-]\s*₹?\s*offset only.*$/gi, '')
-    .replace(/\s*offset only.*$/gi, '')
-    .trim()
+  return compactLedgerDescriptionForPdf(raw)
+}
+
+function pdfLedgerRef(raw: string | null | undefined): string {
+  const c = compactLedgerRefDisplay(raw)
+  return c || '—'
 }
 
 export type CustomerAccountPdfMeta = {
@@ -83,6 +84,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
     fontSize: 7,
     color: '#1a1814',
+  },
+  tdWrap: {
+    flexWrap: 'wrap',
   },
   tdRight: { textAlign: 'right' },
   lastCol: { borderRightWidth: 0 },
@@ -167,11 +171,11 @@ function LedgerStatementDocument({
             ) : null}
           </View>
           {account.transactions.map((t, i) => (
-            <View key={`${t.ref}-${i}`} style={styles.tableRow} wrap={false}>
+            <View key={`${t.ref}-${i}`} style={styles.tableRow}>
               <Text style={[styles.td, styles.c1]}>{pdfDateLabel(t.date)}</Text>
               <Text style={[styles.td, styles.c2]}>{formatLedgerTransactionKind(t.kind)}</Text>
-              <Text style={[styles.td, styles.c3]}>{t.ref || '—'}</Text>
-              <Text style={[styles.td, styles.c4]}>{pdfLedgerDescription(t.description)}</Text>
+              <Text style={[styles.td, styles.c3, styles.tdWrap]}>{pdfLedgerRef(t.ref)}</Text>
+              <Text style={[styles.td, styles.c4, styles.tdWrap]}>{pdfLedgerDescription(t.description)}</Text>
               <Text style={[styles.td, styles.cW, styles.tdRight]}>
                 {t.weight_gm && t.weight_gm > 0 ? `${t.weight_gm.toFixed(3)} g` : '—'}
               </Text>

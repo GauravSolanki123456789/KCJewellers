@@ -6,13 +6,17 @@ const { parseDateOrNull, normDateIso } = require('./erpDateNormalize');
 const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
 const { loadJewelleryLedgerMetalEnabled } = require('./erpJewelleryLedgerSettings');
 const {
+    compactLedgerRef,
+    formatLedgerPaymentDescription,
+    sanitizeLedgerDescription,
+} = require('./erpLedgerDisplayText');
+const {
     isFixedAssetMetalRow,
     metalGmFromLedgerRow,
     metalGmForRunningBalance,
     metalDebitCreditFromLedgerEntry,
     metalDebitFromSaleWeight,
     metalRatePerGFromLedgerRow,
-    sanitizeLedgerDescription,
     applyVirtualMetalInrCredit,
     roundMetalGm,
     inferLedgerMetalKind,
@@ -282,45 +286,6 @@ function applyDaybookLedgerColumns(rows, opts = {}) {
         total_credit_metal_gm: roundMetalGm(totalCreditMetal),
         closing_balance_metal_gm: roundMetalGm(runningMetal),
     };
-}
-
-function fmtReceiptDate(iso) {
-    if (!iso) return '';
-    const s = String(iso).slice(0, 10);
-    const [y, m, d] = s.split('-');
-    if (!y || !m || !d) return '';
-    return `${d}-${m}-${y.slice(2)}`;
-}
-
-function formatLedgerPaymentDescription(p, customerName, shadowBillById) {
-    const ref = String(p.reference_no || '').trim();
-    const nar = String(p.narration || '').trim();
-    if (/^REC\d{4}-\d+/i.test(ref) || /^REC\d+$/i.test(ref)) {
-        if (nar) return `(V NO: ${ref}) ${nar}`;
-        return `(V NO: ${ref}) CASH - CASH RECEIVED`;
-    }
-    if (p.shadow_bill_id && shadowBillById && shadowBillById[p.shadow_bill_id]) {
-        const sb = shadowBillById[p.shadow_bill_id];
-        const billNo = sb.bill_number || ref;
-        const name = String(sb.customer_name || customerName || '').trim().toUpperCase();
-        const dt = fmtReceiptDate(sb.bill_date || p.entry_date);
-        const recRef = /^REC/i.test(ref) ? ref : ref;
-        const line = `CASH ${recRef} - ${name}${dt ? ` ${dt}` : ''} - ${billNo}`;
-        return `(V NO: ${recRef}) ${line}`;
-    }
-    if (/^cash received$/i.test(nar) && /^SCB\d{4}-\d+/i.test(ref)) {
-        const name = String(customerName || '').trim().toUpperCase();
-        const dt = fmtReceiptDate(p.entry_date);
-        const line = `CASH ${ref} - ${name}${dt ? ` ${dt}` : ''} - ${ref}`;
-        return `(V NO: ${ref}) ${line}`;
-    }
-    if (nar) {
-        if (/^\(V NO:/i.test(nar)) return nar;
-        if (ref) return `(V NO: ${ref}) ${nar}`;
-        return nar;
-    }
-    if (ref) return `(V NO: ${ref}) CASH - CASH RECEIVED`;
-    return 'CASH - CASH RECEIVED';
 }
 
 function parseJsonObject(raw) {
@@ -822,7 +787,7 @@ async function buildCustomerAccount(query, resellerUserId, opts) {
             sort_id: p.id,
             ledger_entry_id: p.id,
             kind: p.entry_type,
-            ref: p.reference_no || '',
+            ref: compactLedgerRef(p.reference_no) || '',
             description: isPay
                 ? formatLedgerPaymentDescription(p, customer.name, shadowBillById)
                 : p.narration || p.entry_type.replace(/_/g, ' '),
