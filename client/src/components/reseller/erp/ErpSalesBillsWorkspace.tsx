@@ -23,7 +23,10 @@ import { openPdfBlobInViewer, openPdfViewerOptionsFromPayload, type PdfShareShee
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { formatErpInr, resellerErpModulePath } from '@/lib/reseller-erp-modules'
 import { appConfirm } from '@/lib/app-notice'
-import { downloadBillDetailExcel } from '@/lib/erp-bill-excel-export'
+import {
+  downloadBillDetailExcel,
+  downloadSalesBillsListExcel,
+} from '@/lib/erp-bill-excel-export'
 import { erpDateFilterToIso, formatErpDateDdMmYyyy, isoToDdMmYyyyInput, erpDefaultHistoryFromIso } from '@/lib/erp-date-format'
 import { sortErpBillsDesc } from '@/lib/erp-bill-sort'
 import { summarizeBillsMetalTotals } from '@/lib/erp-bill-metal-totals'
@@ -183,20 +186,7 @@ export function ErpSalesBillsWorkspace() {
   }
 
   const exportRows = async (rows: ErpBill[]) => {
-    const XLSX = await import('xlsx')
-    const data = rows.map((b) => ({
-      'Bill No': b.bill_number,
-      Date: formatErpDateDdMmYyyy(b.created_at ?? b.bill_date),
-      Customer: b.customer_name || '',
-      Items: b.lines?.length ?? 0,
-      Amount: b.total_inr,
-      Status: b.status,
-      Notes: b.notes || '',
-    }))
-    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Bill No': '' }])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Sales')
-    XLSX.writeFile(wb, `erp-sales-bills-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    await downloadSalesBillsListExcel(rows, auth.user)
   }
 
   const openCompliance = async (id: number, kind: 'e-invoice' | 'e-way') => {
