@@ -52,6 +52,7 @@ import {
 } from '@/lib/pricing'
 import { ResellerBatchExcelEditor } from '@/components/reseller/ResellerBatchExcelEditor'
 import { ResellerProductEditModal } from '@/components/reseller/ResellerProductEditModal'
+import { ErpStockExcelBuilder } from '@/components/reseller/erp/ErpStockExcelBuilder'
 import {
   Download,
   FileSpreadsheet,
@@ -934,6 +935,7 @@ export function ResellerProductsPanel({
 
       {tab === 'batches' ? (
         <div className="space-y-4">
+          <ErpStockExcelBuilder />
           {showLiveStockEnabled ? (
             <div className="kc-upload-card rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 shadow-sm sm:p-6">
               <div className="flex flex-wrap items-center gap-3">
