@@ -12,6 +12,7 @@ if not exist "%~dp0erp-local-print-agent.ps1" (
   echo   erp-local-print-agent.ps1
   echo   windows-raw-print.ps1
   echo   windows-gdi-print.ps1
+echo   windows-pdf-print.ps1
   echo.
   pause
   exit /b 1
@@ -22,7 +23,7 @@ echo ========================================
 echo  KC ERP Print Service
 echo ========================================
 echo  Keep this window OPEN while printing.
-echo  Labels (TSC / TVS / Zebra) + Epson TM-m30III + Epson L3310 sheet estimates.
+echo  Labels (TSC / TVS / Zebra) + Epson TM-m30III + sheet/PDF (L3310 / L3250).
 echo.
 
 if not exist "%~dp0windows-gdi-print.ps1" (

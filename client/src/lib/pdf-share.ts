@@ -1,6 +1,11 @@
 import { buildWhatsAppShareLink } from '@/lib/whatsapp'
 import { openExternalUrl, shouldUseSameTabWhatsAppNavigation } from '@/lib/cart-order-whatsapp'
 import { openPdfOverlay } from '@/lib/pdf-viewer-overlay-store'
+import {
+  printPdfBlobViaLocalAgent,
+  type ErpPdfPrintTarget,
+} from '@/lib/erp-billing-print'
+import { getLocalPrintAgentInfo } from '@/lib/erp-local-print'
 
 function openWhatsAppFallback(text: string, explicitHref?: string | null) {
   const href =
@@ -58,8 +63,17 @@ export function downloadPdfBlob(blob: Blob, filename: string): void {
   triggerDownload(blob, filename)
 }
 
+export type PrintPdfBlobOptions = {
+  /** When true, skip browser print and only use the local agent (throws if unavailable). */
+  localOnly?: boolean
+  /** Hardware printer profile for PDF routing (default: billing / Epson billing printer). */
+  printerTarget?: ErpPdfPrintTarget
+  /** When false, always use the browser print dialog. */
+  preferLocalAgent?: boolean
+}
+
 /** Open PDF in a hidden iframe and trigger the browser print dialog. */
-export function printPdfBlob(blob: Blob): void {
+export function printPdfBlobInBrowser(blob: Blob): void {
   if (typeof document === 'undefined') return
   const url = URL.createObjectURL(blob)
   const iframe = document.createElement('iframe')
@@ -83,6 +97,32 @@ export function printPdfBlob(blob: Blob): void {
     iframe.remove()
     URL.revokeObjectURL(url)
   }, 120_000)
+}
+
+/**
+ * Print a PDF: on shop PCs with KC Print Service running, sends to the Epson named in Hardware;
+ * otherwise opens the browser print dialog (mobile / no agent).
+ */
+export async function printPdfBlob(blob: Blob, opts?: PrintPdfBlobOptions): Promise<'local' | 'browser'> {
+  const preferLocal = opts?.preferLocalAgent !== false && !isMobileBrowser()
+  if (preferLocal) {
+    try {
+      const info = await getLocalPrintAgentInfo()
+      if (info.ok) {
+        await printPdfBlobViaLocalAgent(blob, opts?.printerTarget ?? 'billing')
+        return 'local'
+      }
+      if (opts?.localOnly) {
+        throw new Error('Local print service is not running on this PC.')
+      }
+    } catch (e) {
+      if (opts?.localOnly) throw e
+    }
+  } else if (opts?.localOnly) {
+    throw new Error('Local print is not available on this device.')
+  }
+  printPdfBlobInBrowser(blob)
+  return 'browser'
 }
 
 export type InvoiceCopyViewerControl = {

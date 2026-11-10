@@ -10,6 +10,7 @@ $Prefix = "http://${HostAddr}:$Port/"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RawPrintPs1 = Join-Path $ScriptDir 'windows-raw-print.ps1'
 $GdiPrintPs1 = Join-Path $ScriptDir 'windows-gdi-print.ps1'
+$PdfPrintPs1 = Join-Path $ScriptDir 'windows-pdf-print.ps1'
 
 function Write-CorsHeaders($Response) {
     # Required when https://kcjewellers.co.in calls http://127.0.0.1 (Chrome Private Network Access).
@@ -123,6 +124,45 @@ function Invoke-RawPrintBinary([string]$PrinterName, [string]$EscPosBase64) {
             throw "Receipt print failed ($resolved). Installed printers: $list. $detail"
         }
     } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-PdfPrint([string]$PrinterName, [string]$PdfBase64, [string]$Paper) {
+    if (-not (Test-Path -LiteralPath $PdfPrintPs1)) {
+        throw 'windows-pdf-print.ps1 missing. Recopy the full erp-print-service folder and restart START-KC-Label-Print.bat.'
+    }
+    $names = Get-InstalledPrinterNames
+    $resolved = $PrinterName
+    if ($names -notcontains $PrinterName) {
+        foreach ($n in $names) {
+            if ($n -match 'L3250|L-3250|L3310|L-3310|EcoTank|L3210|L3110') { $resolved = $n; break }
+        }
+    }
+    $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $tmp = Join-Path $env:TEMP "kc-erp-pdf-$(Get-Date -Format 'yyyyMMddHHmmss')-$suffix.pdf"
+    $bytes = [Convert]::FromBase64String([string]$PdfBase64)
+    [System.IO.File]::WriteAllBytes($tmp, $bytes)
+    try {
+        $paperUse = if ([string]::IsNullOrWhiteSpace($Paper)) { 'A4' } else { $Paper }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PdfPrintPs1`" -PrinterName `"$resolved`" -FilePath `"$tmp`" -Paper `"$paperUse`""
+        $psi.RedirectStandardError = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $stderr = $p.StandardError.ReadToEnd()
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            $list = if ($names.Count) { ($names -join ', ') } else { 'none' }
+            $detail = if ($stderr.Trim()) { $stderr.Trim() } else { "Exit code $($p.ExitCode)" }
+            throw "PDF print failed ($resolved). Installed printers: $list. $detail"
+        }
+    } finally {
+        Start-Sleep -Milliseconds 500
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
 }
@@ -362,6 +402,7 @@ function Handle-Request($Context) {
             supportsLabels = $true
             supportsTally = $true
             supportsDocument = $true
+            supportsPdf = $true
         }
         return
     }
@@ -411,6 +452,34 @@ function Handle-Request($Context) {
             }
             Invoke-RawPrintBinary $printerName ([string]$payload.escPosBase64)
             Send-JsonResponse $Context 200 @{ ok = $true; count = 1; printerName = $printerName; kind = 'receipt' }
+        } catch {
+            Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message }
+        }
+        return
+    }
+
+    if ($request.HttpMethod -eq 'POST' -and $path -eq '/print-pdf') {
+        try {
+            if (-not (Test-Path -LiteralPath $PdfPrintPs1)) {
+                Send-JsonResponse $Context 500 @{
+                    ok = $false
+                    error = 'windows-pdf-print.ps1 missing. Recopy the full erp-print-service folder and restart START-KC-Label-Print.bat.'
+                }
+                return
+            }
+            $body = Read-RequestBody $request
+            $payload = @{}
+            if ($body) { $payload = $body | ConvertFrom-Json }
+            $printerName = [string]($payload.printerName)
+            if (-not $printerName.Trim()) { $printerName = 'EPSON L3250 Series' }
+            if (-not $payload.pdfBase64) {
+                Send-JsonResponse $Context 400 @{ ok = $false; error = 'No PDF data' }
+                return
+            }
+            $paper = [string]($payload.paper)
+            if (-not $paper.Trim()) { $paper = 'A4' }
+            Invoke-PdfPrint $printerName ([string]$payload.pdfBase64) $paper
+            Send-JsonResponse $Context 200 @{ ok = $true; count = 1; printerName = $printerName; kind = 'pdf' }
         } catch {
             Send-JsonResponse $Context 500 @{ ok = $false; error = $_.Exception.Message }
         }
@@ -504,7 +573,7 @@ Write-Host ' KC ERP Print Service'
 Write-Host '========================================'
 Write-Host " Listening on $Prefix"
 Write-Host ' Keep this window OPEN while printing from Chrome.'
-Write-Host ' Labels: TSC / TVS LP46 / Zebra · Receipts: EPSON TM-m30III · Sheet estimates: Epson L3310 · Tally'
+Write-Host ' Labels: TSC / TVS LP46 / Zebra · Receipts: EPSON TM-m30III · Sheet + invoice PDF: EcoTank L3250/L3310 · Tally'
 Write-Host ' If ERP shows amber but this window is open: Chrome → lock icon → Allow Local network for this site.'
 Write-Host ' Run CHECK-TSC-Printer.bat if TSC labels fail.'
 Write-Host ' Press Ctrl+C to stop.'

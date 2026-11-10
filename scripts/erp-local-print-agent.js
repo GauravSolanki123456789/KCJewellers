@@ -20,6 +20,7 @@ const PORT = Number(process.env.ERP_PRINT_AGENT_PORT || 17888);
 const HOST = '127.0.0.1';
 const PS1 = path.join(__dirname, 'windows-raw-print.ps1');
 const GDI_PS1 = path.join(__dirname, 'windows-gdi-print.ps1');
+const PDF_PS1 = path.join(__dirname, 'windows-pdf-print.ps1');
 
 async function printRaw(printerName, tspl) {
     const tmp = path.join(os.tmpdir(), `kc-erp-label-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.prn`);
@@ -63,6 +64,36 @@ async function printDocument({ printerName, text, paper, marginMm, fontPt, fontN
                 String(fontPt ?? 9),
                 '-FontName',
                 fontName || 'Courier New',
+            ],
+            { timeout: 120000, windowsHide: true },
+        );
+    } finally {
+        try {
+            fs.unlinkSync(tmp);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+async function printPdfFile({ printerName, pdfBase64, paper }) {
+    const tmp = path.join(os.tmpdir(), `kc-erp-pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`);
+    fs.writeFileSync(tmp, Buffer.from(String(pdfBase64 || ''), 'base64'));
+    try {
+        await execFileAsync(
+            'powershell.exe',
+            [
+                '-NoProfile',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                PDF_PS1,
+                '-PrinterName',
+                printerName,
+                '-FilePath',
+                tmp,
+                '-Paper',
+                paper || 'A4',
             ],
             { timeout: 120000, windowsHide: true },
         );
@@ -128,6 +159,7 @@ const server = http.createServer(async (req, res) => {
                 supportsLabels: true,
                 supportsTally: true,
                 supportsDocument: true,
+                supportsPdf: true,
             }),
         );
         return;
@@ -206,6 +238,30 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message || 'Receipt print failed' }));
+        }
+        return;
+    }
+
+    if (req.method === 'POST' && req.url === '/print-pdf') {
+        try {
+            const body = await readBody(req);
+            const payload = JSON.parse(body || '{}');
+            const printerName = String(payload.printerName || 'EPSON L3250 Series').trim();
+            if (!payload.pdfBase64) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'No PDF data' }));
+                return;
+            }
+            await printPdfFile({
+                printerName,
+                pdfBase64: payload.pdfBase64,
+                paper: String(payload.paper || 'A4'),
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, count: 1, printerName, kind: 'pdf' }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message || 'PDF print failed' }));
         }
         return;
     }

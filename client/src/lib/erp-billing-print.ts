@@ -43,7 +43,9 @@ export async function resolveLocalBillingPrinterName(configured?: string | null)
   try {
     const names = await listLocalPrinters()
     if (names.includes(requested)) return requested
-    const epson = names.find((n) => /epson|tm-m|tm-t|receipt|billing/i.test(n))
+    const l3250 = names.find((n) => /L3250|L-3250/i.test(n))
+    if (l3250 && /L3250|L-3250|billing|invoice|series/i.test(requested)) return l3250
+    const epson = names.find((n) => /epson|tm-m|tm-t|receipt|billing|l3250|l3310|ecotank/i.test(n))
     if (epson) return epson
   } catch {
     /* agent offline — use configured name */
@@ -316,6 +318,69 @@ export async function printErpEstimateSheet(billId: number): Promise<string> {
     return prep.data.message || 'Sheet estimate sent to printer.'
   }
   return deliverSheetEstimate(prep.data, 'Sheet estimate')
+}
+
+export type ErpPdfPrintTarget = 'billing' | 'sheet'
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+export async function printPdfBlobViaLocalAgent(
+  blob: Blob,
+  target: ErpPdfPrintTarget = 'billing',
+): Promise<string> {
+  const agent = await getLocalPrintAgentInfo()
+  if (!agent.ok) {
+    throw new Error(localPrintAgentUnreachableMessage(agent))
+  }
+  if (agent.supportsPdf === false) {
+    throw new Error(AGENT_UPGRADE_MSG)
+  }
+
+  let configured: string | null = null
+  let paper = 'A4'
+  if (target === 'sheet') {
+    const sheetHw = await loadSheetPrinterFromSettings()
+    configured = sheetHw.windowsPrinterName
+    paper = sheetHw.paperSize || 'A4'
+  } else {
+    configured = await loadBillingPrinterNameFromSettings()
+    paper = 'A4'
+  }
+
+  const printerName =
+    target === 'sheet'
+      ? await resolveLocalSheetPrinterName(configured)
+      : await resolveLocalBillingPrinterName(configured)
+
+  const pdfBase64 = await blobToBase64(blob)
+  const r = await fetchLocalPrintAgent('/print-pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ printerName, pdfBase64, paper }),
+  })
+  let data: { ok?: boolean; error?: string } = {}
+  try {
+    data = (await r.json()) as typeof data
+  } catch {
+    data = {}
+  }
+  if (r.status === 404) throw new Error(AGENT_UPGRADE_MSG)
+  if (!r.ok || !data.ok) {
+    throw new Error(
+      data.error ||
+        `PDF print failed (${r.status}). Keep START-KC-Label-Print.bat running and check Hardware → printer name.`,
+    )
+  }
+  return `PDF sent to ${printerName} on this PC.`
 }
 
 export async function printErpTestSheet(): Promise<string> {

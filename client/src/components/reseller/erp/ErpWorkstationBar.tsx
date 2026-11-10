@@ -17,11 +17,9 @@ import {
 import { tscPrnLayoutLabel } from '@/lib/erp-print-templates'
 import { migratePrintFormats } from '@/lib/erp-print-templates'
 import {
-  ERP_QUOTE_OUTPUT_HINTS,
   ERP_QUOTE_OUTPUT_LABELS,
   ERP_QUOTE_OUTPUT_MODES,
   normalizeQuoteOutputMode,
-  resolveQuoteOutputMode,
   type ErpQuoteOutputMode,
 } from '@/lib/erp-quote-output'
 import { erpCardCls, erpInputCls } from '@/components/reseller/erp/erp-ui'
@@ -52,8 +50,6 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
       })
       .catch(() => setHw(null))
   }, [])
-
-  const effectiveQuoteMode = resolveQuoteOutputMode(value.quoteOutputMode, shopQuoteMode)
 
   const patch = (next: ErpWorkstationSelection) => {
     onChange(next)
@@ -181,17 +177,6 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
               </option>
             ))}
           </select>
-          <span className="mt-1.5 block text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-            Active:{' '}
-            <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/80">
-              {ERP_QUOTE_OUTPUT_LABELS[effectiveQuoteMode]}
-            </strong>
-            {' — '}
-            {ERP_QUOTE_OUTPUT_HINTS[effectiveQuoteMode]}{' '}
-            <Link href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-              Shop default &amp; templates
-            </Link>
-          </span>
         </label>
 
         <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/70 sm:col-span-2">
@@ -209,14 +194,6 @@ export function ErpWorkstationPanel({ value, onChange }: Props) {
             <option value="thermal">Thermal 80mm (EPSON TM-m30III Receipt)</option>
             <option value="sheet">Cut-sheet (Epson L3310 / A5 paper)</option>
           </select>
-          <span className="mt-1.5 block text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-            Saved on this browser only. Thermal uses the working Marlecha roll. Sheet uses the L3310
-            inkjet and the sheet template in{' '}
-            <Link href="/reseller/erp/print-formats" className="font-semibold text-[var(--kc-accent,#c41e3a)]">
-              Print formats
-            </Link>
-            . Printer names are set in Hardware.
-          </span>
         </label>
       </div>
     </div>

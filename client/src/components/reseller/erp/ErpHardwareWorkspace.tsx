@@ -941,11 +941,6 @@ export function ErpHardwareWorkspace() {
             </button>
           </div>
         </div>
-        <p className="mb-3 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/55">
-          Each PC picks its own scale in &quot;This workstation&quot; above. Use Essae on one counter and Mettler
-          Toledo JSB15005 on another — connect via USB‑serial, then choose the COM port in Chrome.
-        </p>
-
         <div className="space-y-4">
           {(hw.scaleProfiles || []).map((s) => (
             <div
@@ -1020,10 +1015,6 @@ export function ErpHardwareWorkspace() {
           <Wifi className="size-4 text-[var(--kc-accent,#c41e3a)]" />
           Epson billing printer
         </div>
-        <p className="mb-3 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/45">
-          Receipt printer for sales bills — separate from TSC barcode labels. Default IP from Epson
-          self-test: 192.168.0.198
-        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
             Type
@@ -1122,11 +1113,6 @@ export function ErpHardwareWorkspace() {
           <FileText className="size-4 text-[var(--kc-accent,#c41e3a)]" />
           Epson sheet estimate printer (L3310)
         </div>
-        <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/55">
-          Cut-sheet inkjet for estimates on A5 / small paper. Separate from the TM-m30III 80mm roll — that
-          thermal printer is unchanged. Pick this printer on the workstation that has the L3310, then print
-          from Generate quote. Edit the sheet template in Print formats.
-        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60 sm:col-span-2">
             Windows printer name
@@ -1171,10 +1157,6 @@ export function ErpHardwareWorkspace() {
             </select>
           </label>
         </div>
-        <p className="mt-2 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/50">
-          If the template includes a <code className="font-mono">PAPER</code> line, that size is used. Otherwise
-          this dropdown is used. Save hardware after changing.
-        </p>
         <button
           type="button"
           className={`${erpBtnPrimary} mt-3`}
@@ -1199,13 +1181,6 @@ export function ErpHardwareWorkspace() {
           <Printer className="size-4 text-[var(--kc-accent,#c41e3a)]" />
           Bills Banao printer (Slab R)
         </div>
-        <p className="mb-3 text-[10px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/45">
-          Portable Bluetooth thermal for estimates on tablet/PC. Pair as{' '}
-          <strong className="font-semibold text-[var(--color-jewelry-black,#1a1814)]/70">
-            Bills Banao Printer
-          </strong>{' '}
-          (PIN 0000), then use the Windows printer name shown in Settings → Printers.
-        </p>
         <label className="text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
           Windows printer name
           <input

@@ -110,7 +110,7 @@ export function ErpBillSavedModal({
 
   const handlePrint = useCallback(() => {
     if (!pdfPayload) return
-    printPdfBlob(pdfPayload.blob)
+    void printPdfBlob(pdfPayload.blob, { printerTarget: 'billing' })
   }, [pdfPayload])
 
   const handleDownload = useCallback(() => {

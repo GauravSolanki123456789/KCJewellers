@@ -227,10 +227,6 @@ export function ErpRolWorkspace() {
           <Tags className="size-4 text-[var(--kc-accent,#c41e3a)]" />
           Reorder levels by weight range
         </p>
-        <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-          Pick a style and SKU, define weight bins (e.g. 50 g = 45–54 g), set ROL per bin. Available counts use
-          in-stock pieces only — sold and Jainav lane stock are excluded.
-        </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

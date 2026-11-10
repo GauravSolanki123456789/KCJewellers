@@ -21,6 +21,7 @@ export type LocalPrintAgentInfo = {
   supportsLabels?: boolean
   supportsTally?: boolean
   supportsDocument?: boolean
+  supportsPdf?: boolean
   runtime?: string
   agentBaseUrl?: string
 }

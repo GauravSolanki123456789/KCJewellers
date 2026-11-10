@@ -62,7 +62,7 @@ function PdfViewerInner() {
 
   const handlePrint = useCallback(() => {
     if (!blob) return
-    printPdfBlob(blob)
+    void printPdfBlob(blob, { printerTarget: 'billing' })
   }, [blob])
 
   const handleShareNative = useCallback(async () => {
