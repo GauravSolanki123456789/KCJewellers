@@ -48,7 +48,10 @@ type KumuduLinkPayload = {
   inbound_key: string
   store_id: string
   api_key: string
-  endpoints: Record<EndpointId | 'health' | 'last_received', string>
+  endpoints: Record<
+    EndpointId | 'health' | 'last_received' | 'last_received_catalogue' | 'last_received_products' | 'last_received_stock',
+    string
+  >
   fields: FieldDef[]
   recommended: Record<EndpointId, string[]>
   catalogue_mapping: MappingState
@@ -436,38 +439,45 @@ export default function KumuduStockLinkPageClient() {
               Generate new key
             </button>
           </div>
-          {data?.endpoints?.last_received ? (
-            <div>
-              <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-                Last Kumudu data (GET)
-              </span>
-              <p className="mb-1.5 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/65">
-                Same API key as health. Shows the latest JSON Kumudu POSTed and recent call history.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  readOnly
-                  value={data.endpoints.last_received}
-                  className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]"
-                />
-                <button
-                  type="button"
-                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white"
-                  onClick={async () => {
-                    if (data.endpoints.last_received && (await copyText(data.endpoints.last_received)))
-                      markCopied('received')
-                  }}
-                  aria-label="Copy last received URL"
-                >
-                  {copied === 'received' ? (
-                    <Check className="size-4 text-emerald-700" />
-                  ) : (
-                    <Copy className="size-4" />
-                  )}
-                </button>
+          <p className="text-[11px] text-[var(--color-jewelry-black,#1a1814)]/65">
+            View what Kumudu sent (GET, same <code className="font-mono">x-api-key</code> as health).
+          </p>
+          {(
+            [
+              ['last_received_catalogue', 'Last catalogue JSON (GET)'],
+              ['last_received_products', 'Last products JSON (GET)'],
+              ['last_received_stock', 'Last stock JSON (GET)'],
+            ] as const
+          ).map(([key, label]) =>
+            data?.endpoints?.[key] ? (
+              <div key={key}>
+                <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                  {label}
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={data.endpoints[key]}
+                    className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]"
+                  />
+                  <button
+                    type="button"
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white"
+                    onClick={async () => {
+                      if (data.endpoints[key] && (await copyText(data.endpoints[key]))) markCopied(key)
+                    }}
+                    aria-label={`Copy ${label}`}
+                  >
+                    {copied === key ? (
+                      <Check className="size-4 text-emerald-700" />
+                    ) : (
+                      <Copy className="size-4" />
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null,
+          )}
           {data?.endpoints?.health ? (
             <div>
               <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">

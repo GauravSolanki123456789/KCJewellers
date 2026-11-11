@@ -289,6 +289,7 @@ function extractRecords(body) {
         'data',
         'items',
         'products',
+        'product',
         'records',
         'rows',
         'stock',
@@ -313,9 +314,10 @@ function suggestPathForField(kcKey, detectedKeys) {
         gross_weight: ['grossweight', 'grosswt', 'gwt', 'grswt'],
         product_name: ['productname', 'itemname', 'name', 'shortname', 'title'],
         barcode: ['barcode', 'itemcode', 'productsku', 'tagno', 'tag', 'code'],
-        sku: ['sku', 'skucode', 'subcategory', 'stylesku'],
-        style_code: ['stylecode', 'style', 'catalogue', 'category', 'designcode'],
-        image_url: ['imageurl', 'image', 'photo', 'photourl', 'img', 'picture'],
+        sku: ['skucode', 'subcategory', 'stylesku', 'itemsku'],
+        style_code: ['stylecode', 'style', 'catalogue', 'category', 'designcode', 'description'],
+        image_url: ['imageurl', 'image', 'photo', 'photourl', 'img', 'picture', 'mediaurl'],
+        purity: ['purity', 'entityquality'],
         quantity: ['quantity', 'qty', 'pcs', 'pieces', 'stockqty', 'availqty'],
         metal_type: ['metaltype', 'metal', 'puritygroup'],
         status: ['status', 'activestatus', 'stockstatus', 'isactive'],
@@ -331,6 +333,14 @@ function suggestPathForField(kcKey, detectedKeys) {
         else if ([...wants].some((w) => n.includes(w) || w.includes(n))) scored.push({ pathStr, score: 40 });
     }
     scored.sort((a, b) => b.score - a.score);
+    if (kcKey === 'barcode') {
+        const skuPath = detectedKeys.find((p) => normalizeKey(p.split('.').pop() || '') === 'sku');
+        if (skuPath) return skuPath;
+    }
+    if (kcKey === 'product_name') {
+        const namePath = detectedKeys.find((p) => normalizeKey(p.split('.').pop() || '') === 'name');
+        if (namePath) return namePath;
+    }
     return scored[0]?.pathStr || '';
 }
 
@@ -448,6 +458,81 @@ function applyMapping(mapping, record, body) {
             out.style_code = split.style_code;
             out.sku = split.sku;
         }
+    }
+    return out;
+}
+
+function kumuduCustomField(record, wantedNames) {
+    const list = Array.isArray(record?.customFields) ? record.customFields : [];
+    const wants = wantedNames.map((n) => normalizeKey(n));
+    for (const row of list) {
+        const name = normalizeKey(row?.name);
+        if (!name || !wants.includes(name)) continue;
+        const val = row?.value;
+        if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+    }
+    return undefined;
+}
+
+function enrichMappedForEndpoint(endpoint, record, mapped) {
+    if (!record || typeof record !== 'object') return mapped;
+    const out = { ...mapped };
+
+    if (endpoint === 'catalogue_creation') {
+        if (!out.style_code && record.StyleCode != null) out.style_code = String(record.StyleCode).trim();
+        if (!out.style_code && record.styleCode != null) out.style_code = String(record.styleCode).trim();
+        if (!out.product_name && record.ItemName != null) out.product_name = String(record.ItemName).trim();
+        if (!out.sku && record.ItemName != null) out.sku = String(record.ItemName).trim();
+        if (!out.sku && out.style_code) out.sku = 'N/A';
+        return out;
+    }
+
+    if (endpoint !== 'product_creation') return out;
+
+    const kumuduSku = record.sku != null ? String(record.sku).trim() : '';
+    const kumuduName = record.name != null ? String(record.name).trim() : '';
+
+    if (!out.barcode && kumuduSku) out.barcode = kumuduSku;
+    if (!out.product_name && kumuduName) out.product_name = kumuduName;
+
+    if (!out.style_code) {
+        const desc = String(record.description || '').trim();
+        if (desc) out.style_code = desc;
+        else if (kumuduName.includes('-')) {
+            out.style_code = kumuduName.split('-')[0].trim();
+        } else if (kumuduName) {
+            out.style_code = kumuduName;
+        }
+    }
+    if (!out.sku) out.sku = out.style_code ? 'N/A' : 'N/A';
+
+    if (out.net_weight == null && record.weight != null && String(record.weight).trim() !== '') {
+        const w = parseFloat(String(record.weight).replace(/,/g, ''));
+        if (Number.isFinite(w)) out.net_weight = w;
+    }
+    const grossCf = kumuduCustomField(record, ['grossWeight', 'grossweight']);
+    if (out.gross_weight == null && grossCf != null) {
+        const g = parseFloat(String(grossCf).replace(/,/g, ''));
+        if (Number.isFinite(g)) out.gross_weight = g;
+    }
+    const purityCf = kumuduCustomField(record, ['Purity', 'purity']);
+    if (!out.purity && purityCf != null) out.purity = String(purityCf).trim();
+    if (!out.size) {
+        const sizeCf = kumuduCustomField(record, ['Size', 'size']);
+        if (sizeCf != null && String(sizeCf).trim()) out.size = String(sizeCf).trim();
+    }
+    if (!out.metal_type && record.productTypeDetails?.entityType) {
+        out.metal_type = String(record.productTypeDetails.entityType).trim();
+    }
+    if (!out.design_group && record.catalogue != null) {
+        out.design_group = String(record.catalogue).trim();
+    }
+    if (!out.image_url && Array.isArray(record.media)) {
+        const pick =
+            record.media.find((m) => m && m.type === 'image' && m.mediaUrl) ||
+            record.media.find((m) => m && m.mediaUrl) ||
+            record.media[0];
+        if (pick?.mediaUrl) out.image_url = String(pick.mediaUrl).trim();
     }
     return out;
 }
@@ -582,6 +667,7 @@ async function lookupWebProductId(query, prodSku) {
 
 function kumuduStatusFromAction(action) {
     if (action === 'created' || action === 'catalogue_ensured') return 'created';
+    if (action === 'catalogue_exists') return 'exists';
     if (action === 'updated' || action === 'catalogue_updated_product') return 'updated';
     if (action === 'error') return 'error';
     return 'skipped';
@@ -771,6 +857,9 @@ function endpointUrls(origin, inboundKey) {
     const urls = {
         health: `${base}/health`,
         last_received: `${base}/last_received`,
+        last_received_catalogue: `${base}/last_received_catalogue`,
+        last_received_products: `${base}/last_received_products`,
+        last_received_stock: `${base}/last_received_stock`,
     };
     for (const ep of ENDPOINTS) {
         urls[ep.id] = `${base}/${ep.path}`;
@@ -824,6 +913,8 @@ async function ensureStyleAndSku(query, mapped, { publish = true } = {}) {
     const skuCode = String(mapped.sku || '').trim() || (styleCode ? 'N/A' : '');
     if (!styleCode) return { catId: null, subId: null, styleCode: '', skuCode: '' };
     const styleSlug = styleSlugFromCode(styleCode);
+    const existingCatRows = await query('SELECT id FROM web_categories WHERE slug = $1 LIMIT 1', [styleSlug]);
+    const categoryExisted = !!existingCatRows[0];
     await query(
         `
         INSERT INTO web_categories (name, slug, updated_at)
@@ -845,8 +936,11 @@ async function ensureStyleAndSku(query, mapped, { publish = true } = {}) {
     const catRows = await query('SELECT id FROM web_categories WHERE slug = $1', [styleSlug]);
     const catId = catRows[0]?.id || null;
     let subId = null;
+    let subcategoryExisted = false;
     if (catId && skuCode) {
         const skuSlug = skuSlugFromStyleAndSku(styleSlug, skuCode);
+        const existingSubRows = await query('SELECT id FROM web_subcategories WHERE slug = $1 LIMIT 1', [skuSlug]);
+        subcategoryExisted = !!existingSubRows[0];
         await query(
             `
             INSERT INTO web_subcategories (category_id, name, slug, updated_at)
@@ -858,7 +952,14 @@ async function ensureStyleAndSku(query, mapped, { publish = true } = {}) {
         const subRows = await query('SELECT id FROM web_subcategories WHERE slug = $1', [skuSlug]);
         subId = subRows[0]?.id || null;
     }
-    return { catId, subId, styleCode, skuCode };
+    return {
+        catId,
+        subId,
+        styleCode,
+        skuCode,
+        category_existed: categoryExisted,
+        subcategory_existed: subcategoryExisted,
+    };
 }
 
 async function grantCategoryToReseller(query, resellerUserId, catId, metalType) {
@@ -1136,6 +1237,9 @@ function identityForCreate(mapped) {
     const style = String(mapped.style_code || '').trim();
     const sku = String(mapped.sku || '').trim();
     if (barcode) return barcode;
+    if (name && sku && sku !== 'N/A' && sku !== name) {
+        return sku;
+    }
     const bits = [style, sku, name].filter(Boolean);
     if (bits.length >= 2) {
         return bits
@@ -1188,7 +1292,8 @@ async function createProductFromMapped(upsertDeps, resellerUserId, mapped) {
 }
 
 async function processRecord(deps, { endpoint, mapping, record, body, resellerUserId }) {
-    const mapped = applyMapping(mapping, record, body);
+    let mapped = applyMapping(mapping, record, body);
+    mapped = enrichMappedForEndpoint(endpoint, record, mapped);
     if (!Object.keys(mapped).length) {
         return { action: 'skipped', reason: 'no_mapped_values' };
     }
@@ -1207,7 +1312,11 @@ async function processRecord(deps, { endpoint, mapping, record, body, resellerUs
             });
             return { action: 'catalogue_updated_product', ...ensured, ...patch, mapped };
         }
-        return { action: 'catalogue_ensured', ...ensured, mapped };
+        const catAction =
+            ensured.category_existed && ensured.subcategory_existed
+                ? 'catalogue_exists'
+                : 'catalogue_ensured';
+        return { action: catAction, ...ensured, mapped };
     }
 
     const existing = await findExistingProduct(deps.query, resellerUserId, mapped);
@@ -1259,7 +1368,10 @@ async function processRecord(deps, { endpoint, mapping, record, body, resellerUs
     if (created.catId) {
         await grantCategoryToReseller(deps.query, resellerUserId, created.catId, mapped.metal_type);
     }
-    return { action: created.created ? 'created' : 'skipped', ...created, mapped };
+    if (!created.created) {
+        return { action: 'skipped', error: created.error, reason: created.error, ...created, mapped };
+    }
+    return { action: 'created', ...created, mapped };
 }
 
 function mappingForEndpoint(linkRow, endpoint) {
@@ -1339,8 +1451,28 @@ function normalizeEndpointParam(raw) {
     if (s === 'last_received' || s === 'lastreceived' || s === 'inbound' || s === 'inbound_log') {
         return 'last_received';
     }
+    if (s === 'last_received_catalogue' || s === 'lastreceivedcatalogue' || s === 'last_catalogue') {
+        return 'last_received_catalogue';
+    }
+    if (
+        s === 'last_received_products' ||
+        s === 'last_received_product' ||
+        s === 'lastreceivedproducts' ||
+        s === 'last_products'
+    ) {
+        return 'last_received_products';
+    }
+    if (s === 'last_received_stock' || s === 'lastreceivedstock' || s === 'last_stock') {
+        return 'last_received_stock';
+    }
     return s;
 }
+
+const LAST_RECEIVED_VIEW = {
+    last_received_catalogue: 'catalogue_creation',
+    last_received_products: 'product_creation',
+    last_received_stock: 'stock',
+};
 
 async function resolveKumuduLink(deps, inboundKey, { requireEnabled = true } = {}) {
     const key = slugInboundKey(inboundKey);
@@ -1382,7 +1514,19 @@ async function handleKumuduHealth(deps, req, res, inboundKey) {
     });
 }
 
-async function handleKumuduLastReceived(deps, req, res, inboundKey) {
+function mapRecentCallRows(events) {
+    return events.map((row) => ({
+        id: row.id,
+        endpoint: row.endpoint,
+        status: row.status,
+        summary: row.summary,
+        received_at: row.created_at,
+        payload: row.payload ?? null,
+        result: row.result ?? null,
+    }));
+}
+
+async function handleKumuduLastReceived(deps, req, res, inboundKey, viewId = 'last_received') {
     const resolved = await resolveKumuduLink(deps, inboundKey, { requireEnabled: true });
     if (resolved.status !== 200) {
         return res.status(resolved.status).json({ error: resolved.error });
@@ -1395,11 +1539,16 @@ async function handleKumuduLastReceived(deps, req, res, inboundKey) {
 
     const limitRaw = parseInt(String(req.query?.limit || '10'), 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 25) : 10;
-    const endpointFilter = req.query?.endpoint ? normalizeEndpointParam(req.query.endpoint) : null;
-    if (endpointFilter && endpointFilter !== 'last_received' && !ENDPOINT_IDS.includes(endpointFilter)) {
-        return res.status(400).json({
-            error: 'endpoint must be catalogue_creation, product_creation, or stock',
-        });
+    let endpointFilter = LAST_RECEIVED_VIEW[viewId] || null;
+    if (!endpointFilter && req.query?.endpoint) {
+        const q = normalizeEndpointParam(req.query.endpoint);
+        if (ENDPOINT_IDS.includes(q)) endpointFilter = q;
+        else if (LAST_RECEIVED_VIEW[q]) endpointFilter = LAST_RECEIVED_VIEW[q];
+        else if (q !== 'last_received') {
+            return res.status(400).json({
+                error: 'endpoint must be catalogue_creation, product_creation, or stock',
+            });
+        }
     }
 
     const events = await deps.query(
@@ -1412,16 +1561,30 @@ async function handleKumuduLastReceived(deps, req, res, inboundKey) {
         endpointFilter ? [link.reseller_user_id, limit, endpointFilter] : [link.reseller_user_id, limit],
     );
 
-    const last = {
+    const lastAll = {
         catalogue_creation: link.sample_catalogue_payload || null,
         product_creation: link.sample_product_payload || null,
         stock: link.sample_stock_payload || null,
     };
-    const lastAt = {
+    const lastAtAll = {
         catalogue_creation: link.last_catalogue_at || null,
         product_creation: link.last_product_at || null,
         stock: link.last_stock_at || null,
     };
+
+    if (endpointFilter) {
+        return res.json({
+            ok: true,
+            service: 'kumudu-stock-link',
+            inbound_key: link.inbound_key,
+            store_id: String(link.store_id || '').trim() || null,
+            method: 'GET',
+            endpoint: endpointFilter,
+            last_payload: lastAll[endpointFilter] ?? null,
+            last_received_at: lastAtAll[endpointFilter] ?? null,
+            recent_calls: mapRecentCallRows(events),
+        });
+    }
 
     return res.json({
         ok: true,
@@ -1429,18 +1592,10 @@ async function handleKumuduLastReceived(deps, req, res, inboundKey) {
         inbound_key: link.inbound_key,
         store_id: String(link.store_id || '').trim() || null,
         method: 'GET',
-        hint: 'last_payload is the most recent full JSON Kumudu POSTed per endpoint; recent_calls includes history.',
-        last_payload: last,
-        last_received_at: lastAt,
-        recent_calls: events.map((row) => ({
-            id: row.id,
-            endpoint: row.endpoint,
-            status: row.status,
-            summary: row.summary,
-            received_at: row.created_at,
-            payload: row.payload ?? null,
-            result: row.result ?? null,
-        })),
+        hint: 'Use last_received_catalogue, last_received_products, or last_received_stock for one feed only.',
+        last_payload: lastAll,
+        last_received_at: lastAtAll,
+        recent_calls: mapRecentCallRows(events),
     });
 }
 
@@ -1589,8 +1744,9 @@ function registerResellerKumuduLinkRoutes(app, deps) {
     const getActionHandler = (req, res) => {
         const action = normalizeEndpointParam(req.params.action);
         if (action === 'health') return healthHandler(req, res);
-        if (action === 'last_received') {
-            return handleKumuduLastReceived(deps, req, res, req.params.inboundKey).catch((e) => {
+        if (action === 'last_received' || LAST_RECEIVED_VIEW[action]) {
+            const viewId = LAST_RECEIVED_VIEW[action] ? action : 'last_received';
+            return handleKumuduLastReceived(deps, req, res, req.params.inboundKey, viewId).catch((e) => {
                 console.error('kumudu last_received:', e);
                 res.status(500).json({ error: e.message || 'Failed to load inbound log' });
             });
@@ -1611,12 +1767,15 @@ function registerResellerKumuduLinkRoutes(app, deps) {
     const mountExternal = (base) => {
         const p = `${base}/kumudu-:inboundKey`;
         app.get(`${p}/v1/health`, healthHandler);
-        app.get(`${p}/v1/last_received`, (req, res) =>
-            handleKumuduLastReceived(deps, req, res, req.params.inboundKey).catch((e) => {
+        const lastReceivedHandler = (viewId) => (req, res) =>
+            handleKumuduLastReceived(deps, req, res, req.params.inboundKey, viewId).catch((e) => {
                 console.error('kumudu last_received:', e);
                 res.status(500).json({ error: e.message || 'Failed to load inbound log' });
-            }),
-        );
+            });
+        app.get(`${p}/v1/last_received`, lastReceivedHandler('last_received'));
+        app.get(`${p}/v1/last_received_catalogue`, lastReceivedHandler('last_received_catalogue'));
+        app.get(`${p}/v1/last_received_products`, lastReceivedHandler('last_received_products'));
+        app.get(`${p}/v1/last_received_stock`, lastReceivedHandler('last_received_stock'));
         app.post(`${p}/v1/:action`, inboundHandler);
         app.get(`${p}/health`, healthHandler);
         app.get(`${p}/v1/:action`, getActionHandler);
