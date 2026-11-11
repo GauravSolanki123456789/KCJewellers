@@ -573,9 +573,10 @@ function publicApiOrigin(getPublicApiBaseUrl) {
 
 function endpointUrls(origin, inboundKey) {
     const key = String(inboundKey || 'jp').trim();
-    const urls = {};
+    const base = `${origin}/api/external/kumudu-${key}/v1`;
+    const urls = { health: `${base}/health` };
     for (const ep of ENDPOINTS) {
-        urls[ep.id] = `${origin}/external/kumudu-${key}/${ep.path}`;
+        urls[ep.id] = `${base}/${ep.path}`;
     }
     return urls;
 }
@@ -1133,17 +1134,9 @@ function normalizeEndpointParam(raw) {
     return s;
 }
 
-async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
-    const endpoint = normalizeEndpointParam(endpointRaw);
-    if (endpoint === 'health') {
-        return res.json({ ok: true, service: 'kumudu-stock-link', inbound_key: inboundKey });
-    }
-    if (!ENDPOINT_IDS.includes(endpoint)) {
-        return res.status(404).json({ error: 'Unknown Kumudu endpoint' });
-    }
+async function resolveKumuduLink(deps, inboundKey, { requireEnabled = true } = {}) {
     const key = slugInboundKey(inboundKey);
-    if (!key) return res.status(404).json({ error: 'Unknown shop' });
-
+    if (!key) return { status: 404, error: 'Unknown shop' };
     const links = await deps.query(
         `SELECT k.*, u.id AS user_id,
                 COALESCE(u.reseller_kumudu_stock_link_enabled, false) AS enabled
@@ -1154,10 +1147,46 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
         [key],
     );
     const link = links[0];
-    if (!link) return res.status(404).json({ error: 'Kumudu link not found for this shop' });
-    if (!link.enabled) {
-        return res.status(403).json({ error: 'Kumudu software stock link is turned off for this shop' });
+    if (!link) return { status: 404, error: 'Kumudu link not found for this shop' };
+    if (requireEnabled && !link.enabled) {
+        return { status: 403, error: 'Kumudu software stock link is turned off for this shop' };
     }
+    return { status: 200, link };
+}
+
+async function handleKumuduHealth(deps, req, res, inboundKey) {
+    const resolved = await resolveKumuduLink(deps, inboundKey, { requireEnabled: true });
+    if (resolved.status !== 200) {
+        return res.status(resolved.status).json({ error: resolved.error });
+    }
+    const link = resolved.link;
+    const apiKey = readInboundApiKey(req);
+    if (!apiKey || apiKey !== link.api_key) {
+        return res.status(401).json({ error: 'Invalid API key' });
+    }
+    const incomingStore = readStoreId(req);
+    const storeId = incomingStore || String(link.store_id || '').trim() || null;
+    return res.json({
+        ok: true,
+        service: 'kumudu-stock-link',
+        inbound_key: link.inbound_key,
+        store_id: storeId,
+    });
+}
+
+async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
+    const endpoint = normalizeEndpointParam(endpointRaw);
+    if (endpoint === 'health') {
+        return handleKumuduHealth(deps, req, res, inboundKey);
+    }
+    if (!ENDPOINT_IDS.includes(endpoint)) {
+        return res.status(404).json({ error: 'Unknown Kumudu endpoint' });
+    }
+    const resolved = await resolveKumuduLink(deps, inboundKey, { requireEnabled: true });
+    if (resolved.status !== 200) {
+        return res.status(resolved.status).json({ error: resolved.error });
+    }
+    const link = resolved.link;
 
     const apiKey = readInboundApiKey(req);
     if (!apiKey || apiKey !== link.api_key) {
@@ -1247,6 +1276,13 @@ function registerResellerKumuduLinkRoutes(app, deps) {
         });
     };
 
+    const healthHandler = (req, res) => {
+        handleKumuduHealth(deps, req, res, req.params.inboundKey).catch((e) => {
+            console.error('kumudu health:', e);
+            res.status(500).json({ error: e.message || 'Health check failed' });
+        });
+    };
+
     const healthOnly = (req, res) => {
         const action = normalizeEndpointParam(req.params.action);
         if (action !== 'health') {
@@ -1255,17 +1291,21 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 endpoint: action,
             });
         }
-        return inboundHandler(req, res);
+        return healthHandler(req, res);
     };
 
-    app.post('/external/kumudu-:inboundKey/:action', inboundHandler);
-    app.post('/api/external/kumudu-:inboundKey/:action', inboundHandler);
-    app.post('/external/kumudu/:inboundKey/:action', inboundHandler);
-    app.post('/api/external/kumudu/:inboundKey/:action', inboundHandler);
-    app.get('/external/kumudu-:inboundKey/:action', healthOnly);
-    app.get('/api/external/kumudu-:inboundKey/:action', healthOnly);
-    app.get('/external/kumudu/:inboundKey/:action', healthOnly);
-    app.get('/api/external/kumudu/:inboundKey/:action', healthOnly);
+    const mountExternal = (base) => {
+        const p = `${base}/kumudu-:inboundKey`;
+        app.get(`${p}/v1/health`, healthHandler);
+        app.post(`${p}/v1/:action`, inboundHandler);
+        app.get(`${p}/health`, healthHandler);
+        app.get(`${p}/v1/:action`, healthOnly);
+        app.post(`${p}/:action`, inboundHandler);
+        app.get(`${p}/:action`, healthOnly);
+    };
+
+    mountExternal('/api/external');
+    mountExternal('/external');
 
     app.get('/api/reseller/kumudu-link', checkAuth, async (req, res) => {
         try {

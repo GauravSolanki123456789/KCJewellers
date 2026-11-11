@@ -46,7 +46,7 @@ type KumuduLinkPayload = {
   inbound_key: string
   store_id: string
   api_key: string
-  endpoints: Record<EndpointId, string>
+  endpoints: Record<EndpointId | 'health', string>
   fields: FieldDef[]
   recommended: Record<EndpointId, string[]>
   catalogue_mapping: MappingState
@@ -363,10 +363,6 @@ export default function KumuduStockLinkPageClient() {
             <h1 className="text-xl font-semibold text-[var(--color-jewelry-black,#1a1814)]">
               Kumudu software stock link
             </h1>
-            <p className="mt-1 text-sm leading-snug text-[var(--color-jewelry-black,#1a1814)]/60">
-              Give Kumudu these URLs. Pick which of your catalogue fields each API should update, then
-              map their JSON names onto yours.
-            </p>
           </div>
         </header>
 
@@ -385,7 +381,7 @@ export default function KumuduStockLinkPageClient() {
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Connection</p>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
-              Store ID (optional — leave blank unless Kumudu sends one)
+              Store ID
             </span>
             <input
               value={storeId}
@@ -433,10 +429,33 @@ export default function KumuduStockLinkPageClient() {
               Generate new key
             </button>
           </div>
-          {data?.inbound_key ? (
-            <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/55">
-              Shop path: <span className="font-mono">kumudu-{data.inbound_key}</span>
-            </p>
+          {data?.endpoints?.health ? (
+            <div>
+              <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Health check (GET)
+              </span>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={data.endpoints.health}
+                  className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]"
+                />
+                <button
+                  type="button"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white"
+                  onClick={async () => {
+                    if (data.endpoints.health && (await copyText(data.endpoints.health))) markCopied('health')
+                  }}
+                  aria-label="Copy health URL"
+                >
+                  {copied === 'health' ? (
+                    <Check className="size-4 text-emerald-700" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
           ) : null}
         </section>
 
@@ -464,13 +483,6 @@ export default function KumuduStockLinkPageClient() {
         <section className="kc-profile-card mb-4 space-y-3 rounded-2xl p-4">
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             {endpointDef?.short} API
-          </p>
-          <p className="text-xs leading-snug text-[var(--color-jewelry-black,#1a1814)]/55">
-            {tab === 'catalogue_creation'
-              ? 'When Kumudu creates a new style / design, that style code is created in your catalogue.'
-              : tab === 'product_creation'
-                ? 'When Kumudu creates a product, name, photo and mapped fields are created or updated here.'
-                : 'Live quantity, weight and status are matched to existing pieces and corrected when they differ.'}
           </p>
           <div className="flex gap-2">
             <input

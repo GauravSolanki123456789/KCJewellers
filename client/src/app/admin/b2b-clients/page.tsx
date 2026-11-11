@@ -1298,10 +1298,6 @@ function B2BAdminContent() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-200">Kumudu software stock link</p>
-                      <p className="mt-1 text-[11px] leading-snug text-slate-400">
-                        Optional. Off by default. Turns on a Profile module so this shop can map Kumudu
-                        catalogue, product and live-stock APIs onto their uploaded catalogue.
-                      </p>
                     </div>
                     <button
                       type="button"

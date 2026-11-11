@@ -441,7 +441,6 @@ function ProfilePageContent() {
                     href={RESELLER_KUMUDU_STOCK_LINK_PATH}
                     icon={Link2}
                     title="Kumudu software stock link"
-                    subtitle="Map Kumudu catalogue, products and live stock to your shop"
                     primary
                   />
                 ) : null}
@@ -475,7 +474,7 @@ function ProfilePageContent() {
                         subtitle={
                           resellerInbox && (resellerInbox.counts.storefrontContactOpen ?? 0) > 0
                             ? `${resellerInbox.counts.storefrontContactOpen} open contact form message${resellerInbox.counts.storefrontContactOpen === 1 ? '' : 's'}`
-                            : 'Contact form from your storefront'
+                            : undefined
                         }
                         badge={
                           resellerInbox &&
