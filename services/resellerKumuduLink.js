@@ -496,6 +496,200 @@ async function ensureKumuduSchema(pool) {
         CREATE INDEX IF NOT EXISTS idx_reseller_kumudu_events_reseller
             ON reseller_kumudu_events (reseller_user_id, created_at DESC)
     `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS reseller_kumudu_sync_records (
+            id SERIAL PRIMARY KEY,
+            reseller_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            shop_key VARCHAR(32) NOT NULL,
+            sync_kind VARCHAR(24) NOT NULL,
+            sync_id VARCHAR(80) NOT NULL,
+            batch_sync_id VARCHAR(80),
+            endpoint VARCHAR(32) NOT NULL,
+            action VARCHAR(48),
+            web_category_id INTEGER,
+            web_subcategory_id INTEGER,
+            web_product_id INTEGER,
+            style_code VARCHAR(255),
+            sku_subcategory VARCHAR(255),
+            product_sku VARCHAR(255),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT reseller_kumudu_sync_records_sync_id_key UNIQUE (sync_id)
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_reseller_kumudu_sync_reseller
+            ON reseller_kumudu_sync_records (reseller_user_id, created_at DESC)
+    `);
+}
+
+function syncKindTag(endpoint) {
+    if (endpoint === 'catalogue_creation') return 'cat';
+    if (endpoint === 'product_creation') return 'prd';
+    return 'stk';
+}
+
+function batchSyncKind(endpoint) {
+    if (endpoint === 'catalogue_creation') return 'catalogue';
+    if (endpoint === 'product_creation') return 'product';
+    return 'stock';
+}
+
+function newKumuduSyncId(shopKey, tag) {
+    const shop = slugInboundKey(shopKey) || 'shop';
+    const suffix = crypto.randomBytes(8).toString('hex');
+    return `${shop}-${tag}-${suffix}`;
+}
+
+async function insertKumuduSyncRecord(query, row) {
+    try {
+        await query(
+            `INSERT INTO reseller_kumudu_sync_records (
+                reseller_user_id, shop_key, sync_kind, sync_id, batch_sync_id, endpoint, action,
+                web_category_id, web_subcategory_id, web_product_id,
+                style_code, sku_subcategory, product_sku
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            [
+                row.resellerUserId,
+                row.shopKey,
+                row.syncKind,
+                row.syncId,
+                row.batchSyncId || null,
+                row.endpoint,
+                row.action || null,
+                row.webCategoryId ?? null,
+                row.webSubcategoryId ?? null,
+                row.webProductId ?? null,
+                row.styleCode || null,
+                row.skuSubcategory || null,
+                row.productSku || null,
+            ],
+        );
+    } catch (e) {
+        console.warn('kumudu sync record insert:', e.message);
+    }
+    return row.syncId;
+}
+
+async function lookupWebProductId(query, prodSku) {
+    const sku = String(prodSku || '').trim();
+    if (!sku) return null;
+    const rows = await query(
+        `SELECT id FROM web_products WHERE LOWER(TRIM(sku)) = LOWER($1) LIMIT 1`,
+        [sku],
+    );
+    return rows[0]?.id ?? null;
+}
+
+function kumuduStatusFromAction(action) {
+    if (action === 'created' || action === 'catalogue_ensured') return 'created';
+    if (action === 'updated' || action === 'catalogue_updated_product') return 'updated';
+    if (action === 'error') return 'error';
+    return 'skipped';
+}
+
+async function buildPartnerConfirmRow(query, {
+    endpoint,
+    shopKey,
+    batchSyncId,
+    resellerUserId,
+    processResult,
+}) {
+    const action = processResult.action || 'skipped';
+    const status = action === 'error' ? 'error' : kumuduStatusFromAction(action);
+    const tag = syncKindTag(endpoint);
+    const itemSyncId = newKumuduSyncId(shopKey, tag);
+    const syncKind = batchSyncKind(endpoint);
+
+    if (endpoint === 'catalogue_creation') {
+        const row = {
+            status,
+            action,
+            style_code: processResult.styleCode || processResult.mapped?.style_code || null,
+            sku_subcategory: processResult.skuCode || processResult.mapped?.sku || null,
+            category_id: processResult.catId ?? null,
+            subcategory_id: processResult.subId ?? null,
+            catalogue_sync_id: itemSyncId,
+        };
+        if (processResult.error) row.message = processResult.error;
+        if (processResult.reason) row.reason = processResult.reason;
+        if (processResult.id) row.product_id = processResult.id;
+        if (processResult.sku) row.product_sku = processResult.sku;
+        await insertKumuduSyncRecord(query, {
+            resellerUserId,
+            shopKey,
+            syncKind,
+            syncId: itemSyncId,
+            batchSyncId,
+            endpoint,
+            action,
+            webCategoryId: row.category_id,
+            webSubcategoryId: row.subcategory_id,
+            webProductId: row.product_id ?? null,
+            styleCode: row.style_code,
+            skuSubcategory: row.sku_subcategory,
+            productSku: row.product_sku ?? null,
+        });
+        return row;
+    }
+
+    if (endpoint === 'product_creation') {
+        let productId = processResult.id ?? null;
+        const productSku =
+            processResult.sku || processResult.prodSku || processResult.mapped?.barcode || null;
+        if (!productId && productSku) {
+            productId = await lookupWebProductId(query, productSku);
+        }
+        const row = {
+            status,
+            action,
+            product_sku: productSku,
+            product_id: productId,
+            style_code: processResult.style_code || processResult.mapped?.style_code || null,
+            sku_subcategory: processResult.mapped?.sku || null,
+            product_sync_id: itemSyncId,
+        };
+        if (processResult.error) row.message = processResult.error;
+        if (processResult.reason) row.reason = processResult.reason;
+        await insertKumuduSyncRecord(query, {
+            resellerUserId,
+            shopKey,
+            syncKind,
+            syncId: itemSyncId,
+            batchSyncId,
+            endpoint,
+            action,
+            webCategoryId: processResult.catId ?? null,
+            webSubcategoryId: null,
+            webProductId: productId,
+            styleCode: row.style_code,
+            skuSubcategory: row.sku_subcategory,
+            productSku: row.product_sku,
+        });
+        return row;
+    }
+
+    const productSku = processResult.sku || processResult.mapped?.barcode || null;
+    const row = {
+        status,
+        action,
+        product_sku: productSku,
+        product_id: processResult.id ?? null,
+        stock_sync_id: itemSyncId,
+    };
+    if (processResult.mapped?.quantity != null) row.quantity = processResult.mapped.quantity;
+    if (processResult.mapped?.net_weight != null) row.net_weight_gm = processResult.mapped.net_weight;
+    await insertKumuduSyncRecord(query, {
+        resellerUserId,
+        shopKey,
+        syncKind: 'stock',
+        syncId: itemSyncId,
+        batchSyncId,
+        endpoint,
+        action,
+        webProductId: row.product_id,
+        productSku: row.product_sku,
+    });
+    return row;
 }
 
 async function assertKumuduAccess(query, userId) {
@@ -979,7 +1173,15 @@ async function createProductFromMapped(upsertDeps, resellerUserId, mapped) {
         submittedByUserId: resellerUserId,
         publishCategory: true,
     });
-    return { created: true, sku: result.prodSku, style_code: result.styleCode, catId: result.catId };
+    const id = await lookupWebProductId(upsertDeps.query, result.prodSku);
+    return {
+        created: true,
+        sku: result.prodSku,
+        prodSku: result.prodSku,
+        style_code: result.styleCode,
+        catId: result.catId,
+        id,
+    };
 }
 
 async function processRecord(deps, { endpoint, mapping, record, body, resellerUserId }) {
@@ -1229,7 +1431,12 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
         });
     }
 
+    const shopKey = link.inbound_key;
+    const batchTag = syncKindTag(endpoint);
+    const batchSyncId = newKumuduSyncId(shopKey, `${batchTag}-batch`);
+
     const results = [];
+    const data = [];
     for (const record of records) {
         try {
             const one = await processRecord(deps, {
@@ -1240,13 +1447,31 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
                 resellerUserId: link.reseller_user_id,
             });
             results.push(one);
+            const confirm = await buildPartnerConfirmRow(deps.query, {
+                endpoint,
+                shopKey,
+                batchSyncId,
+                resellerUserId: link.reseller_user_id,
+                processResult: one,
+            });
+            data.push(confirm);
         } catch (e) {
-            results.push({ action: 'error', error: e.message || 'Failed' });
+            const fail = { action: 'error', error: e.message || 'Failed' };
+            results.push(fail);
+            data.push(
+                await buildPartnerConfirmRow(deps.query, {
+                    endpoint,
+                    shopKey,
+                    batchSyncId,
+                    resellerUserId: link.reseller_user_id,
+                    processResult: fail,
+                }),
+            );
         }
     }
 
-    const errors = results.filter((r) => r.action === 'error' || r.action === 'skipped');
-    const status = results.some((r) => r.action === 'error') ? 'error' : 'ok';
+    const errors = results.filter((r) => r.action === 'error');
+    const status = errors.length ? 'error' : 'ok';
     const summary = `${results.length} record(s): ${results.map((r) => r.action).join(', ')}`;
     await logEvent(deps.query, {
         resellerUserId: link.reseller_user_id,
@@ -1254,14 +1479,24 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
         status,
         summary,
         payload: body,
-        result: { results, error_count: errors.length },
+        result: { batch_sync_id: batchSyncId, data, error_count: errors.length },
     });
+
+    const batchKey =
+        endpoint === 'catalogue_creation'
+            ? 'batch_catalogue_sync_id'
+            : endpoint === 'product_creation'
+              ? 'batch_product_sync_id'
+              : 'batch_stock_sync_id';
 
     return res.json({
         ok: status === 'ok',
+        shop: shopKey,
         endpoint,
-        count: results.length,
-        results,
+        method: 'POST',
+        [batchKey]: batchSyncId,
+        count: data.length,
+        data,
     });
 }
 
@@ -1286,9 +1521,15 @@ function registerResellerKumuduLinkRoutes(app, deps) {
     const healthOnly = (req, res) => {
         const action = normalizeEndpointParam(req.params.action);
         if (action !== 'health') {
+            const shop = slugInboundKey(req.params.inboundKey) || req.params.inboundKey;
+            const origin = publicApiOrigin(
+                typeof deps.getPublicApiBaseUrl === 'function' ? deps.getPublicApiBaseUrl() : null,
+            );
             return res.status(405).json({
-                error: 'Use POST JSON for this Kumudu endpoint',
+                error: 'This URL accepts POST JSON only (GET is not used here).',
                 endpoint: action,
+                method_required: 'POST',
+                health_check_get: `${origin}/api/external/kumudu-${shop}/v1/health`,
             });
         }
         return healthHandler(req, res);

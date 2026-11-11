@@ -484,6 +484,10 @@ export default function KumuduStockLinkPageClient() {
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
             {endpointDef?.short} API
           </p>
+          <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+            Kumudu must call this URL with <span className="font-semibold">POST</span> and JSON body.
+            A browser or GET test may show 405 — that is normal. Use Health check above for GET.
+          </p>
           <div className="flex gap-2">
             <input
               readOnly
