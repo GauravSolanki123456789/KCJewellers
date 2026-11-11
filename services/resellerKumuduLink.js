@@ -768,7 +768,10 @@ function publicApiOrigin(getPublicApiBaseUrl) {
 function endpointUrls(origin, inboundKey) {
     const key = String(inboundKey || 'jp').trim();
     const base = `${origin}/api/external/kumudu-${key}/v1`;
-    const urls = { health: `${base}/health` };
+    const urls = {
+        health: `${base}/health`,
+        last_received: `${base}/last_received`,
+    };
     for (const ep of ENDPOINTS) {
         urls[ep.id] = `${base}/${ep.path}`;
     }
@@ -1333,6 +1336,9 @@ function normalizeEndpointParam(raw) {
     if (s === 'product' || s === 'products' || s === 'product_creation') return 'product_creation';
     if (s === 'stock' || s === 'stocks' || s === 'inventory') return 'stock';
     if (s === 'health') return 'health';
+    if (s === 'last_received' || s === 'lastreceived' || s === 'inbound' || s === 'inbound_log') {
+        return 'last_received';
+    }
     return s;
 }
 
@@ -1373,6 +1379,68 @@ async function handleKumuduHealth(deps, req, res, inboundKey) {
         service: 'kumudu-stock-link',
         inbound_key: link.inbound_key,
         store_id: storeId,
+    });
+}
+
+async function handleKumuduLastReceived(deps, req, res, inboundKey) {
+    const resolved = await resolveKumuduLink(deps, inboundKey, { requireEnabled: true });
+    if (resolved.status !== 200) {
+        return res.status(resolved.status).json({ error: resolved.error });
+    }
+    const link = resolved.link;
+    const apiKey = readInboundApiKey(req);
+    if (!apiKey || apiKey !== link.api_key) {
+        return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    const limitRaw = parseInt(String(req.query?.limit || '10'), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 25) : 10;
+    const endpointFilter = req.query?.endpoint ? normalizeEndpointParam(req.query.endpoint) : null;
+    if (endpointFilter && endpointFilter !== 'last_received' && !ENDPOINT_IDS.includes(endpointFilter)) {
+        return res.status(400).json({
+            error: 'endpoint must be catalogue_creation, product_creation, or stock',
+        });
+    }
+
+    const events = await deps.query(
+        `SELECT id, endpoint, status, summary, payload, result, created_at
+         FROM reseller_kumudu_events
+         WHERE reseller_user_id = $1
+           ${endpointFilter ? 'AND endpoint = $3' : ''}
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        endpointFilter ? [link.reseller_user_id, limit, endpointFilter] : [link.reseller_user_id, limit],
+    );
+
+    const last = {
+        catalogue_creation: link.sample_catalogue_payload || null,
+        product_creation: link.sample_product_payload || null,
+        stock: link.sample_stock_payload || null,
+    };
+    const lastAt = {
+        catalogue_creation: link.last_catalogue_at || null,
+        product_creation: link.last_product_at || null,
+        stock: link.last_stock_at || null,
+    };
+
+    return res.json({
+        ok: true,
+        service: 'kumudu-stock-link',
+        inbound_key: link.inbound_key,
+        store_id: String(link.store_id || '').trim() || null,
+        method: 'GET',
+        hint: 'last_payload is the most recent full JSON Kumudu POSTed per endpoint; recent_calls includes history.',
+        last_payload: last,
+        last_received_at: lastAt,
+        recent_calls: events.map((row) => ({
+            id: row.id,
+            endpoint: row.endpoint,
+            status: row.status,
+            summary: row.summary,
+            received_at: row.created_at,
+            payload: row.payload ?? null,
+            result: row.result ?? null,
+        })),
     });
 }
 
@@ -1518,31 +1586,42 @@ function registerResellerKumuduLinkRoutes(app, deps) {
         });
     };
 
-    const healthOnly = (req, res) => {
+    const getActionHandler = (req, res) => {
         const action = normalizeEndpointParam(req.params.action);
-        if (action !== 'health') {
-            const shop = slugInboundKey(req.params.inboundKey) || req.params.inboundKey;
-            const origin = publicApiOrigin(
-                typeof deps.getPublicApiBaseUrl === 'function' ? deps.getPublicApiBaseUrl() : null,
-            );
-            return res.status(405).json({
-                error: 'This URL accepts POST JSON only (GET is not used here).',
-                endpoint: action,
-                method_required: 'POST',
-                health_check_get: `${origin}/api/external/kumudu-${shop}/v1/health`,
+        if (action === 'health') return healthHandler(req, res);
+        if (action === 'last_received') {
+            return handleKumuduLastReceived(deps, req, res, req.params.inboundKey).catch((e) => {
+                console.error('kumudu last_received:', e);
+                res.status(500).json({ error: e.message || 'Failed to load inbound log' });
             });
         }
-        return healthHandler(req, res);
+        const shop = slugInboundKey(req.params.inboundKey) || req.params.inboundKey;
+        const origin = publicApiOrigin(
+            typeof deps.getPublicApiBaseUrl === 'function' ? deps.getPublicApiBaseUrl() : null,
+        );
+        return res.status(405).json({
+            error: 'This URL accepts POST JSON only (GET is not used here).',
+            endpoint: action,
+            method_required: 'POST',
+            health_check_get: `${origin}/api/external/kumudu-${shop}/v1/health`,
+            last_received_get: `${origin}/api/external/kumudu-${shop}/v1/last_received`,
+        });
     };
 
     const mountExternal = (base) => {
         const p = `${base}/kumudu-:inboundKey`;
         app.get(`${p}/v1/health`, healthHandler);
+        app.get(`${p}/v1/last_received`, (req, res) =>
+            handleKumuduLastReceived(deps, req, res, req.params.inboundKey).catch((e) => {
+                console.error('kumudu last_received:', e);
+                res.status(500).json({ error: e.message || 'Failed to load inbound log' });
+            }),
+        );
         app.post(`${p}/v1/:action`, inboundHandler);
         app.get(`${p}/health`, healthHandler);
-        app.get(`${p}/v1/:action`, healthOnly);
+        app.get(`${p}/v1/:action`, getActionHandler);
         app.post(`${p}/:action`, inboundHandler);
-        app.get(`${p}/:action`, healthOnly);
+        app.get(`${p}/:action`, getActionHandler);
     };
 
     mountExternal('/api/external');
@@ -1553,7 +1632,7 @@ function registerResellerKumuduLinkRoutes(app, deps) {
             const user = await assertKumuduAccess(query, req.user.id);
             const link = await loadOrCreateLink(query, user);
             const events = await query(
-                `SELECT id, endpoint, status, summary, created_at
+                `SELECT id, endpoint, status, summary, payload, result, created_at
                  FROM reseller_kumudu_events
                  WHERE reseller_user_id = $1
                  ORDER BY created_at DESC

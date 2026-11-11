@@ -38,6 +38,8 @@ type KumuduEvent = {
   endpoint: string
   status: string
   summary: string | null
+  payload?: unknown
+  result?: unknown
   created_at: string
 }
 
@@ -46,7 +48,7 @@ type KumuduLinkPayload = {
   inbound_key: string
   store_id: string
   api_key: string
-  endpoints: Record<EndpointId | 'health', string>
+  endpoints: Record<EndpointId | 'health' | 'last_received', string>
   fields: FieldDef[]
   recommended: Record<EndpointId, string[]>
   catalogue_mapping: MappingState
@@ -389,6 +391,11 @@ export default function KumuduStockLinkPageClient() {
               className="min-h-[44px] w-full rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-sm text-[var(--color-jewelry-black,#1a1814)]"
               placeholder="e.g. JP01"
             />
+            <span className="mt-1 block text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
+              You choose this code (or agree with Kumudu on their branch code). Save it here, then Kumudu
+              must send the same <code className="font-mono text-[11px]">store_id</code> in each POST. Leave
+              blank until agreed — health then shows <code className="font-mono text-[11px]">null</code>.
+            </span>
           </label>
           <div>
             <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
@@ -429,6 +436,38 @@ export default function KumuduStockLinkPageClient() {
               Generate new key
             </button>
           </div>
+          {data?.endpoints?.last_received ? (
+            <div>
+              <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
+                Last Kumudu data (GET)
+              </span>
+              <p className="mb-1.5 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/65">
+                Same API key as health. Shows the latest JSON Kumudu POSTed and recent call history.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={data.endpoints.last_received}
+                  className="min-h-[44px] min-w-0 flex-1 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 font-mono text-[11px] text-[var(--color-jewelry-black,#1a1814)]"
+                />
+                <button
+                  type="button"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white"
+                  onClick={async () => {
+                    if (data.endpoints.last_received && (await copyText(data.endpoints.last_received)))
+                      markCopied('received')
+                  }}
+                  aria-label="Copy last received URL"
+                >
+                  {copied === 'received' ? (
+                    <Check className="size-4 text-emerald-700" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : null}
           {data?.endpoints?.health ? (
             <div>
               <span className="mb-1 block text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]/60">
@@ -660,6 +699,16 @@ export default function KumuduStockLinkPageClient() {
                   <p className="mt-0.5 text-[10px] text-[var(--color-jewelry-black,#1a1814)]/40">
                     {new Date(ev.created_at).toLocaleString()}
                   </p>
+                  {ev.payload != null ? (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[11px] font-medium text-[var(--color-jewelry-black,#1a1814)]/75">
+                        View JSON Kumudu sent
+                      </summary>
+                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-2 font-mono text-[10px] text-[var(--color-jewelry-black,#1a1814)]">
+                        {JSON.stringify(ev.payload, null, 2)}
+                      </pre>
+                    </details>
+                  ) : null}
                 </li>
               ))}
             </ul>
