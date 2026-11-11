@@ -39,6 +39,7 @@ const SCRAPER_UA_PATTERNS = [
 
 const BYPASS_PREFIXES = [
   '/api/external/',
+  '/external/kumudu-',
   '/webhooks/',
   '/health',
   '/api/health',

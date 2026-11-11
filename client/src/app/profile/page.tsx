@@ -26,6 +26,7 @@ import {
   RESELLER_ERP_PATH,
   RESELLER_ENHANCED_PICTURES_PATH,
   RESELLER_IMAGE_SEARCH_PATH,
+  RESELLER_KUMUDU_STOCK_LINK_PATH,
   RESELLER_PRICELIST_PATH,
   WHOLESALE_ORDER_PATH,
 } from '@/lib/routes'
@@ -62,6 +63,7 @@ import {
   ListOrdered,
   Palette,
   Mail,
+  Link2,
 } from 'lucide-react'
 import axios from 'axios'
 import { ProfileOrderHistory } from '@/components/profile/ProfileOrderHistory'
@@ -262,6 +264,12 @@ function ProfilePageContent() {
       auth.user &&
       (auth.user as { reseller_image_search_enabled?: boolean }).reseller_image_search_enabled,
   )
+  const resellerKumuduStockLinkEnabled = Boolean(
+    auth.isAuthenticated &&
+      isReseller &&
+      auth.user &&
+      (auth.user as { reseller_kumudu_stock_link_enabled?: boolean }).reseller_kumudu_stock_link_enabled,
+  )
   const resellerStorefrontWebsiteEnabled = Boolean(
     auth.isAuthenticated &&
       isReseller &&
@@ -349,6 +357,7 @@ function ProfilePageContent() {
               resellerDigiEnabled ||
               resellerEnhancedPicturesEnabled ||
               resellerPricelistEnabled ||
+              resellerKumuduStockLinkEnabled ||
               isReseller) && (
               <section className="mb-6 space-y-2">
                 <ProfileSectionHeading>Reseller</ProfileSectionHeading>
@@ -424,6 +433,15 @@ function ProfilePageContent() {
                     href={RESELLER_PRICELIST_PATH}
                     icon={ListOrdered}
                     title="Pricelist"
+                    primary
+                  />
+                ) : null}
+                {resellerKumuduStockLinkEnabled ? (
+                  <ProfileActionCard
+                    href={RESELLER_KUMUDU_STOCK_LINK_PATH}
+                    icon={Link2}
+                    title="Kumudu software stock link"
+                    subtitle="Map Kumudu catalogue, products and live stock to your shop"
                     primary
                   />
                 ) : null}

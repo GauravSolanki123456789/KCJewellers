@@ -139,6 +139,11 @@ const {
 } = require('./services/resellerPricelist');
 const { registerResellerImageSearchRoutes } = require('./services/resellerImageSearch');
 const {
+    registerResellerKumuduLinkRoutes,
+    ensureKumuduSchema,
+    provisionResellerKumuduLink,
+} = require('./services/resellerKumuduLink');
+const {
     isStorefrontInvestAllowed,
     assertStorefrontInvestAllowed,
 } = require('./services/storefrontInvest');
@@ -857,6 +862,7 @@ app.get('/api/auth/current_user', async (req, res) => {
         let resellerEnhancedPicturesEnabled = !!resolvedUser.reseller_enhanced_pictures_enabled;
         let resellerPricelistEnabled = !!resolvedUser.reseller_pricelist_enabled;
         let resellerImageSearchEnabled = !!resolvedUser.reseller_image_search_enabled;
+        let resellerKumuduStockLinkEnabled = !!resolvedUser.reseller_kumudu_stock_link_enabled;
         let resellerStorefrontWebsiteEnabled = !!resolvedUser.reseller_storefront_website_enabled;
         let resellerOwnPricesEnabled = !!resolvedUser.reseller_own_prices_enabled;
         let resellerShowLiveStock = !!resolvedUser.reseller_show_live_stock;
@@ -875,6 +881,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                         COALESCE(reseller_enhanced_pictures_enabled, false) AS enhanced_pictures,
                         COALESCE(reseller_pricelist_enabled, false) AS pricelist_enabled,
                         COALESCE(reseller_image_search_enabled, false) AS image_search_enabled,
+                        COALESCE(reseller_kumudu_stock_link_enabled, false) AS kumudu_stock_link,
                         COALESCE(reseller_storefront_website_enabled, false) AS storefront_website,
                         COALESCE(reseller_own_prices_enabled, false) AS own_prices,
                         COALESCE(reseller_show_live_stock, false) AS show_live_stock,
@@ -896,6 +903,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 resellerEnhancedPicturesEnabled = !!fresh[0].enhanced_pictures;
                 resellerPricelistEnabled = !!fresh[0].pricelist_enabled;
                 resellerImageSearchEnabled = !!fresh[0].image_search_enabled;
+                resellerKumuduStockLinkEnabled = !!fresh[0].kumudu_stock_link;
                 resellerStorefrontWebsiteEnabled = !!fresh[0].storefront_website;
                 resellerOwnPricesEnabled = !!fresh[0].own_prices;
                 resellerShowLiveStock = !!fresh[0].show_live_stock;
@@ -983,6 +991,11 @@ app.get('/api/auth/current_user', async (req, res) => {
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_image_search_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
             }
+            if (msg.includes('reseller_kumudu_stock_link_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_kumudu_stock_link_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+            }
         }
         let catalogLimits = null;
         let websiteSubscription = openPayload('website');
@@ -1040,6 +1053,7 @@ app.get('/api/auth/current_user', async (req, res) => {
                 reseller_enhanced_pictures_enabled: resellerEnhancedPicturesEnabled,
                 reseller_pricelist_enabled: resellerPricelistEnabled,
                 reseller_image_search_enabled: resellerImageSearchEnabled,
+                reseller_kumudu_stock_link_enabled: resellerKumuduStockLinkEnabled,
                 reseller_storefront_website_enabled: resellerStorefrontWebsiteEnabled,
                 reseller_own_prices_enabled: resellerOwnPricesEnabled,
                 reseller_show_live_stock: resellerShowLiveStock,
@@ -2003,6 +2017,17 @@ registerResellerImageSearchRoutes(app, {
     checkAuth,
     uploadsRoot: path.join(__dirname, 'uploads'),
 });
+registerResellerKumuduLinkRoutes(app, {
+    query,
+    pool,
+    checkAuth,
+    requireJson,
+    getPublicApiBaseUrl,
+    lookUpSecondaryDisk,
+    resolveSecondaryUrlFromPayload,
+    uploadsWebProductsDir,
+});
+ensureKumuduSchema(pool).catch((e) => console.warn('kumudu stock link schema:', e.message));
 registerResellerPricelistRoutes(app, {
     query,
     pool,
@@ -4428,6 +4453,7 @@ app.get('/api/admin/users', isAdminStrict, async (req, res) => {
                        COALESCE(reseller_enhanced_pictures_enabled, false) AS reseller_enhanced_pictures_enabled,
                        COALESCE(reseller_pricelist_enabled, false) AS reseller_pricelist_enabled,
                        COALESCE(reseller_image_search_enabled, false) AS reseller_image_search_enabled,
+                       COALESCE(reseller_kumudu_stock_link_enabled, false) AS reseller_kumudu_stock_link_enabled,
                        COALESCE(reseller_storefront_website_enabled, false) AS reseller_storefront_website_enabled,
                        COALESCE(reseller_own_prices_enabled, false) AS reseller_own_prices_enabled,
                        COALESCE(reseller_invest_manage_enabled, false) AS reseller_invest_manage_enabled,
@@ -4964,6 +4990,11 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
             params.push(!!req.body.reseller_image_search_enabled);
         }
 
+        if (req.body.reseller_kumudu_stock_link_enabled !== undefined) {
+            updates.push(`reseller_kumudu_stock_link_enabled = $${paramIndex++}`);
+            params.push(!!req.body.reseller_kumudu_stock_link_enabled);
+        }
+
         if (req.body.reseller_storefront_website_enabled !== undefined) {
             updates.push(`reseller_storefront_website_enabled = $${paramIndex++}`);
             params.push(!!req.body.reseller_storefront_website_enabled);
@@ -5144,8 +5175,22 @@ app.put('/api/admin/users/:id', isAdminStrict, async (req, res) => {
                     'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_product_uploads_enabled BOOLEAN NOT NULL DEFAULT false',
                 );
                 result = await query(queryText, params);
+            } else if (umsg.includes('reseller_kumudu_stock_link_enabled')) {
+                await pool.query(
+                    'ALTER TABLE users ADD COLUMN IF NOT EXISTS reseller_kumudu_stock_link_enabled BOOLEAN NOT NULL DEFAULT false',
+                );
+                result = await query(queryText, params);
             } else {
                 throw updateErr;
+            }
+        }
+
+        if (result?.[0]?.reseller_kumudu_stock_link_enabled) {
+            try {
+                await ensureKumuduSchema(pool);
+                await provisionResellerKumuduLink(query, result[0]);
+            } catch (e) {
+                console.warn('kumudu provision after admin save:', e.message);
             }
         }
         

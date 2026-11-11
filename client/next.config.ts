@@ -57,6 +57,14 @@ const nextConfig: NextConfig = {
         source: "/api/external/posh-rfid/:path*",
         destination: `${apiBase}/api/external/posh-rfid/:path*`,
       },
+      {
+        source: "/api/external/:path*",
+        destination: `${apiBase}/api/external/:path*`,
+      },
+      {
+        source: "/external/:path*",
+        destination: `${apiBase}/external/:path*`,
+      },
     ];
   },
   images: {

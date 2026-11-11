@@ -669,6 +669,10 @@ async function initSchema() {
             ADD COLUMN IF NOT EXISTS reseller_image_search_enabled BOOLEAN NOT NULL DEFAULT false
         `);
         await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS reseller_kumudu_stock_link_enabled BOOLEAN NOT NULL DEFAULT false
+        `);
+        await pool.query(`
             ALTER TABLE web_products
             ADD COLUMN IF NOT EXISTS brand VARCHAR(64),
             ADD COLUMN IF NOT EXISTS make_to_order_only BOOLEAN NOT NULL DEFAULT false

@@ -60,6 +60,12 @@ export type WholesaleUserFields = {
   reseller_digisilver_enabled?: boolean
   /** Admin enables AI Enhanced Picture studio at `/reseller/enhanced-pictures`. */
   reseller_enhanced_pictures_enabled?: boolean
+  /** Admin enables Profile → Kumudu software stock link. */
+  reseller_kumudu_stock_link_enabled?: boolean
+  /** Admin enables find product through image. */
+  reseller_image_search_enabled?: boolean
+  /** Admin enables B2B pricelist module. */
+  reseller_pricelist_enabled?: boolean
   /** Admin enables custom homepage + Profile → Your website. */
   reseller_storefront_website_enabled?: boolean
   /** Website/catalogue subscription window (from `/api/auth/current_user`). */

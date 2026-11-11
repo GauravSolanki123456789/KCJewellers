@@ -59,6 +59,8 @@ export const RESELLER_CATALOG_SLAB_SETTINGS_PATH = '/reseller/catalog-slab-setti
 /** RESELLER tier — AI Enhanced Picture studio (idol templates etc.). */
 export const RESELLER_ENHANCED_PICTURES_PATH = '/reseller/enhanced-pictures'
 export const RESELLER_IMAGE_SEARCH_PATH = '/reseller/image-search'
+/** RESELLER tier — Kumudu software stock link (admin toggle). */
+export const RESELLER_KUMUDU_STOCK_LINK_PATH = '/reseller/kumudu-stock-link'
 /** RESELLER tier — B2B pricelist (separate from live catalogue). */
 export const RESELLER_PRICELIST_PATH = '/reseller/pricelist'
 /** Admin — test & activate Enhanced Picture prompts for a reseller. */
