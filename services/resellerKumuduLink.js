@@ -124,7 +124,7 @@ const KC_FIELDS = [
 const KC_FIELD_KEYS = new Set(KC_FIELDS.map((f) => f.key));
 
 const RECOMMENDED = {
-    catalogue_creation: ['style_code', 'sku', 'metal_type'],
+    catalogue_creation: ['style_code', 'sku', 'product_name', 'metal_type'],
     product_creation: [
         'kumudu_catalogue_ref',
         'barcode',
@@ -488,6 +488,67 @@ function coerceField(kcKey, raw) {
     return t === '' ? undefined : t;
 }
 
+function pickErpScalar(record, ...aliases) {
+    for (const key of aliases) {
+        const direct = record?.[key];
+        if (direct !== undefined && direct !== null && String(direct).trim() !== '') {
+            return String(direct).trim();
+        }
+        const deep = findValueDeep(record, key);
+        if (deep !== undefined && deep !== null && String(deep).trim() !== '') {
+            return String(deep).trim();
+        }
+    }
+    return '';
+}
+
+function erpItemFirstWord(itemRaw) {
+    const m = String(itemRaw || '')
+        .trim()
+        .match(/^([^\s]+)/);
+    return m ? m[1].toLowerCase() : '';
+}
+
+function isEmeraldIdolsErpItem(itemRaw) {
+    const n = String(itemRaw || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return /^emerald\s+idol(s)?(\s|$)/.test(n) || n === 'emerald idol' || n === 'emerald idols';
+}
+
+/**
+ * Kumudu ERP rows: Item / Shortcode / Design semantics depend on the Item family.
+ * Pitara* and Air* use fixed style codes with Item as subcategory SKU; Emerald uses Shortcode as SKU.
+ */
+function applyErpCatalogueSemantics(record, mapped) {
+    const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
+    if (!item) return mapped;
+
+    const shortcode = pickErpScalar(record, 'Shortcode', 'shortcode', 'SHORTCODE');
+    const design = pickErpScalar(record, 'Design', 'design', 'DESIGN');
+    const out = { ...mapped };
+    const fw = erpItemFirstWord(item);
+
+    if (isEmeraldIdolsErpItem(item)) {
+        out.style_code = 'EMERALD IDOLS';
+        if (shortcode) out.sku = shortcode;
+        else if (out.sku && trimCmp(out.sku) === trimCmp(item)) delete out.sku;
+        if (design) out.product_name = design;
+    } else if (fw === 'pitara') {
+        out.style_code = 'PITARA';
+        out.sku = item;
+        if (design) out.product_name = design;
+    } else if (fw === 'air') {
+        out.style_code = 'AIR COLLECTION';
+        out.sku = item;
+        if (design) out.product_name = design;
+    }
+
+    return out;
+}
+
 function applyMapping(mapping, record, body, options = {}) {
     const out = {};
     const selected = mapping.selected || [];
@@ -503,6 +564,9 @@ function applyMapping(mapping, record, body, options = {}) {
             out.style_code = split.style_code;
             out.sku = split.sku;
         }
+    }
+    if (options.endpoint === 'catalogue_creation') {
+        return applyErpCatalogueSemantics(record, out);
     }
     return out;
 }
@@ -1510,7 +1574,7 @@ async function createProductFromMapped(upsertDeps, resellerUserId, mapped) {
 }
 
 async function processRecord(deps, { endpoint, mapping, record, body, resellerUserId }) {
-    const mapped = applyMapping(mapping, record, body, { strict: true });
+    const mapped = applyMapping(mapping, record, body, { strict: true, endpoint });
     if (!Object.keys(mapped).length) {
         return { action: 'skipped', reason: 'no_mapped_values' };
     }
@@ -2279,7 +2343,9 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 : mappingForEndpoint(link, endpoint);
             const body = payload && typeof payload === 'object' ? payload : {};
             const records = extractRecords(body);
-            const preview = records.slice(0, 20).map((record) => applyMapping(mapping, record, body));
+            const preview = records
+                .slice(0, 20)
+                .map((record) => applyMapping(mapping, record, body, { endpoint }));
             res.json({ ok: true, count: records.length, preview, detected_keys: uniqueKeys(flattenPayloadKeys(body)) });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message || 'Preview failed' });

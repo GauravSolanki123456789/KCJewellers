@@ -771,11 +771,17 @@ export default function KumuduStockLinkPageClient() {
               Kumudu live POSTs use only paths you save below — nothing is auto-mapped on the server until then.
             </p>
             {tab === 'catalogue_creation' ? (
-              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/75">
-                ERP-style rows: <span className="font-mono">Item</span> → style code (e.g. EMERALD IDOLS, PITARA,
-                AIR COLLECTION), <span className="font-mono">Shortcode</span> → SKU subcategory (e.g. GANESH),{' '}
-                <span className="font-mono">Design</span> → product name. Response includes{' '}
-                <span className="font-mono">catalogue_sync_id</span> for Kumudu to attach on products.
+              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
+                Map <span className="font-mono">MetalName</span>, <span className="font-mono">Item</span>,{' '}
+                <span className="font-mono">Shortcode</span>, <span className="font-mono">Design</span> — the server
+                applies family rules after save:{' '}
+                <strong className="font-medium">Emerald idol</strong> → style{' '}
+                <span className="font-mono">EMERALD IDOLS</span>, SKU = Shortcode (e.g. GANESH), name = Design;{' '}
+                <strong className="font-medium">Pitara…</strong> → style <span className="font-mono">PITARA</span>,
+                SKU = full Item (e.g. PITARA BANGLE), name = Design;{' '}
+                <strong className="font-medium">Air…</strong> → style <span className="font-mono">AIR COLLECTION</span>,
+                SKU = full Item, name = Design. Other items use your mapped paths only. Response includes{' '}
+                <span className="font-mono">catalogue_sync_id</span> for products.
               </p>
             ) : null}
             {tab === 'product_creation' ? (
