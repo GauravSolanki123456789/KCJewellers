@@ -785,11 +785,13 @@ export default function KumuduStockLinkPageClient() {
               </p>
             ) : null}
             {tab === 'product_creation' ? (
-              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/75">
-                Map <span className="font-mono">catalogue</span> → Kumudu catalogue id (or send{' '}
-                <span className="font-mono">catalogue_sync_id</span> from catalogue response).{' '}
-                <span className="font-mono">sku</span> → barcode, <span className="font-mono">name</span> → product
-                name. Response includes <span className="font-mono">product_sync_id</span> for stock updates.
+              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
+                Send <span className="font-mono">catalogue_sync_id</span> from catalogue response (read automatically
+                even if unchecked). ERP rows: <span className="font-mono">Shortcode</span> → SKU subcategory,{' '}
+                <span className="font-mono">Design</span> → product name + web SKU (barcode auto if not mapped). Cloud
+                rows: map <span className="font-mono">catalogue</span>, <span className="font-mono">sku</span>,{' '}
+                <span className="font-mono">name</span>. Style comes from the linked catalogue (e.g. Jingle). Stock uses{' '}
+                <span className="font-mono">product_sync_id</span>.
               </p>
             ) : null}
           </div>
