@@ -770,6 +770,22 @@ export default function KumuduStockLinkPageClient() {
             <p className="mt-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/60">
               Kumudu live POSTs use only paths you save below — nothing is auto-mapped on the server until then.
             </p>
+            {tab === 'catalogue_creation' ? (
+              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/75">
+                ERP-style rows: <span className="font-mono">Item</span> → style code (e.g. EMERALD IDOLS, PITARA,
+                AIR COLLECTION), <span className="font-mono">Shortcode</span> → SKU subcategory (e.g. GANESH),{' '}
+                <span className="font-mono">Design</span> → product name. Response includes{' '}
+                <span className="font-mono">catalogue_sync_id</span> for Kumudu to attach on products.
+              </p>
+            ) : null}
+            {tab === 'product_creation' ? (
+              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/75">
+                Map <span className="font-mono">catalogue</span> → Kumudu catalogue id (or send{' '}
+                <span className="font-mono">catalogue_sync_id</span> from catalogue response).{' '}
+                <span className="font-mono">sku</span> → barcode, <span className="font-mono">name</span> → product
+                name. Response includes <span className="font-mono">product_sync_id</span> for stock updates.
+              </p>
+            ) : null}
           </div>
 
           {preview ? (
@@ -844,6 +860,24 @@ export default function KumuduStockLinkPageClient() {
                       <summary className="cursor-pointer text-[11px] font-medium text-[var(--color-jewelry-black,#1a1814)]/75">
                         View JSON Kumudu sent
                       </summary>
+                      <div className="mt-1 flex justify-end">
+                        <button
+                          type="button"
+                          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2.5 text-[11px] font-medium text-[var(--color-jewelry-black,#1a1814)]"
+                          onClick={async (e) => {
+                            e.preventDefault()
+                            const text = JSON.stringify(ev.payload, null, 2)
+                            if (await copyText(text)) markCopied(`event-json-${ev.id}`)
+                          }}
+                        >
+                          {copied === `event-json-${ev.id}` ? (
+                            <Check className="size-3.5 text-emerald-700" />
+                          ) : (
+                            <Copy className="size-3.5" />
+                          )}
+                          Copy JSON
+                        </button>
+                      </div>
                       <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-2 font-mono text-[10px] text-[var(--color-jewelry-black,#1a1814)]">
                         {JSON.stringify(ev.payload, null, 2)}
                       </pre>
