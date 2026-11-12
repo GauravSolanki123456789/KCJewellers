@@ -236,15 +236,36 @@ function uniqueKeys(keys) {
     return out;
 }
 
+function kumuduCustomField(record, wantedNames) {
+    const list = Array.isArray(record?.customFields) ? record.customFields : [];
+    const wants = wantedNames.map((n) => normalizeKey(n));
+    for (const row of list) {
+        const name = normalizeKey(row?.name);
+        if (!name || !wants.includes(name)) continue;
+        const val = row?.value;
+        if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+    }
+    return undefined;
+}
+
 function getByPath(obj, dotted) {
     if (obj == null || !dotted) return undefined;
-    const parts = String(dotted)
+    const path = String(dotted).trim();
+    const cfMatch = path.match(/^customFields\.(.+)$/i);
+    if (cfMatch) {
+        return kumuduCustomField(obj, [cfMatch[1]]);
+    }
+    const parts = path
         .split('.')
         .map((p) => p.trim())
         .filter(Boolean);
     let cur = obj;
     for (const part of parts) {
         if (cur == null) return undefined;
+        if (/^\d+$/.test(part) && Array.isArray(cur)) {
+            cur = cur[parseInt(part, 10)];
+            continue;
+        }
         if (Array.isArray(cur)) cur = cur[0];
         if (cur == null || typeof cur !== 'object') return undefined;
         const want = normalizeKey(part);
@@ -344,8 +365,12 @@ function suggestPathForField(kcKey, detectedKeys) {
     return scored[0]?.pathStr || '';
 }
 
-function lookupMappedValue(kcKey, mapping, record, body) {
-    const pathStr = mapping.map?.[kcKey];
+function lookupMappedValue(kcKey, mapping, record, body, options = {}) {
+    const strict = !!options.strict;
+    const pathStr = String(mapping.map?.[kcKey] || '').trim();
+    if (!pathStr) {
+        if (strict) return undefined;
+    }
     if (pathStr) {
         const fromRecord = getByPath(record, pathStr);
         if (fromRecord !== undefined && fromRecord !== null && String(fromRecord).trim() !== '') {
@@ -355,12 +380,14 @@ function lookupMappedValue(kcKey, mapping, record, body) {
         if (fromBody !== undefined && fromBody !== null && String(fromBody).trim() !== '') {
             return fromBody;
         }
+        if (strict) return undefined;
         const last = pathStr.split('.').pop();
         const deepRec = findValueDeep(record, last);
         if (deepRec !== undefined && deepRec !== null && String(deepRec).trim() !== '') return deepRec;
         const deepBody = findValueDeep(body, last);
         if (deepBody !== undefined && deepBody !== null && String(deepBody).trim() !== '') return deepBody;
     }
+    if (strict) return undefined;
     const deep = findValueDeep(record, kcKey);
     if (deep !== undefined && deep !== null && String(deep).trim() !== '') return deep;
     const deepBody = findValueDeep(body, kcKey);
@@ -443,11 +470,11 @@ function coerceField(kcKey, raw) {
     return t === '' ? undefined : t;
 }
 
-function applyMapping(mapping, record, body) {
+function applyMapping(mapping, record, body, options = {}) {
     const out = {};
     const selected = mapping.selected || [];
     for (const kcKey of selected) {
-        const raw = lookupMappedValue(kcKey, mapping, record, body);
+        const raw = lookupMappedValue(kcKey, mapping, record, body, options);
         const val = coerceField(kcKey, raw);
         if (val === undefined) continue;
         out[kcKey] = val;
@@ -462,79 +489,56 @@ function applyMapping(mapping, record, body) {
     return out;
 }
 
-function kumuduCustomField(record, wantedNames) {
-    const list = Array.isArray(record?.customFields) ? record.customFields : [];
-    const wants = wantedNames.map((n) => normalizeKey(n));
-    for (const row of list) {
-        const name = normalizeKey(row?.name);
-        if (!name || !wants.includes(name)) continue;
-        const val = row?.value;
-        if (val !== undefined && val !== null && String(val).trim() !== '') return val;
-    }
-    return undefined;
+const KUMUDU_STATIC_HINTS = {
+    catalogue_creation: {
+        style_code: 'StyleCode',
+        sku: 'ItemName',
+        product_name: 'ItemName',
+        metal_type: 'MetalType',
+    },
+    product_creation: {
+        barcode: 'sku',
+        product_name: 'name',
+        style_code: 'description',
+        design_group: 'catalogue',
+        net_weight: 'weight',
+        gross_weight: 'customFields.grossWeight',
+        purity: 'customFields.Purity',
+        size: 'customFields.Size',
+        metal_type: 'productTypeDetails.entityType',
+        image_url: 'media.mediaUrl',
+    },
+    stock: {
+        barcode: 'sku',
+        product_name: 'name',
+        quantity: 'quantity',
+        net_weight: 'weight',
+    },
+};
+
+function stripRecordRootPrefix(path, samplePayload) {
+    if (!path || !samplePayload || typeof samplePayload !== 'object') return path;
+    const records = extractRecords(samplePayload);
+    if (!records.length) return path;
+    const p = String(path);
+    if (p.startsWith('data.')) return p.slice(5);
+    if (p.startsWith('products.')) return p.slice(9);
+    return p;
 }
 
-function enrichMappedForEndpoint(endpoint, record, mapped) {
-    if (!record || typeof record !== 'object') return mapped;
-    const out = { ...mapped };
-
-    if (endpoint === 'catalogue_creation') {
-        if (!out.style_code && record.StyleCode != null) out.style_code = String(record.StyleCode).trim();
-        if (!out.style_code && record.styleCode != null) out.style_code = String(record.styleCode).trim();
-        if (!out.product_name && record.ItemName != null) out.product_name = String(record.ItemName).trim();
-        if (!out.sku && record.ItemName != null) out.sku = String(record.ItemName).trim();
-        if (!out.sku && out.style_code) out.sku = 'N/A';
-        return out;
+function buildMappingHints(endpoint, samplePayload) {
+    const hints = { ...(KUMUDU_STATIC_HINTS[endpoint] || {}) };
+    if (!samplePayload || typeof samplePayload !== 'object') return hints;
+    const records = extractRecords(samplePayload);
+    const keys =
+        records.length > 0
+            ? uniqueKeys(flattenPayloadKeys(records[0]))
+            : uniqueKeys(flattenPayloadKeys(samplePayload));
+    for (const field of KC_FIELDS) {
+        const guess = suggestPathForField(field.key, keys);
+        if (guess) hints[field.key] = stripRecordRootPrefix(guess, samplePayload);
     }
-
-    if (endpoint !== 'product_creation') return out;
-
-    const kumuduSku = record.sku != null ? String(record.sku).trim() : '';
-    const kumuduName = record.name != null ? String(record.name).trim() : '';
-
-    if (!out.barcode && kumuduSku) out.barcode = kumuduSku;
-    if (!out.product_name && kumuduName) out.product_name = kumuduName;
-
-    if (!out.style_code) {
-        const desc = String(record.description || '').trim();
-        if (desc) out.style_code = desc;
-        else if (kumuduName.includes('-')) {
-            out.style_code = kumuduName.split('-')[0].trim();
-        } else if (kumuduName) {
-            out.style_code = kumuduName;
-        }
-    }
-    if (!out.sku) out.sku = out.style_code ? 'N/A' : 'N/A';
-
-    if (out.net_weight == null && record.weight != null && String(record.weight).trim() !== '') {
-        const w = parseFloat(String(record.weight).replace(/,/g, ''));
-        if (Number.isFinite(w)) out.net_weight = w;
-    }
-    const grossCf = kumuduCustomField(record, ['grossWeight', 'grossweight']);
-    if (out.gross_weight == null && grossCf != null) {
-        const g = parseFloat(String(grossCf).replace(/,/g, ''));
-        if (Number.isFinite(g)) out.gross_weight = g;
-    }
-    const purityCf = kumuduCustomField(record, ['Purity', 'purity']);
-    if (!out.purity && purityCf != null) out.purity = String(purityCf).trim();
-    if (!out.size) {
-        const sizeCf = kumuduCustomField(record, ['Size', 'size']);
-        if (sizeCf != null && String(sizeCf).trim()) out.size = String(sizeCf).trim();
-    }
-    if (!out.metal_type && record.productTypeDetails?.entityType) {
-        out.metal_type = String(record.productTypeDetails.entityType).trim();
-    }
-    if (!out.design_group && record.catalogue != null) {
-        out.design_group = String(record.catalogue).trim();
-    }
-    if (!out.image_url && Array.isArray(record.media)) {
-        const pick =
-            record.media.find((m) => m && m.type === 'image' && m.mediaUrl) ||
-            record.media.find((m) => m && m.mediaUrl) ||
-            record.media[0];
-        if (pick?.mediaUrl) out.image_url = String(pick.mediaUrl).trim();
-    }
-    return out;
+    return hints;
 }
 
 async function ensureKumuduSchema(pool) {
@@ -896,6 +900,11 @@ function serializeLink(row, origin) {
             catalogue_creation: uniqueKeys(flattenPayloadKeys(sampleCatalogue)),
             product_creation: uniqueKeys(flattenPayloadKeys(sampleProduct)),
             stock: uniqueKeys(flattenPayloadKeys(sampleStock)),
+        },
+        mapping_hints: {
+            catalogue_creation: buildMappingHints('catalogue_creation', sampleCatalogue),
+            product_creation: buildMappingHints('product_creation', sampleProduct),
+            stock: buildMappingHints('stock', sampleStock),
         },
         last_catalogue_at: row.last_catalogue_at,
         last_product_at: row.last_product_at,
@@ -1292,8 +1301,7 @@ async function createProductFromMapped(upsertDeps, resellerUserId, mapped) {
 }
 
 async function processRecord(deps, { endpoint, mapping, record, body, resellerUserId }) {
-    let mapped = applyMapping(mapping, record, body);
-    mapped = enrichMappedForEndpoint(endpoint, record, mapped);
+    const mapped = applyMapping(mapping, record, body, { strict: true });
     if (!Object.keys(mapped).length) {
         return { action: 'skipped', reason: 'no_mapped_values' };
     }
@@ -1898,10 +1906,14 @@ function registerResellerKumuduLinkRoutes(app, deps) {
             const keys = uniqueKeys(flattenPayloadKeys(payload));
             const mapping = mappingForEndpoint(link, endpoint);
             const suggested = { ...mapping.map };
+            const recordKeys =
+                extractRecords(payload).length > 0
+                    ? uniqueKeys(flattenPayloadKeys(extractRecords(payload)[0]))
+                    : keys;
             for (const kc of mapping.selected) {
                 if (!suggested[kc]) {
-                    const guess = suggestPathForField(kc, keys);
-                    if (guess) suggested[kc] = guess;
+                    const guess = suggestPathForField(kc, recordKeys);
+                    if (guess) suggested[kc] = stripRecordRootPrefix(guess, payload);
                 }
             }
             await query(
@@ -1915,9 +1927,51 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 endpoint,
                 detected_keys: keys,
                 suggested_map: suggested,
+                mapping_hints: buildMappingHints(endpoint, payload),
             });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message || 'Failed to save sample' });
+        }
+    });
+
+    app.delete('/api/reseller/kumudu-link/events/:eventId', checkAuth, async (req, res) => {
+        try {
+            const user = await assertKumuduAccess(query, req.user.id);
+            const eventId = parseInt(String(req.params.eventId), 10);
+            if (!Number.isFinite(eventId) || eventId < 1) {
+                return res.status(400).json({ error: 'Invalid event id' });
+            }
+            const deleted = await query(
+                `DELETE FROM reseller_kumudu_events
+                 WHERE id = $1 AND reseller_user_id = $2
+                 RETURNING id`,
+                [eventId, user.id],
+            );
+            if (!deleted[0]) return res.status(404).json({ error: 'Call log not found' });
+            res.json({ ok: true, deleted_id: eventId });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message || 'Failed to delete call log' });
+        }
+    });
+
+    app.delete('/api/reseller/kumudu-link/events', checkAuth, async (req, res) => {
+        try {
+            const user = await assertKumuduAccess(query, req.user.id);
+            const endpoint = req.query?.endpoint ? normalizeEndpointParam(String(req.query.endpoint)) : null;
+            if (endpoint && !ENDPOINT_IDS.includes(endpoint)) {
+                return res.status(400).json({ error: 'Invalid endpoint filter' });
+            }
+            const removed = endpoint
+                ? await query(
+                      `DELETE FROM reseller_kumudu_events WHERE reseller_user_id = $1 AND endpoint = $2 RETURNING id`,
+                      [user.id, endpoint],
+                  )
+                : await query(`DELETE FROM reseller_kumudu_events WHERE reseller_user_id = $1 RETURNING id`, [
+                      user.id,
+                  ]);
+            res.json({ ok: true, deleted_count: removed.length });
+        } catch (e) {
+            res.status(e.status || 500).json({ error: e.message || 'Failed to clear call logs' });
         }
     });
 

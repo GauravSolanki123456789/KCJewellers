@@ -11,6 +11,7 @@ import {
   Link2,
   Loader2,
   RefreshCw,
+  Trash2,
 } from 'lucide-react'
 import axios from '@/lib/axios'
 import { useAuth } from '@/hooks/useAuth'
@@ -58,6 +59,7 @@ type KumuduLinkPayload = {
   product_mapping: MappingState
   stock_mapping: MappingState
   detected_keys: Record<EndpointId, string[]>
+  mapping_hints?: Record<EndpointId, Record<string, string>>
   events: KumuduEvent[]
   error?: string
 }
@@ -101,6 +103,8 @@ export default function KumuduStockLinkPageClient() {
   const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [busySample, setBusySample] = useState(false)
+  const [pendingSuggestions, setPendingSuggestions] = useState<Record<string, string>>({})
+  const [deletingEventId, setDeletingEventId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -168,6 +172,7 @@ export default function KumuduStockLinkPageClient() {
 
   const currentMap = maps[tab]
   const detected = data?.detected_keys?.[tab] || []
+  const hints = data?.mapping_hints?.[tab] || {}
   const endpointUrl = data?.endpoints?.[tab] || ''
   const endpointDef = TAB_META.find((t) => t.id === tab)
 
@@ -226,6 +231,55 @@ export default function KumuduStockLinkPageClient() {
       }
     })
 
+  const applySuggestions = (overwrite: boolean) => {
+    const src = { ...hints, ...pendingSuggestions }
+    const nextMap = { ...currentMap.map }
+    for (const [kc, path] of Object.entries(src)) {
+      if (!path) continue
+      if (overwrite || !String(nextMap[kc] || '').trim()) {
+        nextMap[kc] = path
+      }
+    }
+    setCurrentMap({ ...currentMap, map: nextMap })
+    setSuccess('Suggestions filled in the form. Review each path, then click Save mappings.')
+    setPendingSuggestions({})
+  }
+
+  const deleteEvent = async (eventId: number) => {
+    if (!window.confirm('Remove this call from Recent Kumudu calls? This cannot be undone.')) return
+    setDeletingEventId(eventId)
+    setError(null)
+    try {
+      await axios.delete(`/api/reseller/kumudu-link/events/${eventId}`, { withCredentials: true })
+      setData((d) => (d ? { ...d, events: (d.events || []).filter((e) => e.id !== eventId) } : d))
+    } catch (e: unknown) {
+      setError(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not delete this call.',
+      )
+    } finally {
+      setDeletingEventId(null)
+    }
+  }
+
+  const clearAllEvents = async () => {
+    if (!window.confirm('Clear all Recent Kumudu calls for your shop?')) return
+    try {
+      await axios.delete('/api/reseller/kumudu-link/events', { withCredentials: true })
+      setData((d) => (d ? { ...d, events: [] } : d))
+    } catch (e: unknown) {
+      setError(
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Could not clear call history.',
+      )
+    }
+  }
+
+  const useEventPayloadAsSample = (payload: unknown) => {
+    setSampleText(JSON.stringify(payload, null, 2))
+    setSuccess('JSON copied into the sample box. Click Detect fields & preview for path suggestions.')
+  }
+
   const handleSample = async () => {
     setBusySample(true)
     setError(null)
@@ -245,17 +299,15 @@ export default function KumuduStockLinkPageClient() {
       const sampleRes = await axios.post<{
         detected_keys: string[]
         suggested_map: Record<string, string>
+        mapping_hints?: Record<string, string>
       }>(
         '/api/reseller/kumudu-link/sample',
         { endpoint: tab, payload },
         { withCredentials: true },
       )
-      const suggested = sampleRes.data.suggested_map || {}
-      const nextMap = {
-        ...currentMap,
-        map: { ...suggested, ...currentMap.map },
-      }
-      setCurrentMap(nextMap)
+      const suggested =
+        sampleRes.data.mapping_hints || sampleRes.data.suggested_map || {}
+      setPendingSuggestions(suggested)
       setData((d) =>
         d
           ? {
@@ -264,20 +316,37 @@ export default function KumuduStockLinkPageClient() {
                 ...d.detected_keys,
                 [tab]: sampleRes.data.detected_keys || d.detected_keys[tab],
               },
+              mapping_hints: {
+                ...(d.mapping_hints || {
+                  catalogue_creation: {},
+                  product_creation: {},
+                  stock: {},
+                }),
+                [tab]: suggested,
+              },
             }
           : d,
       )
+      const previewMap: MappingState = {
+        ...currentMap,
+        map: { ...currentMap.map },
+      }
+      for (const [kc, path] of Object.entries(suggested)) {
+        if (path && !String(previewMap.map[kc] || '').trim()) previewMap.map[kc] = path
+      }
       const prev = await axios.post<{ preview: Record<string, unknown>[] }>(
         '/api/reseller/kumudu-link/preview',
         {
           endpoint: tab,
           payload,
-          mapping: nextMap,
+          mapping: previewMap,
         },
         { withCredentials: true },
       )
       setPreview(prev.data.preview || [])
-      setSuccess('Sample stored. Suggested Kumudu field names are filled where they matched.')
+      setSuccess(
+        'Sample stored. Use “Apply suggestions” below or tap “Use suggestion” on each field, then Save mappings.',
+      )
     } catch (e: unknown) {
       setError(
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
@@ -517,6 +586,7 @@ export default function KumuduStockLinkPageClient() {
                 setTab(t.id)
                 setPreview(null)
                 setFieldQuery('')
+                setPendingSuggestions({})
               }}
               className={`min-h-[44px] rounded-xl text-xs font-semibold sm:text-sm ${
                 tab === t.id
@@ -629,6 +699,21 @@ export default function KumuduStockLinkPageClient() {
                               placeholder="Kumudu field path, e.g. data.StyleCode"
                               className="min-h-[40px] w-full rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-2.5 font-mono text-xs text-[var(--color-jewelry-black,#1a1814)]"
                             />
+                            {(() => {
+                              const suggestion =
+                                pendingSuggestions[f.key] || hints[f.key] || ''
+                              const current = String(currentMap.map[f.key] || '').trim()
+                              if (!suggestion || current === suggestion) return null
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setPath(f.key, suggestion)}
+                                  className="mt-1.5 text-left text-[11px] font-medium text-[var(--kc-accent,#c41e3a)] underline"
+                                >
+                                  Use suggestion: <span className="font-mono">{suggestion}</span>
+                                </button>
+                              )
+                            })()}
                           </div>
                         ) : null}
                       </div>
@@ -664,6 +749,27 @@ export default function KumuduStockLinkPageClient() {
               {busySample ? <Loader2 className="size-4 animate-spin" /> : null}
               Detect fields &amp; preview
             </button>
+            {Object.keys({ ...hints, ...pendingSuggestions }).length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applySuggestions(false)}
+                  className="min-h-[40px] rounded-full border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+                >
+                  Apply suggestions (empty fields only)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applySuggestions(true)}
+                  className="min-h-[40px] rounded-full border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+                >
+                  Apply all suggestions
+                </button>
+              </div>
+            ) : null}
+            <p className="mt-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/60">
+              Kumudu live POSTs use only paths you save below — nothing is auto-mapped on the server until then.
+            </p>
           </div>
 
           {preview ? (
@@ -691,18 +797,42 @@ export default function KumuduStockLinkPageClient() {
 
         {data?.events?.length ? (
           <section className="kc-profile-card rounded-2xl p-4">
-            <p className="mb-3 text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              Recent Kumudu calls
-            </p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                Recent Kumudu calls
+              </p>
+              <button
+                type="button"
+                onClick={() => void clearAllEvents()}
+                className="min-h-[40px] rounded-full border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+              >
+                Clear all
+              </button>
+            </div>
             <ul className="space-y-2">
               {data.events.map((ev) => (
                 <li
                   key={ev.id}
                   className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 py-2"
                 >
-                  <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                    {ev.endpoint} · {ev.status}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+                      {ev.endpoint} · {ev.status}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={deletingEventId === ev.id}
+                      onClick={() => void deleteEvent(ev.id)}
+                      className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]/70"
+                      aria-label="Delete this call"
+                    >
+                      {deletingEventId === ev.id ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                    </button>
+                  </div>
                   {ev.summary ? (
                     <p className="mt-0.5 text-xs text-[var(--color-jewelry-black,#1a1814)]/60">{ev.summary}</p>
                   ) : null}
@@ -717,6 +847,13 @@ export default function KumuduStockLinkPageClient() {
                       <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-2 font-mono text-[10px] text-[var(--color-jewelry-black,#1a1814)]">
                         {JSON.stringify(ev.payload, null, 2)}
                       </pre>
+                      <button
+                        type="button"
+                        onClick={() => useEventPayloadAsSample(ev.payload)}
+                        className="mt-2 text-[11px] font-medium text-[var(--kc-accent,#c41e3a)] underline"
+                      >
+                        Use this JSON for mapping
+                      </button>
                     </details>
                   ) : null}
                 </li>
