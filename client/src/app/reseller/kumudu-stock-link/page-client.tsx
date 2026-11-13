@@ -788,7 +788,9 @@ export default function KumuduStockLinkPageClient() {
               <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
                 Send <span className="font-mono">catalogue_sync_id</span> from catalogue response (read automatically
                 even if unchecked). ERP rows: <span className="font-mono">Shortcode</span> → SKU subcategory,{' '}
-                <span className="font-mono">Design</span> → product name + web SKU (barcode auto if not mapped). Cloud
+                <span className="font-mono">Design</span> → product name; web piece SKU auto ={' '}
+                <span className="font-mono">shortcode-design</span> (e.g. bingle-haram-just-a-haram). Many designs under
+                one subcategory each create a new product. Cloud
                 rows: map <span className="font-mono">catalogue</span>, <span className="font-mono">sku</span>,{' '}
                 <span className="font-mono">name</span>. Style comes from the linked catalogue (e.g. Jingle). Stock uses{' '}
                 <span className="font-mono">product_sync_id</span>.

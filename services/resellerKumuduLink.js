@@ -653,22 +653,33 @@ function enrichKumuduConnectionFields(record, mapped, endpoint) {
     if (kRef && !mapped.kumudu_catalogue_ref) mapped.kumudu_catalogue_ref = kRef;
 }
 
-/** ERP rows: Design = piece name/SKU; Shortcode = subcategory when barcode is not mapped. */
+/** Web piece SKU stem: subcategory slug + product name slug (e.g. bingle-haram-just-a-haram). */
+function kumuduCompositeBarcode(mapped, record) {
+    const shortcode =
+        String(mapped.sku || '').trim() ||
+        pickErpScalar(record, 'Shortcode', 'shortcode', 'SKU', 'Sku');
+    const design =
+        String(mapped.product_name || '').trim() ||
+        pickErpScalar(record, 'Design', 'design', 'name', 'Name');
+    const cloudSku = pickErpScalar(record, 'sku', 'Sku');
+    if (!mapped.product_name && design) mapped.product_name = design;
+    if (shortcode && !mapped.sku) mapped.sku = shortcode;
+
+    if (shortcode && design && trimCmp(shortcode) !== trimCmp(design)) {
+        return `${slugPart(shortcode)}-${slugPart(design)}`;
+    }
+    if (design) return slugPart(design);
+    if (cloudSku && design) return `${slugPart(cloudSku)}-${slugPart(design)}`;
+    if (cloudSku) return slugPart(cloudSku);
+    if (shortcode) return slugPart(shortcode);
+    return '';
+}
+
+/** ERP rows: Shortcode = subcategory SKU; Design = product name; barcode = subcategory-product slug. */
 function applyKumuduProductBarcodeFallback(record, mapped) {
     if (String(mapped.barcode || '').trim()) return;
-    const shortcode = pickErpScalar(record, 'Shortcode', 'shortcode', 'SKU', 'Sku');
-    const design = pickErpScalar(record, 'Design', 'design', 'name', 'Name');
-    const cloudSku = pickErpScalar(record, 'sku', 'Sku');
-    if (design) {
-        mapped.barcode = design;
-        if (!mapped.product_name) mapped.product_name = design;
-    } else if (cloudSku) {
-        mapped.barcode = cloudSku;
-        if (!mapped.product_name) mapped.product_name = cloudSku;
-    } else if (shortcode) {
-        mapped.barcode = shortcode;
-    }
-    if (shortcode && !mapped.sku) mapped.sku = shortcode;
+    const composite = kumuduCompositeBarcode(mapped, record);
+    if (composite) mapped.barcode = composite;
 }
 
 async function applyCataloguePlacementToMapped(query, mapped, placement) {
@@ -1389,15 +1400,18 @@ function trimCmp(a) {
         .toLowerCase();
 }
 
-async function findExistingProduct(query, resellerUserId, mapped) {
+async function findExistingProduct(query, resellerUserId, mapped, options = {}) {
+    const allowSubcategoryOnly = !!options.allowSubcategoryOnlyMatch;
     const barcode = String(mapped.barcode || '').trim();
+    const barcodeSlug = barcode ? slugPart(barcode) : '';
     const name = String(mapped.product_name || '').trim();
     const style = String(mapped.style_code || '').trim();
     const sku = String(mapped.sku || '').trim();
     const metal = normalizeMetalType(mapped.metal_type || '');
 
-    if (barcode) {
-        const bySku = await query(
+    const matchBarcode = async (needle) => {
+        if (!needle) return null;
+        const rows = await query(
             `SELECT wp.*, ws.name AS subcategory_name, wc.name AS style_name
              FROM web_products wp
              LEFT JOIN web_subcategories ws ON ws.id = wp.subcategory_id
@@ -1405,14 +1419,24 @@ async function findExistingProduct(query, resellerUserId, mapped) {
              WHERE wp.submitted_by_user_id = $1
                AND (
                     LOWER(TRIM(wp.sku)) = LOWER($2)
+                 OR LOWER(REPLACE(TRIM(wp.sku), '_', '-')) = LOWER(REPLACE($2, '_', '-'))
                  OR LOWER(TRIM(COALESCE(wp.barcode, ''))) = LOWER($2)
+                 OR LOWER(REPLACE(TRIM(COALESCE(wp.barcode, '')), '_', '-')) = LOWER(REPLACE($2, '_', '-'))
                )
              ORDER BY wp.updated_at DESC NULLS LAST
              LIMIT 1`,
-            [resellerUserId, barcode],
+            [resellerUserId, needle],
         );
-        if (bySku[0]) return bySku[0];
+        return rows[0] || null;
+    };
+
+    if (barcodeSlug) {
+        const hit = (await matchBarcode(barcodeSlug)) || (barcode !== barcodeSlug ? await matchBarcode(barcode) : null);
+        if (hit) return hit;
+        if (!allowSubcategoryOnly) return null;
     }
+
+    if (!name && !barcode && !(style && sku)) return null;
 
     const loose = await query(
         `SELECT wp.*, ws.name AS subcategory_name, wc.name AS style_name
@@ -1427,7 +1451,8 @@ async function findExistingProduct(query, resellerUserId, mapped) {
 
     const scoreRow = (row) => {
         let s = 0;
-        if (barcode && (trimCmp(row.sku) === trimCmp(barcode) || trimCmp(row.barcode) === trimCmp(barcode))) s += 50;
+        if (barcodeSlug && (trimCmp(row.sku) === trimCmp(barcodeSlug) || trimCmp(row.barcode) === trimCmp(barcodeSlug)))
+            s += 50;
         if (style && trimCmp(row.style_name) === trimCmp(style)) s += 12;
         if (sku && trimCmp(row.subcategory_name) === trimCmp(sku)) s += 12;
         if (name && trimCmp(row.name) === trimCmp(name)) s += 10;
@@ -1446,8 +1471,18 @@ async function findExistingProduct(query, resellerUserId, mapped) {
             bestScore = s;
         }
     }
-    const need = (barcode ? 50 : 0) + (style && sku ? 20 : name && style ? 18 : 16);
-    if (best && bestScore >= Math.min(need, 16)) return best;
+
+    if (allowSubcategoryOnly) {
+        const need = style && sku ? 20 : name && style ? 18 : 16;
+        if (best && bestScore >= Math.min(need, 16)) return best;
+        return null;
+    }
+
+    if (name && style && sku) {
+        if (best && bestScore >= 34 && trimCmp(best.name) === trimCmp(name)) return best;
+        return null;
+    }
+    if (name && best && trimCmp(best.name) === trimCmp(name) && bestScore >= 10) return best;
     return null;
 }
 
@@ -1601,29 +1636,14 @@ async function patchExistingProduct(query, row, mapped, { uploadsDir, apiBase })
 
 function identityForCreate(mapped) {
     const barcode = String(mapped.barcode || '').trim();
-    const name = String(mapped.product_name || '').trim();
-    const style = String(mapped.style_code || '').trim();
-    const sku = String(mapped.sku || '').trim();
     if (barcode) return barcode;
-    if (name && sku && trimCmp(name) === trimCmp(sku)) {
-        return slugPart(name);
-    }
-    if (name && sku && sku !== 'N/A' && trimCmp(sku) !== trimCmp(name)) {
-        return sku;
+    const name = String(mapped.product_name || '').trim();
+    const sku = String(mapped.sku || '').trim();
+    if (sku && name && trimCmp(sku) !== trimCmp(name) && sku !== 'N/A') {
+        return `${slugPart(sku)}-${slugPart(name)}`;
     }
     if (name) return slugPart(name);
     if (sku && sku !== 'N/A') return slugPart(sku);
-    const bits = [];
-    if (style && trimCmp(style) !== 'uncategorized') bits.push(style);
-    if (sku && sku !== 'N/A') bits.push(sku);
-    if (name && (!sku || trimCmp(name) !== trimCmp(sku))) bits.push(name);
-    if (bits.length >= 1) {
-        return bits
-            .map((b) => slugPart(b))
-            .filter(Boolean)
-            .join('-')
-            .slice(0, 80);
-    }
     return '';
 }
 
@@ -1685,7 +1705,9 @@ async function processRecord(deps, { endpoint, mapping, record, body, resellerUs
             return { action: 'skipped', reason: 'missing_style_code', mapped };
         }
         await grantCategoryToReseller(deps.query, resellerUserId, ensured.catId, mapped.metal_type);
-        const existing = await findExistingProduct(deps.query, resellerUserId, mapped);
+        const existing = await findExistingProduct(deps.query, resellerUserId, mapped, {
+            allowSubcategoryOnlyMatch: true,
+        });
         if (existing && (mapped.quantity != null || mapped.net_weight != null || mapped.image_url)) {
             const patch = await patchExistingProduct(deps.query, existing, mapped, {
                 uploadsDir: deps.uploadsWebProductsDir,
@@ -1761,7 +1783,13 @@ async function processRecord(deps, { endpoint, mapping, record, body, resellerUs
         }
     }
 
-    const existing = await findExistingProduct(deps.query, resellerUserId, mapped);
+    const productLookupOpts =
+        endpoint === 'product_creation'
+            ? { allowSubcategoryOnlyMatch: false }
+            : endpoint === 'catalogue_creation'
+              ? { allowSubcategoryOnlyMatch: true }
+              : {};
+    const existing = await findExistingProduct(deps.query, resellerUserId, mapped, productLookupOpts);
     if (existing) {
         if (mapped.style_code || mapped.sku) {
             const ensured = await ensureStyleAndSku(deps.query, {
