@@ -246,7 +246,12 @@ export default function KumuduStockLinkPageClient() {
   }
 
   const deleteEvent = async (eventId: number) => {
-    if (!window.confirm('Remove this call from Recent Kumudu calls? This cannot be undone.')) return
+    if (
+      !window.confirm(
+        'Remove this call and undo what it created on your catalogue (products, empty styles/SKUs, upload images)? Stock-only updates keep quantity on the product. This cannot be undone.',
+      )
+    )
+      return
     setDeletingEventId(eventId)
     setError(null)
     try {
@@ -263,7 +268,12 @@ export default function KumuduStockLinkPageClient() {
   }
 
   const clearAllEvents = async () => {
-    if (!window.confirm('Clear all Recent Kumudu calls for your shop?')) return
+    if (
+      !window.confirm(
+        'Clear all Recent Kumudu calls and undo each call’s catalogue effects (where safe)? This cannot be undone.',
+      )
+    )
+      return
     try {
       await axios.delete('/api/reseller/kumudu-link/events', { withCredentials: true })
       setData((d) => (d ? { ...d, events: [] } : d))
@@ -835,6 +845,11 @@ export default function KumuduStockLinkPageClient() {
                 Clear all
               </button>
             </div>
+            <p className="mb-3 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/70">
+              Deleting a call also removes products this call created (your shop only), clears disk images when
+              present, and drops empty SKU/style rows. Styles with other live products stay. You can still delete
+              items anytime in Admin → Reseller product uploads.
+            </p>
             <ul className="space-y-2">
               {data.events.map((ev) => (
                 <li

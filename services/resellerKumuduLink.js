@@ -1870,6 +1870,203 @@ function lastAtColumn(endpoint) {
     return 'last_stock_at';
 }
 
+const PRODUCT_MEDIA_IMAGE_EXTS = ['.webp', '.jpg', '.jpeg', '.png'];
+const PRODUCT_MEDIA_VIDEO_EXTS = ['.mp4', '.webm', '.mov'];
+
+function deleteProductMediaOnDisk(uploadsDir, stem) {
+    const s = String(stem || '').trim();
+    if (!s || !uploadsDir || s.includes('..')) return;
+    const pairs = [
+        { suf: '', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_secondary', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_box', exts: PRODUCT_MEDIA_IMAGE_EXTS },
+        { suf: '_video', exts: PRODUCT_MEDIA_VIDEO_EXTS },
+    ];
+    for (const { suf, exts } of pairs) {
+        for (const ext of exts) {
+            const abs = path.join(uploadsDir, `${s}${suf}${ext}`);
+            try {
+                if (fs.existsSync(abs) && fs.statSync(abs).isFile()) fs.unlinkSync(abs);
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+}
+
+function parseEventResultData(result) {
+    if (!result || typeof result !== 'object') return [];
+    const data = result.data;
+    return Array.isArray(data) ? data : [];
+}
+
+async function countResellerProductsInSub(query, resellerUserId, subId) {
+    if (!subId) return 0;
+    const rows = await query(
+        `SELECT COUNT(*)::int AS c FROM web_products
+         WHERE subcategory_id = $1 AND submitted_by_user_id = $2`,
+        [subId, resellerUserId],
+    );
+    return rows[0]?.c || 0;
+}
+
+async function maybeRemoveEmptySubcategory(query, resellerUserId, subId) {
+    if (!subId) return false;
+    const n = await countResellerProductsInSub(query, resellerUserId, subId);
+    if (n > 0) return false;
+    await query('DELETE FROM web_subcategories WHERE id = $1', [subId]);
+    return true;
+}
+
+async function maybeRemoveEmptyCategory(query, resellerUserId, catId) {
+    if (!catId) return false;
+    const subs = await query('SELECT id FROM web_subcategories WHERE category_id = $1', [catId]);
+    if (subs.length) return false;
+    const prods = await query(
+        `SELECT 1 FROM web_products wp
+         INNER JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+         WHERE ws.category_id = $1 AND wp.submitted_by_user_id = $2
+         LIMIT 1`,
+        [catId, resellerUserId],
+    );
+    if (prods.length) return false;
+    await query('DELETE FROM web_categories WHERE id = $1', [catId]);
+    return true;
+}
+
+async function purgeResellerWebProductByRef(query, uploadsDir, resellerUserId, { productId, productSku }) {
+    let skuStem = String(productSku || '').trim();
+    let removedId = null;
+    if (productId) {
+        const rows = await query(
+            `SELECT id, sku FROM web_products WHERE id = $1 AND submitted_by_user_id = $2`,
+            [productId, resellerUserId],
+        );
+        if (rows[0]) {
+            skuStem = rows[0].sku || skuStem;
+            await query('DELETE FROM web_products WHERE id = $1', [rows[0].id]);
+            removedId = rows[0].id;
+        }
+    } else if (skuStem) {
+        const rows = await query(
+            `SELECT id, sku FROM web_products
+             WHERE submitted_by_user_id = $1
+               AND (LOWER(TRIM(sku)) = LOWER($2) OR LOWER(TRIM(COALESCE(barcode, ''))) = LOWER($2))
+             LIMIT 1`,
+            [resellerUserId, skuStem],
+        );
+        if (rows[0]) {
+            skuStem = rows[0].sku || skuStem;
+            await query('DELETE FROM web_products WHERE id = $1', [rows[0].id]);
+            removedId = rows[0].id;
+        }
+    }
+    if (skuStem) {
+        deleteProductMediaOnDisk(uploadsDir, skuStem);
+        await query(
+            `DELETE FROM reseller_product_submissions
+             WHERE submitted_by_user_id = $1
+               AND (
+                    LOWER(TRIM(COALESCE(web_product_sku, ''))) = LOWER($2)
+                 OR LOWER(TRIM(COALESCE(barcode, ''))) = LOWER($2)
+               )`,
+            [resellerUserId, skuStem],
+        );
+    }
+    return { removedId, skuStem };
+}
+
+async function undoKumuduDataRow(query, uploadsDir, resellerUserId, endpoint, row) {
+    const undone = { products: 0, categories: 0, subcategories: 0, sync_records: 0 };
+
+    const syncIds = [row.product_sync_id, row.catalogue_sync_id, row.stock_sync_id].filter(Boolean);
+    for (const sid of syncIds) {
+        const del = await query(
+            `DELETE FROM reseller_kumudu_sync_records WHERE sync_id = $1 AND reseller_user_id = $2 RETURNING id`,
+            [sid, resellerUserId],
+        );
+        undone.sync_records += del.length;
+    }
+
+    if (endpoint === 'product_creation') {
+        const action = String(row.action || row.status || '').toLowerCase();
+        if (action === 'created' || action === 'updated' || row.product_id || row.product_sku) {
+            const pr = await purgeResellerWebProductByRef(query, uploadsDir, resellerUserId, {
+                productId: row.product_id,
+                productSku: row.product_sku,
+            });
+            if (pr.removedId) undone.products += 1;
+            if (row.subcategory_id) {
+                if (await maybeRemoveEmptySubcategory(query, resellerUserId, row.subcategory_id)) {
+                    undone.subcategories += 1;
+                }
+            }
+            if (row.category_id) {
+                if (await maybeRemoveEmptyCategory(query, resellerUserId, row.category_id)) {
+                    undone.categories += 1;
+                }
+            }
+        }
+        return undone;
+    }
+
+    if (endpoint === 'catalogue_creation') {
+        const action = String(row.action || row.status || '').toLowerCase();
+        if (
+            action === 'catalogue_ensured' ||
+            action === 'catalogue_exists' ||
+            action === 'created' ||
+            action === 'exists'
+        ) {
+            if (row.subcategory_id) {
+                const subName = String(row.sku_subcategory || '').trim();
+                const na = isPlaceholderCatalogueSku(subName);
+                const n = await countResellerProductsInSub(query, resellerUserId, row.subcategory_id);
+                if (n === 0 && (na || subName)) {
+                    if (await maybeRemoveEmptySubcategory(query, resellerUserId, row.subcategory_id)) {
+                        undone.subcategories += 1;
+                    }
+                }
+            }
+            if (row.category_id) {
+                if (await maybeRemoveEmptyCategory(query, resellerUserId, row.category_id)) {
+                    undone.categories += 1;
+                }
+            }
+        }
+        return undone;
+    }
+
+    return undone;
+}
+
+async function undoKumuduEventData(query, uploadsDir, resellerUserId, event) {
+    if (!event) return { events: 0, products: 0, categories: 0, subcategories: 0, sync_records: 0 };
+    const summary = { events: 1, products: 0, categories: 0, subcategories: 0, sync_records: 0 };
+    const rows = parseEventResultData(event.result);
+    for (const row of rows) {
+        const u = await undoKumuduDataRow(query, uploadsDir, resellerUserId, event.endpoint, row);
+        summary.products += u.products;
+        summary.categories += u.categories;
+        summary.subcategories += u.subcategories;
+        summary.sync_records += u.sync_records;
+    }
+    const batchId = event.result?.batch_sync_id;
+    if (batchId) {
+        const del = await query(
+            `DELETE FROM reseller_kumudu_sync_records WHERE batch_sync_id = $1 AND reseller_user_id = $2 RETURNING id`,
+            [batchId, resellerUserId],
+        );
+        summary.sync_records += del.length;
+    }
+    return summary;
+}
+
+function parseUndoLogsOnlyFlag(req) {
+    const q = req.query?.logs_only ?? req.query?.logsOnly;
+    return q === '1' || q === 'true';
+}
+
 async function logEvent(query, { resellerUserId, endpoint, status, summary, payload, result }) {
     await query(
         `INSERT INTO reseller_kumudu_events (reseller_user_id, endpoint, status, summary, payload, result)
@@ -2411,6 +2608,21 @@ function registerResellerKumuduLinkRoutes(app, deps) {
             if (!Number.isFinite(eventId) || eventId < 1) {
                 return res.status(400).json({ error: 'Invalid event id' });
             }
+            const logsOnly = parseUndoLogsOnlyFlag(req);
+            const existing = await query(
+                `SELECT id, endpoint, result FROM reseller_kumudu_events WHERE id = $1 AND reseller_user_id = $2`,
+                [eventId, user.id],
+            );
+            if (!existing[0]) return res.status(404).json({ error: 'Call log not found' });
+            let undo = null;
+            if (!logsOnly) {
+                undo = await undoKumuduEventData(
+                    query,
+                    deps.uploadsWebProductsDir,
+                    user.id,
+                    existing[0],
+                );
+            }
             const deleted = await query(
                 `DELETE FROM reseller_kumudu_events
                  WHERE id = $1 AND reseller_user_id = $2
@@ -2418,7 +2630,7 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 [eventId, user.id],
             );
             if (!deleted[0]) return res.status(404).json({ error: 'Call log not found' });
-            res.json({ ok: true, deleted_id: eventId });
+            res.json({ ok: true, deleted_id: eventId, undo: undo || { logs_only: true } });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message || 'Failed to delete call log' });
         }
@@ -2431,6 +2643,23 @@ function registerResellerKumuduLinkRoutes(app, deps) {
             if (endpoint && !ENDPOINT_IDS.includes(endpoint)) {
                 return res.status(400).json({ error: 'Invalid endpoint filter' });
             }
+            const logsOnly = parseUndoLogsOnlyFlag(req);
+            const toUndo = await query(
+                endpoint
+                    ? `SELECT id, endpoint, result FROM reseller_kumudu_events WHERE reseller_user_id = $1 AND endpoint = $2`
+                    : `SELECT id, endpoint, result FROM reseller_kumudu_events WHERE reseller_user_id = $1`,
+                endpoint ? [user.id, endpoint] : [user.id],
+            );
+            const undoTotals = { products: 0, categories: 0, subcategories: 0, sync_records: 0 };
+            if (!logsOnly) {
+                for (const ev of toUndo) {
+                    const u = await undoKumuduEventData(query, deps.uploadsWebProductsDir, user.id, ev);
+                    undoTotals.products += u.products;
+                    undoTotals.categories += u.categories;
+                    undoTotals.subcategories += u.subcategories;
+                    undoTotals.sync_records += u.sync_records;
+                }
+            }
             const removed = endpoint
                 ? await query(
                       `DELETE FROM reseller_kumudu_events WHERE reseller_user_id = $1 AND endpoint = $2 RETURNING id`,
@@ -2439,7 +2668,11 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 : await query(`DELETE FROM reseller_kumudu_events WHERE reseller_user_id = $1 RETURNING id`, [
                       user.id,
                   ]);
-            res.json({ ok: true, deleted_count: removed.length });
+            res.json({
+                ok: true,
+                deleted_count: removed.length,
+                undo: logsOnly ? { logs_only: true } : undoTotals,
+            });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message || 'Failed to clear call logs' });
         }
