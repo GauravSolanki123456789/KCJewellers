@@ -466,12 +466,59 @@ function normalizeMetalType(raw) {
     return s;
 }
 
+const KUMUDU_ITEM_COMBO_DELIM = /\s*[>›/|]\s*/;
+
 function splitStyleCombo(raw) {
     const s = String(raw || '').trim();
     if (!s) return { style_code: '', sku: '' };
-    const parts = s.split(/\s*[>›/|]\s*/).map((x) => x.trim()).filter(Boolean);
+    const parts = s.split(KUMUDU_ITEM_COMBO_DELIM).map((x) => x.trim()).filter(Boolean);
     if (parts.length >= 2) return { style_code: parts[0], sku: parts.slice(1).join(' > ') };
     return { style_code: s, sku: '' };
+}
+
+function comboItemHead(raw) {
+    const s = String(raw || '').trim();
+    if (!s || !KUMUDU_ITEM_COMBO_DELIM.test(s)) return '';
+    return s.split(KUMUDU_ITEM_COMBO_DELIM)[0]?.trim() || '';
+}
+
+/**
+ * Kumudu catalogue Item like "CURB CUT > 3": style = full Item, subcategory SKU = first segment (matches product Shortcode).
+ */
+function applyCatalogueComboItemSemantics(record, mapped) {
+    const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
+    if (!item || !KUMUDU_ITEM_COMBO_DELIM.test(item)) return mapped;
+    const parts = item.split(KUMUDU_ITEM_COMBO_DELIM).map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 2) return mapped;
+    const full = item.trim();
+    const head = parts[0];
+    const shortcode = pickErpScalar(record, 'Shortcode', 'shortcode', 'SHORTCODE');
+    const sku = String(mapped.sku || '').trim();
+    const tail = parts.slice(1).join(' > ');
+
+    mapped.style_code = full;
+    if (shortcode) {
+        mapped.sku = shortcode;
+    } else if (sku && trimCmp(sku) !== trimCmp(full) && trimCmp(sku) !== trimCmp(tail)) {
+        mapped.sku = sku;
+    } else {
+        mapped.sku = head;
+    }
+    return mapped;
+}
+
+function catalogueProductSkuMatches(productSku, link) {
+    const p = String(productSku || '').trim();
+    if (!p) return true;
+    const catSku = String(link?.sku_subcategory || '').trim();
+    const catStyle = String(link?.style_code || '').trim();
+    if (isPlaceholderCatalogueSku(catSku)) return true;
+    if (trimCmp(p) === trimCmp(catSku)) return true;
+    const headSku = comboItemHead(catSku);
+    if (headSku && trimCmp(p) === trimCmp(headSku)) return true;
+    const headStyle = comboItemHead(catStyle);
+    if (headStyle && trimCmp(p) === trimCmp(headStyle)) return true;
+    return false;
 }
 
 function coerceField(kcKey, raw) {
@@ -667,7 +714,9 @@ function applyMapping(mapping, record, body, options = {}) {
         if (val === undefined) continue;
         out[kcKey] = val;
     }
-    if (out.style_code && !out.sku) {
+    if (options.endpoint === 'catalogue_creation') {
+        applyCatalogueComboItemSemantics(record, out);
+    } else if (out.style_code && !out.sku) {
         const split = splitStyleCombo(out.style_code);
         if (split.sku) {
             out.style_code = split.style_code;
@@ -801,9 +850,19 @@ async function applyCataloguePlacementToMapped(query, mapped, placement) {
     if (!placement?.link) return placement;
     mapped.style_code = placement.style_code || placement.link.style_code;
     mapped.catalogue_sync_id = placement.catalogue_sync_id || placement.link.sync_id;
+    const resolvedSku = String(placement.sku || '').trim();
     const linkSku = placement.link.sku_subcategory;
-    if (!isPlaceholderCatalogueSku(linkSku)) {
-        mapped.sku = linkSku;
+    if (resolvedSku && !isPlaceholderCatalogueSku(resolvedSku)) {
+        mapped.sku = resolvedSku;
+    } else if (
+        mapped.sku &&
+        !isPlaceholderCatalogueSku(mapped.sku) &&
+        catalogueProductSkuMatches(mapped.sku, placement.link)
+    ) {
+        /* keep product Shortcode — legacy catalogue rows may have stored full Item as sku_subcategory */
+    } else if (!isPlaceholderCatalogueSku(linkSku)) {
+        const head = comboItemHead(linkSku);
+        mapped.sku = head && catalogueProductSkuMatches(head, placement.link) ? head : linkSku;
     }
     const ensured = await ensureStyleAndSku(query, mapped, { publish: true });
     const next = {
@@ -920,11 +979,18 @@ async function resolveCataloguePlacement(query, resellerUserId, mapped, record) 
         mapped.sku &&
         link.sku_subcategory &&
         !isPlaceholderCatalogueSku(link.sku_subcategory) &&
-        trimCmp(mapped.sku) !== trimCmp(link.sku_subcategory)
+        !catalogueProductSkuMatches(mapped.sku, link)
     ) {
         return { ok: false, error: 'sku does not match the linked catalogue subcategory' };
     }
-    const resolvedSku = isPlaceholderCatalogueSku(link.sku_subcategory) ? mapped.sku : link.sku_subcategory;
+    let resolvedSku = isPlaceholderCatalogueSku(link.sku_subcategory) ? mapped.sku : link.sku_subcategory;
+    if (
+        mapped.sku &&
+        catalogueProductSkuMatches(mapped.sku, link) &&
+        trimCmp(mapped.sku) !== trimCmp(link.sku_subcategory)
+    ) {
+        resolvedSku = mapped.sku;
+    }
     return {
         ok: true,
         link,
