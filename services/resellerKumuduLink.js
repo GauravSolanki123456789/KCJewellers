@@ -519,35 +519,157 @@ function isEmeraldIdolsErpItem(itemRaw) {
     return /^emerald\s+idol(s)?(\s|$)/.test(n) || n === 'emerald idol' || n === 'emerald idols';
 }
 
-/**
- * Kumudu ERP rows: Item / Shortcode / Design semantics depend on the Item family.
- * Pitara* and Air* use fixed style codes with Item as subcategory SKU; Emerald uses Shortcode as SKU.
- */
-function applyErpCatalogueSemantics(record, mapped) {
-    const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
-    if (!item) return mapped;
+function normalizeItemPatternMatch(itemRaw) {
+    return String(itemRaw || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
 
+const DEFAULT_ERP_CONFIG = {
+    shortcode_families: [
+        {
+            id: 'emerald_idols',
+            label: 'Emerald idols',
+            item_pattern: 'emerald idol',
+            style_code: 'EMERALD IDOLS',
+        },
+    ],
+    intelligent: {
+        pitara_style: 'PITARA',
+        air_style: 'AIR COLLECTION',
+        strip_pitara_prefix: true,
+    },
+};
+
+function parseErpConfig(raw) {
+    const base = { ...DEFAULT_ERP_CONFIG, ...(raw && typeof raw === 'object' ? raw : {}) };
+    const families = Array.isArray(base.shortcode_families) ? base.shortcode_families : DEFAULT_ERP_CONFIG.shortcode_families;
+    base.shortcode_families = families
+        .map((f) => ({
+            id: String(f.id || '').trim() || `family_${crypto.randomBytes(3).toString('hex')}`,
+            label: String(f.label || f.id || 'Family').trim(),
+            item_pattern: String(f.item_pattern || '').trim().toLowerCase(),
+            style_code: String(f.style_code || '').trim() || null,
+        }))
+        .filter((f) => f.item_pattern);
+    base.intelligent = { ...DEFAULT_ERP_CONFIG.intelligent, ...(base.intelligent || {}) };
+    return base;
+}
+
+function normalizeFamilyMappings(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    for (const [familyId, perEp] of Object.entries(raw)) {
+        if (!perEp || typeof perEp !== 'object') continue;
+        out[familyId] = {};
+        for (const ep of ENDPOINT_IDS) {
+            if (perEp[ep]) out[familyId][ep] = normalizeMapping(perEp[ep], ep);
+        }
+    }
+    return out;
+}
+
+function pitaraSubcategoryFromItem(itemRaw, stripPrefix = true) {
+    const t = String(itemRaw || '').trim();
+    if (!stripPrefix) return t;
+    const m = t.match(/^pitara\s+(.+)$/i);
+    return m ? m[1].trim() : t;
+}
+
+function detectShortcodeFamily(record, erpConfig) {
+    const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
+    if (!item) return null;
+    const norm = normalizeItemPatternMatch(item);
+    for (const fam of erpConfig.shortcode_families || []) {
+        const pat = String(fam.item_pattern || '').trim().toLowerCase();
+        if (pat && norm.includes(pat)) return fam.id;
+    }
+    return null;
+}
+
+function resolveMappingForRecord(linkRow, endpoint, record) {
+    const erpConfig = parseErpConfig(linkRow.erp_config);
+    const familyId = detectShortcodeFamily(record, erpConfig);
+    const families = normalizeFamilyMappings(linkRow.family_mappings);
+    if (familyId && families[familyId]?.[endpoint]?.selected?.length) {
+        return { mapping: families[familyId][endpoint], familyId, erpConfig };
+    }
+    return { mapping: mappingForEndpoint(linkRow, endpoint), familyId: null, erpConfig };
+}
+
+function applyShortcodeFamilySemantics(record, mapped, familyId, erpConfig) {
+    const out = { ...mapped };
+    const fam = (erpConfig.shortcode_families || []).find((f) => f.id === familyId);
+    const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
     const shortcode = pickErpScalar(record, 'Shortcode', 'shortcode', 'SHORTCODE');
     const design = pickErpScalar(record, 'Design', 'design', 'DESIGN');
+
+    if (fam?.style_code) out.style_code = fam.style_code;
+    else if (isEmeraldIdolsErpItem(item)) out.style_code = 'EMERALD IDOLS';
+
+    if (shortcode) out.sku = shortcode;
+    if (design) out.product_name = design;
+    return out;
+}
+
+/**
+ * Pitara / Air / custom: style from Item prefix; SKU = Item (Air) or text after PITARA (BANGLE, FLEXI KADA…).
+ */
+function applyIntelligentFamilySemantics(record, mapped, endpoint, erpConfig) {
+    const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
+    const design = pickErpScalar(record, 'Design', 'design', 'DESIGN', 'name', 'Name');
     const out = { ...mapped };
+    const intel = erpConfig.intelligent || DEFAULT_ERP_CONFIG.intelligent;
     const fw = erpItemFirstWord(item);
 
-    if (isEmeraldIdolsErpItem(item)) {
-        out.style_code = 'EMERALD IDOLS';
-        if (shortcode) out.sku = shortcode;
-        else if (out.sku && trimCmp(out.sku) === trimCmp(item)) delete out.sku;
-        if (design) out.product_name = design;
-    } else if (fw === 'pitara') {
-        out.style_code = 'PITARA';
-        out.sku = item;
-        if (design) out.product_name = design;
-    } else if (fw === 'air') {
-        out.style_code = 'AIR COLLECTION';
-        out.sku = item;
-        if (design) out.product_name = design;
+    if (item) {
+        if (fw === 'pitara') {
+            if (!out.style_code) out.style_code = intel.pitara_style || 'PITARA';
+            if (!out.sku) {
+                out.sku = intel.strip_pitara_prefix !== false ? pitaraSubcategoryFromItem(item) : item;
+            }
+        } else if (fw === 'air') {
+            if (!out.style_code) out.style_code = intel.air_style || 'AIR COLLECTION';
+            if (!out.sku) out.sku = item;
+        }
+    }
+
+    if (endpoint === 'product_creation' || endpoint === 'stock') {
+        const prodItem = pickErpScalar(record, 'Item', 'item');
+        if (prodItem && !out.sku) {
+            if (erpItemFirstWord(prodItem) === 'pitara') {
+                out.sku =
+                    intel.strip_pitara_prefix !== false
+                        ? pitaraSubcategoryFromItem(prodItem)
+                        : prodItem;
+            } else if (erpItemFirstWord(prodItem) === 'air') {
+                out.sku = prodItem;
+            } else {
+                out.sku = prodItem;
+            }
+        }
+        if (design && !out.product_name) out.product_name = design;
+    } else if (design && !out.product_name) {
+        out.product_name = design;
     }
 
     return out;
+}
+
+function applyPostMappingSemantics(record, mapped, options = {}) {
+    const { endpoint, familyId, erpConfig } = options;
+    if (familyId) return applyShortcodeFamilySemantics(record, mapped, familyId, erpConfig);
+    return applyIntelligentFamilySemantics(record, mapped, endpoint, erpConfig);
+}
+
+function applyStockQuantityRules(mapped) {
+    if (mapped.quantity == null) return mapped;
+    const q = mapped.quantity;
+    if (q === 0) mapped.make_to_order_only = true;
+    else if (q > 0) mapped.make_to_order_only = false;
+    return mapped;
 }
 
 function applyMapping(mapping, record, body, options = {}) {
@@ -566,10 +688,13 @@ function applyMapping(mapping, record, body, options = {}) {
             out.sku = split.sku;
         }
     }
-    if (options.endpoint === 'catalogue_creation') {
-        return applyErpCatalogueSemantics(record, out);
-    }
-    return out;
+    let next = applyPostMappingSemantics(record, out, {
+        endpoint: options.endpoint,
+        familyId: options.familyId || null,
+        erpConfig: options.erpConfig || parseErpConfig(null),
+    });
+    if (options.endpoint === 'stock') next = applyStockQuantityRules(next);
+    return next;
 }
 
 const KUMUDU_STATIC_HINTS = {
@@ -675,9 +800,17 @@ function kumuduCompositeBarcode(mapped, record) {
     return '';
 }
 
-/** ERP rows: Shortcode = subcategory SKU; Design = product name; barcode = subcategory-product slug. */
-function applyKumuduProductBarcodeFallback(record, mapped) {
+/** Shortcode families: subcategory-design slug; intelligent: pitara/air subcategory + design. */
+function applyKumuduProductBarcodeFallback(record, mapped, familyId) {
     if (String(mapped.barcode || '').trim()) return;
+    if (!familyId) {
+        const item = pickErpScalar(record, 'Item', 'item');
+        if (item && !mapped.sku) {
+            const fw = erpItemFirstWord(item);
+            if (fw === 'pitara') mapped.sku = pitaraSubcategoryFromItem(item);
+            else if (fw === 'air') mapped.sku = item;
+        }
+    }
     const composite = kumuduCompositeBarcode(mapped, record);
     if (composite) mapped.barcode = composite;
 }
@@ -917,6 +1050,14 @@ async function ensureKumuduSchema(pool) {
     await pool.query(`
         ALTER TABLE reseller_kumudu_sync_records
             ADD COLUMN IF NOT EXISTS kumudu_catalogue_ref VARCHAR(128)
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_kumudu_link
+            ADD COLUMN IF NOT EXISTS family_mappings JSONB NOT NULL DEFAULT '{}'::jsonb
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_kumudu_link
+            ADD COLUMN IF NOT EXISTS erp_config JSONB NOT NULL DEFAULT '{}'::jsonb
     `);
     await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_reseller_kumudu_sync_kumudu_cat
@@ -1279,6 +1420,8 @@ function serializeLink(row, origin) {
         last_catalogue_at: row.last_catalogue_at,
         last_product_at: row.last_product_at,
         last_stock_at: row.last_stock_at,
+        erp_config: parseErpConfig(row.erp_config),
+        family_mappings: normalizeFamilyMappings(row.family_mappings),
     };
 }
 
@@ -1687,8 +1830,9 @@ async function createProductFromMapped(upsertDeps, resellerUserId, mapped) {
     };
 }
 
-async function processRecord(deps, { endpoint, mapping, record, body, resellerUserId }) {
-    const mapped = applyMapping(mapping, record, body, { strict: true, endpoint });
+async function processRecord(deps, { endpoint, linkRow, record, body, resellerUserId }) {
+    const { mapping, familyId, erpConfig } = resolveMappingForRecord(linkRow, endpoint, record);
+    const mapped = applyMapping(mapping, record, body, { strict: true, endpoint, familyId, erpConfig });
     if (!Object.keys(mapped).length) {
         return { action: 'skipped', reason: 'no_mapped_values' };
     }
@@ -1696,7 +1840,7 @@ async function processRecord(deps, { endpoint, mapping, record, body, resellerUs
         enrichKumuduConnectionFields(record, mapped, endpoint);
     }
     if (endpoint === 'product_creation') {
-        applyKumuduProductBarcodeFallback(record, mapped);
+        applyKumuduProductBarcodeFallback(record, mapped, familyId);
     }
 
     if (endpoint === 'catalogue_creation') {
@@ -1856,6 +2000,12 @@ function mappingForEndpoint(linkRow, endpoint) {
     if (endpoint === 'catalogue_creation') return normalizeMapping(linkRow.catalogue_mapping, endpoint);
     if (endpoint === 'product_creation') return normalizeMapping(linkRow.product_mapping, endpoint);
     return normalizeMapping(linkRow.stock_mapping, endpoint);
+}
+
+function linkHasMappingForEndpoint(linkRow, endpoint) {
+    if (mappingForEndpoint(linkRow, endpoint).selected.length) return true;
+    const fam = normalizeFamilyMappings(linkRow.family_mappings);
+    return Object.values(fam).some((per) => per[endpoint]?.selected?.length);
 }
 
 function sampleColumn(endpoint) {
@@ -2300,7 +2450,6 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
     }
 
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const mapping = mappingForEndpoint(link, endpoint);
     const records = extractRecords(body);
 
     await deps.query(
@@ -2312,7 +2461,7 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
         [link.id, JSON.stringify(body)],
     );
 
-    if (!mapping.selected.length) {
+    if (!linkHasMappingForEndpoint(link, endpoint)) {
         await logEvent(deps.query, {
             resellerUserId: link.reseller_user_id,
             endpoint,
@@ -2339,7 +2488,7 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
         try {
             const one = await processRecord(deps, {
                 endpoint,
-                mapping,
+                linkRow: link,
                 record,
                 body,
                 resellerUserId: link.reseller_user_id,
@@ -2502,6 +2651,10 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 'product_creation',
             );
             const stock_mapping = normalizeMapping(body.stock_mapping || body.mappings?.stock, 'stock');
+            const family_mappings = normalizeFamilyMappings(
+                body.family_mappings || body.familyMappings,
+            );
+            const erp_config = parseErpConfig(body.erp_config || body.erpConfig);
             const storeId =
                 body.store_id !== undefined ? String(body.store_id || '').trim().slice(0, 128) : link.store_id;
             let inboundKey = link.inbound_key;
@@ -2515,6 +2668,8 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                      catalogue_mapping = $4::jsonb,
                      product_mapping = $5::jsonb,
                      stock_mapping = $6::jsonb,
+                     family_mappings = $7::jsonb,
+                     erp_config = $8::jsonb,
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1
                  RETURNING *`,
@@ -2525,6 +2680,8 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                     JSON.stringify(catalogue_mapping),
                     JSON.stringify(product_mapping),
                     JSON.stringify(stock_mapping),
+                    JSON.stringify(family_mappings),
+                    JSON.stringify(erp_config),
                 ],
             );
             res.json({ ok: true, ...serializeLink(updated[0], origin()) });
@@ -2694,14 +2851,20 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                     return res.status(400).json({ error: 'Payload must be valid JSON' });
                 }
             }
-            const mapping = req.body?.mapping
-                ? normalizeMapping(req.body.mapping, endpoint)
-                : mappingForEndpoint(link, endpoint);
             const body = payload && typeof payload === 'object' ? payload : {};
             const records = extractRecords(body);
-            const preview = records
-                .slice(0, 20)
-                .map((record) => applyMapping(mapping, record, body, { endpoint }));
+            const preview = records.slice(0, 20).map((record) => {
+                const resolved = resolveMappingForRecord(link, endpoint, record);
+                const mapping = req.body?.mapping
+                    ? normalizeMapping(req.body.mapping, endpoint)
+                    : resolved.mapping;
+                return applyMapping(mapping, record, body, {
+                    strict: false,
+                    endpoint,
+                    familyId: resolved.familyId,
+                    erpConfig: resolved.erpConfig,
+                });
+            });
             res.json({ ok: true, count: records.length, preview, detected_keys: uniqueKeys(flattenPayloadKeys(body)) });
         } catch (e) {
             res.status(e.status || 500).json({ error: e.message || 'Preview failed' });

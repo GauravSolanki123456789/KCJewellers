@@ -34,6 +34,20 @@ type MappingState = {
   map: Record<string, string>
 }
 
+type ShortcodeFamily = {
+  id: string
+  label: string
+  item_pattern: string
+  style_code?: string | null
+}
+
+type ErpConfig = {
+  shortcode_families: ShortcodeFamily[]
+  intelligent: { pitara_style: string; air_style: string; strip_pitara_prefix?: boolean }
+}
+
+type FamilyMappings = Record<string, Partial<Record<EndpointId, MappingState>>>
+
 type KumuduEvent = {
   id: number
   endpoint: string
@@ -58,6 +72,8 @@ type KumuduLinkPayload = {
   catalogue_mapping: MappingState
   product_mapping: MappingState
   stock_mapping: MappingState
+  erp_config?: ErpConfig
+  family_mappings?: FamilyMappings
   detected_keys: Record<EndpointId, string[]>
   mapping_hints?: Record<EndpointId, Record<string, string>>
   events: KumuduEvent[]
@@ -105,6 +121,14 @@ export default function KumuduStockLinkPageClient() {
   const [busySample, setBusySample] = useState(false)
   const [pendingSuggestions, setPendingSuggestions] = useState<Record<string, string>>({})
   const [deletingEventId, setDeletingEventId] = useState<number | null>(null)
+  const [mappingProfile, setMappingProfile] = useState<string>('intelligent')
+  const [familyMaps, setFamilyMaps] = useState<FamilyMappings>({})
+  const [erpConfig, setErpConfig] = useState<ErpConfig>({
+    shortcode_families: [
+      { id: 'emerald_idols', label: 'Emerald idols', item_pattern: 'emerald idol', style_code: 'EMERALD IDOLS' },
+    ],
+    intelligent: { pitara_style: 'PITARA', air_style: 'AIR COLLECTION', strip_pitara_prefix: true },
+  })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -122,6 +146,8 @@ export default function KumuduStockLinkPageClient() {
         product_creation: d.product_mapping || EMPTY_MAP,
         stock: d.stock_mapping || EMPTY_MAP,
       })
+      if (d.erp_config) setErpConfig(d.erp_config)
+      if (d.family_mappings) setFamilyMaps(d.family_mappings)
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { enabled?: boolean; error?: string } } }
       if (err.response?.status === 403 || err.response?.data?.enabled === false) {
@@ -170,14 +196,24 @@ export default function KumuduStockLinkPageClient() {
     return grouped
   }, [fields, fieldQuery])
 
-  const currentMap = maps[tab]
+  const currentMap =
+    mappingProfile === 'intelligent'
+      ? maps[tab]
+      : familyMaps[mappingProfile]?.[tab] || EMPTY_MAP
   const detected = data?.detected_keys?.[tab] || []
   const hints = data?.mapping_hints?.[tab] || {}
   const endpointUrl = data?.endpoints?.[tab] || ''
   const endpointDef = TAB_META.find((t) => t.id === tab)
 
   const setCurrentMap = (next: MappingState) => {
-    setMaps((m) => ({ ...m, [tab]: next }))
+    if (mappingProfile === 'intelligent') {
+      setMaps((m) => ({ ...m, [tab]: next }))
+      return
+    }
+    setFamilyMaps((fm) => ({
+      ...fm,
+      [mappingProfile]: { ...(fm[mappingProfile] || {}), [tab]: next },
+    }))
   }
 
   const toggleField = (key: string) => {
@@ -217,6 +253,8 @@ export default function KumuduStockLinkPageClient() {
             catalogue_mapping: maps.catalogue_creation,
             product_mapping: maps.product_creation,
             stock_mapping: maps.stock,
+            family_mappings: familyMaps,
+            erp_config: erpConfig,
           },
           { withCredentials: true },
         )
@@ -610,8 +648,103 @@ export default function KumuduStockLinkPageClient() {
         </div>
 
         <section className="kc-profile-card mb-4 space-y-3 rounded-2xl p-4">
+          <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Mapping profile</p>
+          <p className="text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/75">
+            Kumudu <span className="font-mono">Item</span> is matched to a shortcode family (e.g. emerald idol). Those
+            rows use the family mapping below. All other rows use{' '}
+            <span className="font-semibold">Intelligent (Pitara / Air / …)</span> — style is chosen automatically;
+            Pitara SKU is the text after PITARA (BANGLE, FLEXI KADA…), Air SKU is the full item (AIR HARAM).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setMappingProfile('intelligent')}
+              className={`min-h-[40px] rounded-full px-3 text-xs font-semibold ${
+                mappingProfile === 'intelligent'
+                  ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                  : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+              }`}
+            >
+              Intelligent (Pitara / Air / …)
+            </button>
+            {erpConfig.shortcode_families.map((fam) => (
+              <button
+                key={fam.id}
+                type="button"
+                onClick={() => setMappingProfile(fam.id)}
+                className={`min-h-[40px] rounded-full px-3 text-xs font-semibold ${
+                  mappingProfile === fam.id
+                    ? 'bg-[var(--kc-accent,#c41e3a)] text-white'
+                    : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)]'
+                }`}
+              >
+                {fam.label}
+              </button>
+            ))}
+          </div>
+          <div className="rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] p-3">
+            <p className="mb-2 text-[11px] font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+              Shortcode families (Item pattern)
+            </p>
+            <ul className="space-y-2">
+              {erpConfig.shortcode_families.map((fam, idx) => (
+                <li key={fam.id} className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={fam.label}
+                    onChange={(e) => {
+                      const next = [...erpConfig.shortcode_families]
+                      next[idx] = { ...fam, label: e.target.value }
+                      setErpConfig({ ...erpConfig, shortcode_families: next })
+                    }}
+                    className="min-h-[36px] min-w-[8rem] flex-1 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 text-xs text-[var(--color-jewelry-black,#1a1814)]"
+                    placeholder="Label"
+                  />
+                  <input
+                    value={fam.item_pattern}
+                    onChange={(e) => {
+                      const next = [...erpConfig.shortcode_families]
+                      next[idx] = { ...fam, item_pattern: e.target.value }
+                      setErpConfig({ ...erpConfig, shortcode_families: next })
+                    }}
+                    className="min-h-[36px] min-w-[10rem] flex-[2] rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 font-mono text-xs text-[var(--color-jewelry-black,#1a1814)]"
+                    placeholder="Item contains (e.g. emerald idol)"
+                  />
+                  <input
+                    value={fam.style_code || ''}
+                    onChange={(e) => {
+                      const next = [...erpConfig.shortcode_families]
+                      next[idx] = { ...fam, style_code: e.target.value }
+                      setErpConfig({ ...erpConfig, shortcode_families: next })
+                    }}
+                    className="min-h-[36px] min-w-[8rem] flex-1 rounded-lg border border-[var(--color-slate-700,#e8e4df)] bg-white px-2 text-xs text-[var(--color-jewelry-black,#1a1814)]"
+                    placeholder="Style code"
+                  />
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => {
+                const id = `family_${Date.now().toString(36)}`
+                setErpConfig({
+                  ...erpConfig,
+                  shortcode_families: [
+                    ...erpConfig.shortcode_families,
+                    { id, label: 'New shortcode family', item_pattern: '', style_code: '' },
+                  ],
+                })
+                setMappingProfile(id)
+              }}
+              className="mt-2 min-h-[36px] rounded-full border border-[var(--color-slate-700,#e8e4df)] bg-white px-3 text-xs font-medium text-[var(--color-jewelry-black,#1a1814)]"
+            >
+              Add shortcode family
+            </button>
+          </div>
+        </section>
+
+        <section className="kc-profile-card mb-4 space-y-3 rounded-2xl p-4">
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-            {endpointDef?.short} API
+            {endpointDef?.short} API — {mappingProfile === 'intelligent' ? 'Intelligent mapping' : 'Shortcode family mapping'}
           </p>
           <p className="text-xs text-[var(--color-jewelry-black,#1a1814)]/65">
             Kumudu must call this URL with <span className="font-semibold">POST</span> and JSON body.
@@ -780,30 +913,34 @@ export default function KumuduStockLinkPageClient() {
             <p className="mt-2 text-[11px] text-[var(--color-jewelry-black,#1a1814)]/60">
               Kumudu live POSTs use only paths you save below — nothing is auto-mapped on the server until then.
             </p>
-            {tab === 'catalogue_creation' ? (
+            {tab === 'catalogue_creation' && mappingProfile !== 'intelligent' ? (
               <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
-                Map <span className="font-mono">MetalName</span>, <span className="font-mono">Item</span>,{' '}
-                <span className="font-mono">Shortcode</span>, <span className="font-mono">Design</span> — the server
-                applies family rules after save:{' '}
-                <strong className="font-medium">Emerald idol</strong> → style{' '}
-                <span className="font-mono">EMERALD IDOLS</span>, SKU = Shortcode (e.g. GANESH), name = Design;{' '}
-                <strong className="font-medium">Pitara…</strong> → style <span className="font-mono">PITARA</span>,
-                SKU = full Item (e.g. PITARA BANGLE), name = Design;{' '}
-                <strong className="font-medium">Air…</strong> → style <span className="font-mono">AIR COLLECTION</span>,
-                SKU = full Item, name = Design. Other items use your mapped paths only. Response includes{' '}
-                <span className="font-mono">catalogue_sync_id</span> for products.
+                Shortcode family: map <span className="font-mono">Shortcode</span> → SKU,{' '}
+                <span className="font-mono">Design</span> → product name, <span className="font-mono">MetalName</span> →
+                metal. Style uses the family style code (e.g. EMERALD IDOLS). Save mappings + profile families.
+              </p>
+            ) : null}
+            {tab === 'catalogue_creation' && mappingProfile === 'intelligent' ? (
+              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
+                Intelligent: map <span className="font-mono">Item</span> → SKU, <span className="font-mono">Design</span>{' '}
+                → product name, <span className="font-mono">MetalName</span> → metal. Style is auto (
+                <span className="font-mono">PITARA</span> / <span className="font-mono">AIR COLLECTION</span>). Pitara
+                SKU = word(s) after PITARA (BANGLE, FLEXI KADA…). Air SKU = full item (AIR HARAM).
               </p>
             ) : null}
             {tab === 'product_creation' ? (
               <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
-                Send <span className="font-mono">catalogue_sync_id</span> from catalogue response (read automatically
-                even if unchecked). ERP rows: <span className="font-mono">Shortcode</span> → SKU subcategory,{' '}
-                <span className="font-mono">Design</span> → product name; web piece SKU auto ={' '}
-                <span className="font-mono">shortcode-design</span> (e.g. bingle-haram-just-a-haram). Many designs under
-                one subcategory each create a new product. Cloud
-                rows: map <span className="font-mono">catalogue</span>, <span className="font-mono">sku</span>,{' '}
-                <span className="font-mono">name</span>. Style comes from the linked catalogue (e.g. Jingle). Stock uses{' '}
-                <span className="font-mono">product_sync_id</span>.
+                <span className="font-mono">catalogue_sync_id</span> is read automatically. Intelligent products:{' '}
+                <span className="font-mono">Item</span> / <span className="font-mono">Design</span>; shortcode families:{' '}
+                <span className="font-mono">Shortcode</span> + <span className="font-mono">Design</span>. Web SKU ={' '}
+                <span className="font-mono">subcategory-design</span>. Stock: qty 0 → Make on order; qty &gt; 0 shows
+                quantity.
+              </p>
+            ) : null}
+            {tab === 'stock' ? (
+              <p className="mt-2 rounded-xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#faf8f4)] px-3 py-2 text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/80">
+                Use <span className="font-mono">product_sync_id</span> + quantity. PCS = 0 sets Make on order on the
+                piece; PCS &gt; 0 shows stock quantity on the site.
               </p>
             ) : null}
           </div>
