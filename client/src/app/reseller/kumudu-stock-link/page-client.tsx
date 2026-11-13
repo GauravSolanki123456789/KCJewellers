@@ -127,7 +127,7 @@ export default function KumuduStockLinkPageClient() {
     shortcode_families: [
       { id: 'emerald_idols', label: 'Emerald idols', item_pattern: 'emerald idol', style_code: 'EMERALD IDOLS' },
     ],
-    intelligent: { pitara_style: 'PITARA', air_style: 'AIR COLLECTION', strip_pitara_prefix: true },
+    intelligent: { pitara_style: 'PITARA COLLECTION', air_style: 'AIR COLLECTION', strip_pitara_prefix: false },
   })
 
   const load = useCallback(async () => {
@@ -649,12 +649,6 @@ export default function KumuduStockLinkPageClient() {
 
         <section className="kc-profile-card mb-4 space-y-3 rounded-2xl p-4">
           <p className="text-sm font-semibold text-[var(--color-jewelry-black,#1a1814)]">Mapping profile</p>
-          <p className="text-[11px] leading-relaxed text-[var(--color-jewelry-black,#1a1814)]/75">
-            Kumudu <span className="font-mono">Item</span> is matched to a shortcode family (e.g. emerald idol). Those
-            rows use the family mapping below. All other rows use{' '}
-            <span className="font-semibold">Intelligent (Pitara / Air / …)</span> — style is chosen automatically;
-            Pitara SKU is the text after PITARA (BANGLE, FLEXI KADA…), Air SKU is the full item (AIR HARAM).
-          </p>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

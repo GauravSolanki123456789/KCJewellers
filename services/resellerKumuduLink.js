@@ -537,9 +537,9 @@ const DEFAULT_ERP_CONFIG = {
         },
     ],
     intelligent: {
-        pitara_style: 'PITARA',
+        pitara_style: 'PITARA COLLECTION',
         air_style: 'AIR COLLECTION',
-        strip_pitara_prefix: true,
+        strip_pitara_prefix: false,
     },
 };
 
@@ -615,7 +615,8 @@ function applyShortcodeFamilySemantics(record, mapped, familyId, erpConfig) {
 }
 
 /**
- * Pitara / Air / custom: style from Item prefix; SKU = Item (Air) or text after PITARA (BANGLE, FLEXI KADA…).
+ * Catalogue intelligent: force style PITARA COLLECTION / AIR COLLECTION; SKU from mapped Item (full string).
+ * Products/stock: only mapped fields + optional design name fallback (no style/SKU overwrite).
  */
 function applyIntelligentFamilySemantics(record, mapped, endpoint, erpConfig) {
     const item = pickErpScalar(record, 'Item', 'item', 'ITEM');
@@ -624,32 +625,17 @@ function applyIntelligentFamilySemantics(record, mapped, endpoint, erpConfig) {
     const intel = erpConfig.intelligent || DEFAULT_ERP_CONFIG.intelligent;
     const fw = erpItemFirstWord(item);
 
-    if (item) {
+    if (endpoint === 'catalogue_creation' && item) {
         if (fw === 'pitara') {
-            if (!out.style_code) out.style_code = intel.pitara_style || 'PITARA';
-            if (!out.sku) {
-                out.sku = intel.strip_pitara_prefix !== false ? pitaraSubcategoryFromItem(item) : item;
-            }
+            out.style_code = intel.pitara_style || 'PITARA COLLECTION';
+            if (!out.sku) out.sku = item;
         } else if (fw === 'air') {
-            if (!out.style_code) out.style_code = intel.air_style || 'AIR COLLECTION';
+            out.style_code = intel.air_style || 'AIR COLLECTION';
             if (!out.sku) out.sku = item;
         }
     }
 
     if (endpoint === 'product_creation' || endpoint === 'stock') {
-        const prodItem = pickErpScalar(record, 'Item', 'item');
-        if (prodItem && !out.sku) {
-            if (erpItemFirstWord(prodItem) === 'pitara') {
-                out.sku =
-                    intel.strip_pitara_prefix !== false
-                        ? pitaraSubcategoryFromItem(prodItem)
-                        : prodItem;
-            } else if (erpItemFirstWord(prodItem) === 'air') {
-                out.sku = prodItem;
-            } else {
-                out.sku = prodItem;
-            }
-        }
         if (design && !out.product_name) out.product_name = design;
     } else if (design && !out.product_name) {
         out.product_name = design;
@@ -805,11 +791,7 @@ function applyKumuduProductBarcodeFallback(record, mapped, familyId) {
     if (String(mapped.barcode || '').trim()) return;
     if (!familyId) {
         const item = pickErpScalar(record, 'Item', 'item');
-        if (item && !mapped.sku) {
-            const fw = erpItemFirstWord(item);
-            if (fw === 'pitara') mapped.sku = pitaraSubcategoryFromItem(item);
-            else if (fw === 'air') mapped.sku = item;
-        }
+        if (item && !mapped.sku) mapped.sku = item;
     }
     const composite = kumuduCompositeBarcode(mapped, record);
     if (composite) mapped.barcode = composite;
