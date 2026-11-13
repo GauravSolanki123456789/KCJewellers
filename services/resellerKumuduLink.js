@@ -850,16 +850,13 @@ async function applyCataloguePlacementToMapped(query, mapped, placement) {
     if (!placement?.link) return placement;
     mapped.style_code = placement.style_code || placement.link.style_code;
     mapped.catalogue_sync_id = placement.catalogue_sync_id || placement.link.sync_id;
+    const productSku = String(mapped.sku || '').trim();
     const resolvedSku = String(placement.sku || '').trim();
     const linkSku = placement.link.sku_subcategory;
-    if (resolvedSku && !isPlaceholderCatalogueSku(resolvedSku)) {
+    if (productSku && !isPlaceholderCatalogueSku(productSku)) {
+        mapped.sku = productSku;
+    } else if (resolvedSku && !isPlaceholderCatalogueSku(resolvedSku)) {
         mapped.sku = resolvedSku;
-    } else if (
-        mapped.sku &&
-        !isPlaceholderCatalogueSku(mapped.sku) &&
-        catalogueProductSkuMatches(mapped.sku, placement.link)
-    ) {
-        /* keep product Shortcode — legacy catalogue rows may have stored full Item as sku_subcategory */
     } else if (!isPlaceholderCatalogueSku(linkSku)) {
         const head = comboItemHead(linkSku);
         mapped.sku = head && catalogueProductSkuMatches(head, placement.link) ? head : linkSku;
@@ -972,10 +969,16 @@ async function resolveCataloguePlacement(query, resellerUserId, mapped, record) 
         return { ok: false, error: 'Unknown catalogue — use catalogue_creation first or fix catalogue_sync_id / Kumudu catalogue id' };
     }
     if (!link) return { ok: true, link: null };
+    const linkedBySyncId =
+        Boolean(String(catSyncId || '').trim()) &&
+        link.sync_id &&
+        trimCmp(catSyncId) === trimCmp(link.sync_id);
     if (mapped.style_code && link.style_code && trimCmp(mapped.style_code) !== trimCmp(link.style_code)) {
         return { ok: false, error: 'style_code does not match the linked catalogue' };
     }
+    // catalogue_sync_id anchors style; product Shortcode may open a sibling subcategory (e.g. CURB CUT vs CURB CUTTING)
     if (
+        !linkedBySyncId &&
         mapped.sku &&
         link.sku_subcategory &&
         !isPlaceholderCatalogueSku(link.sku_subcategory) &&
@@ -983,21 +986,31 @@ async function resolveCataloguePlacement(query, resellerUserId, mapped, record) 
     ) {
         return { ok: false, error: 'sku does not match the linked catalogue subcategory' };
     }
-    let resolvedSku = isPlaceholderCatalogueSku(link.sku_subcategory) ? mapped.sku : link.sku_subcategory;
-    if (
-        mapped.sku &&
-        catalogueProductSkuMatches(mapped.sku, link) &&
-        trimCmp(mapped.sku) !== trimCmp(link.sku_subcategory)
-    ) {
-        resolvedSku = mapped.sku;
+    const productSku = String(mapped.sku || '').trim();
+    let resolvedSku = productSku || link.sku_subcategory;
+    if (isPlaceholderCatalogueSku(resolvedSku)) {
+        resolvedSku = link.sku_subcategory;
     }
+    if (
+        !linkedBySyncId &&
+        productSku &&
+        catalogueProductSkuMatches(productSku, link) &&
+        trimCmp(productSku) !== trimCmp(link.sku_subcategory)
+    ) {
+        resolvedSku = productSku;
+    }
+    const useProductSub =
+        linkedBySyncId &&
+        productSku &&
+        !isPlaceholderCatalogueSku(productSku) &&
+        trimCmp(productSku) !== trimCmp(link.sku_subcategory);
     return {
         ok: true,
         link,
         style_code: link.style_code,
         sku: resolvedSku,
         catalogue_sync_id: link.sync_id,
-        subcategory_id: link.web_subcategory_id,
+        subcategory_id: useProductSub ? null : link.web_subcategory_id,
         category_id: link.web_category_id,
     };
 }
