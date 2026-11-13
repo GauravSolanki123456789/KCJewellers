@@ -20,7 +20,7 @@ import { PROFILE_PATH, RESELLER_KUMUDU_STOCK_LINK_PATH } from '@/lib/routes'
 import SaveFeedbackButton from '@/components/ui/SaveFeedbackButton'
 import { useSaveFeedback } from '@/hooks/useSaveFeedback'
 
-type EndpointId = 'catalogue_creation' | 'product_creation' | 'stock'
+type EndpointId = 'catalogue_creation' | 'product_creation' | 'product_edit' | 'stock'
 
 type FieldDef = {
   key: string
@@ -71,6 +71,7 @@ type KumuduLinkPayload = {
   recommended: Record<EndpointId, string[]>
   catalogue_mapping: MappingState
   product_mapping: MappingState
+  product_edit_mapping: MappingState
   stock_mapping: MappingState
   erp_config?: ErpConfig
   family_mappings?: FamilyMappings
@@ -85,6 +86,7 @@ const EMPTY_MAP: MappingState = { selected: [], map: {} }
 const TAB_META: { id: EndpointId; short: string }[] = [
   { id: 'catalogue_creation', short: 'Catalogue' },
   { id: 'product_creation', short: 'Products' },
+  { id: 'product_edit', short: 'Edit' },
   { id: 'stock', short: 'Stock' },
 ]
 
@@ -111,6 +113,7 @@ export default function KumuduStockLinkPageClient() {
   const [maps, setMaps] = useState<Record<EndpointId, MappingState>>({
     catalogue_creation: EMPTY_MAP,
     product_creation: EMPTY_MAP,
+    product_edit: EMPTY_MAP,
     stock: EMPTY_MAP,
   })
   const [sampleText, setSampleText] = useState('')
@@ -144,6 +147,7 @@ export default function KumuduStockLinkPageClient() {
       setMaps({
         catalogue_creation: d.catalogue_mapping || EMPTY_MAP,
         product_creation: d.product_mapping || EMPTY_MAP,
+        product_edit: d.product_edit_mapping || EMPTY_MAP,
         stock: d.stock_mapping || EMPTY_MAP,
       })
       if (d.erp_config) setErpConfig(d.erp_config)
@@ -252,13 +256,14 @@ export default function KumuduStockLinkPageClient() {
             store_id: storeId,
             catalogue_mapping: maps.catalogue_creation,
             product_mapping: maps.product_creation,
+            product_edit_mapping: maps.product_edit,
             stock_mapping: maps.stock,
             family_mappings: familyMaps,
             erp_config: erpConfig,
           },
           { withCredentials: true },
         )
-        setSuccess('Saved. Kumudu can now send to the three URLs using your API key.')
+        setSuccess('Saved. Kumudu can now send to your mapped API URLs using your API key.')
         await load()
       } catch (e: unknown) {
         const msg =
@@ -368,6 +373,7 @@ export default function KumuduStockLinkPageClient() {
                 ...(d.mapping_hints || {
                   catalogue_creation: {},
                   product_creation: {},
+                  product_edit: {},
                   stock: {},
                 }),
                 [tab]: suggested,

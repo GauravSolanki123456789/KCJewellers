@@ -1,6 +1,6 @@
 /**
  * Kumudu software stock link — per-reseller inbound APIs + field mapping.
- * Kumudu POSTs JSON to /external/kumudu-{inboundKey}/{catalogue_creation|product_creation|stock}.
+ * Kumudu POSTs JSON to /external/kumudu-{inboundKey}/{catalogue_creation|product_creation|product_edit|stock}.
  * Staff map Kumudu field paths onto KC catalogue fields (select / deselect / select all).
  */
 
@@ -25,6 +25,12 @@ const ENDPOINTS = [
         label: 'Product creation',
         path: 'product_creation',
         hint: 'New product row — name, photo and other details.',
+    },
+    {
+        id: 'product_edit',
+        label: 'Product edit',
+        path: 'product_edit',
+        hint: 'Update an existing piece (product_sync_id or piece sku) — Shortcode, photo, weights, MC, etc.',
     },
     {
         id: 'stock',
@@ -135,6 +141,20 @@ const RECOMMENDED = {
         'image_url',
         'metal_type',
         'net_weight',
+    ],
+    product_edit: [
+        'product_sync_id',
+        'catalogue_sync_id',
+        'barcode',
+        'product_name',
+        'sku',
+        'image_url',
+        'metal_type',
+        'net_weight',
+        'purity',
+        'mc_rate',
+        'mc_type',
+        'brand',
     ],
     stock: [
         'product_sync_id',
@@ -327,6 +347,7 @@ function extractRecords(body) {
         'items',
         'products',
         'product',
+        'updates',
         'records',
         'rows',
         'stock',
@@ -755,6 +776,20 @@ const KUMUDU_STATIC_HINTS = {
         metal_type: 'productTypeDetails.entityType',
         image_url: 'media.mediaUrl',
     },
+    product_edit: {
+        product_sync_id: 'product_sync_id',
+        catalogue_sync_id: 'catalogue_sync_id',
+        barcode: 'sku',
+        product_name: 'Design',
+        sku: 'Shortcode',
+        net_weight: 'AvgWt',
+        gross_weight: 'AvgWt',
+        purity: 'Purity',
+        mc_rate: 'mcpg',
+        mc_type: 'mctype',
+        brand: 'Brand',
+        image_url: 'media.mediaUrl',
+    },
     stock: {
         product_sync_id: 'product_sync_id',
         barcode: 'sku',
@@ -813,25 +848,34 @@ function enrichKumuduConnectionFields(record, mapped, endpoint) {
     if (kRef && !mapped.kumudu_catalogue_ref) mapped.kumudu_catalogue_ref = kRef;
 }
 
-/** Web piece SKU stem: subcategory slug + product name slug (e.g. bingle-haram-just-a-haram). */
+function pickKumuduShortcode(record) {
+    const raw = pickErpScalar(record, 'Shortcode', 'shortcode', 'SHORTCODE');
+    const s = String(raw || '').trim();
+    if (!s || s.toLowerCase() === 'null') return '';
+    return s;
+}
+
+function pickKumuduPieceSku(record) {
+    return pickErpScalar(record, 'sku', 'Sku', 'SKU');
+}
+
+/** Web piece SKU stem: subcategory slug + product name slug (e.g. curb-s-gdlef00080). */
 function kumuduCompositeBarcode(mapped, record) {
-    const shortcode =
-        String(mapped.sku || '').trim() ||
-        pickErpScalar(record, 'Shortcode', 'shortcode', 'SKU', 'Sku');
+    const erpShortcode = pickKumuduShortcode(record);
     const design =
         String(mapped.product_name || '').trim() ||
         pickErpScalar(record, 'Design', 'design', 'name', 'Name');
-    const cloudSku = pickErpScalar(record, 'sku', 'Sku');
+    const cloudSku = pickKumuduPieceSku(record);
     if (!mapped.product_name && design) mapped.product_name = design;
-    if (shortcode && !mapped.sku) mapped.sku = shortcode;
+  /* Do not set mapped.sku from piece sku — only Shortcode is the catalogue subcategory */
 
-    if (shortcode && design && trimCmp(shortcode) !== trimCmp(design)) {
-        return `${slugPart(shortcode)}-${slugPart(design)}`;
+    if (erpShortcode && design && trimCmp(erpShortcode) !== trimCmp(design)) {
+        return `${slugPart(erpShortcode)}-${slugPart(design)}`;
     }
-    if (design) return slugPart(design);
     if (cloudSku && design) return `${slugPart(cloudSku)}-${slugPart(design)}`;
+    if (design) return slugPart(design);
     if (cloudSku) return slugPart(cloudSku);
-    if (shortcode) return slugPart(shortcode);
+    if (erpShortcode) return slugPart(erpShortcode);
     return '';
 }
 
@@ -840,27 +884,77 @@ function applyKumuduProductBarcodeFallback(record, mapped, familyId) {
     if (String(mapped.barcode || '').trim()) return;
     if (!familyId) {
         const item = pickErpScalar(record, 'Item', 'item');
-        if (item && !mapped.sku) mapped.sku = item;
+        if (item && !mapped.sku && pickKumuduShortcode(record)) mapped.sku = item;
     }
     const composite = kumuduCompositeBarcode(mapped, record);
     if (composite) mapped.barcode = composite;
 }
 
-async function applyCataloguePlacementToMapped(query, mapped, placement) {
+async function findDefaultSubcategorySkuForCategory(query, categoryId, linkSku) {
+    if (!categoryId) return '';
+    const rows = await query(
+        `SELECT name FROM web_subcategories WHERE category_id = $1 ORDER BY id ASC`,
+        [categoryId],
+    );
+    const curb = rows.find((r) => trimCmp(r.name) === 'curb');
+    if (curb?.name) return String(curb.name).trim();
+    if (rows[0]?.name) return String(rows[0].name).trim();
+    const fb = String(linkSku || '').trim();
+    if (!fb) return '';
+    const head = comboItemHead(fb);
+    return head || fb;
+}
+
+async function applyProductSubcategorySku(query, record, mapped, placement) {
+    const erpShortcode = pickKumuduShortcode(record);
+    const mappedSub = String(mapped.sku || '').trim();
+    const pieceSku = pickKumuduPieceSku(record);
+    const design = pickErpScalar(record, 'Design', 'design', 'name', 'Name');
+
+    if (erpShortcode) {
+        mapped.sku = erpShortcode;
+        return;
+    }
+    if (
+        mappedSub &&
+        !isPlaceholderCatalogueSku(mappedSub) &&
+        trimCmp(mappedSub) !== trimCmp(design) &&
+        trimCmp(mappedSub) !== trimCmp(pieceSku)
+    ) {
+        return;
+    }
+    const catId = placement?.category_id ?? placement?.link?.web_category_id ?? null;
+    const linkSku = placement?.link?.sku_subcategory;
+    const fallback = await findDefaultSubcategorySkuForCategory(query, catId, linkSku);
+    if (fallback) mapped.sku = fallback;
+    else if (linkSku && !isPlaceholderCatalogueSku(linkSku)) {
+        mapped.sku = comboItemHead(linkSku) || linkSku;
+    }
+}
+
+function pickDefaultMediaImageUrl(record) {
+    const media = record?.media;
+    if (!Array.isArray(media)) return '';
+    const preferred =
+        media.find((m) => m && m.default && String(m.mediaUrl || m.url || '').trim()) ||
+        media.find((m) => m && String(m.type || '').toLowerCase() === 'image' && String(m.mediaUrl || m.url || '').trim()) ||
+        media.find((m) => m && String(m.mediaUrl || m.url || '').trim());
+    const url = String(preferred?.mediaUrl || preferred?.url || '').trim();
+    return url;
+}
+
+function hasValidPrimaryImage(record, mapped) {
+    const raw = String(mapped.image_url || pickDefaultMediaImageUrl(record) || '').trim();
+    if (!raw) return false;
+    if (/^https?:\/\//i.test(raw)) return true;
+    return /^data:image\/(png|jpe?g|webp);base64,/i.test(raw);
+}
+
+async function applyCataloguePlacementToMapped(query, mapped, placement, record) {
     if (!placement?.link) return placement;
     mapped.style_code = placement.style_code || placement.link.style_code;
     mapped.catalogue_sync_id = placement.catalogue_sync_id || placement.link.sync_id;
-    const productSku = String(mapped.sku || '').trim();
-    const resolvedSku = String(placement.sku || '').trim();
-    const linkSku = placement.link.sku_subcategory;
-    if (productSku && !isPlaceholderCatalogueSku(productSku)) {
-        mapped.sku = productSku;
-    } else if (resolvedSku && !isPlaceholderCatalogueSku(resolvedSku)) {
-        mapped.sku = resolvedSku;
-    } else if (!isPlaceholderCatalogueSku(linkSku)) {
-        const head = comboItemHead(linkSku);
-        mapped.sku = head && catalogueProductSkuMatches(head, placement.link) ? head : linkSku;
-    }
+    await applyProductSubcategorySku(query, record, mapped, placement);
     const ensured = await ensureStyleAndSku(query, mapped, { publish: true });
     const next = {
         ...placement,
@@ -913,13 +1007,82 @@ async function findProductSyncRecord(query, resellerUserId, syncId) {
     const id = String(syncId || '').trim();
     if (!id) return null;
     const rows = await query(
-        `SELECT sync_id, web_product_id, product_sku, style_code, sku_subcategory, web_subcategory_id
+        `SELECT sync_id, web_product_id, product_sku, style_code, sku_subcategory, web_subcategory_id,
+                web_category_id, kumudu_catalogue_ref
          FROM reseller_kumudu_sync_records
          WHERE reseller_user_id = $1 AND sync_kind = 'product' AND sync_id = $2
          LIMIT 1`,
         [resellerUserId, id],
     );
     return rows[0] || null;
+}
+
+async function loadResellerWebProductRow(query, resellerUserId, productId) {
+    if (!productId) return null;
+    const rows = await query(
+        `SELECT wp.*, ws.name AS subcategory_name, wc.name AS style_name, ws.category_id
+         FROM web_products wp
+         LEFT JOIN web_subcategories ws ON ws.id = wp.subcategory_id
+         LEFT JOIN web_categories wc ON wc.id = ws.category_id
+         WHERE wp.id = $1 AND wp.submitted_by_user_id = $2
+         LIMIT 1`,
+        [productId, resellerUserId],
+    );
+    return rows[0] || null;
+}
+
+async function findProductForKumuduEdit(query, resellerUserId, record, mapped) {
+    const prodSync = pickProductSyncId(record, mapped);
+    if (prodSync) {
+        const pr = await findProductSyncRecord(query, resellerUserId, prodSync);
+        if (pr?.web_product_id) {
+            const row = await loadResellerWebProductRow(query, resellerUserId, pr.web_product_id);
+            if (row) return { row, product_sync_id: prodSync, syncRow: pr };
+        }
+    }
+    const pieceSku = pickKumuduPieceSku(record);
+    const barcode = String(mapped.barcode || '').trim() || pieceSku;
+    if (barcode) {
+        const hit = await findExistingProduct(
+            query,
+            resellerUserId,
+            { ...mapped, barcode },
+            { allowSubcategoryOnlyMatch: false },
+        );
+        if (hit) {
+            return { row: hit, product_sync_id: prodSync || null, syncRow: null };
+        }
+    }
+    const design = pickErpScalar(record, 'Design', 'design', 'name', 'Name');
+    if (design) {
+        const hit = await findExistingProduct(
+            query,
+            resellerUserId,
+            { ...mapped, product_name: design, barcode: slugPart(design) },
+            { allowSubcategoryOnlyMatch: false },
+        );
+        if (hit) return { row: hit, product_sync_id: prodSync || null, syncRow: null };
+    }
+    return null;
+}
+
+async function renameWebProductSkuIfFree(query, productId, newSku, oldSkuStem) {
+    const next = String(newSku || '').trim();
+    if (!next) return false;
+    const taken = await query(
+        `SELECT id FROM web_products WHERE LOWER(TRIM(sku)) = LOWER($1) AND id <> $2 LIMIT 1`,
+        [next, productId],
+    );
+    if (taken[0]) return false;
+    await query(
+        `UPDATE web_products
+         SET sku = $2,
+             barcode = COALESCE(NULLIF(TRIM(barcode), ''), $2),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [productId, next],
+    );
+    return true;
 }
 
 async function registerCatalogueSyncIfMissing(query, {
@@ -1121,6 +1284,18 @@ async function ensureKumuduSchema(pool) {
             ADD COLUMN IF NOT EXISTS erp_config JSONB NOT NULL DEFAULT '{}'::jsonb
     `);
     await pool.query(`
+        ALTER TABLE reseller_kumudu_link
+            ADD COLUMN IF NOT EXISTS product_edit_mapping JSONB NOT NULL DEFAULT '{}'::jsonb
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_kumudu_link
+            ADD COLUMN IF NOT EXISTS sample_product_edit_payload JSONB
+    `);
+    await pool.query(`
+        ALTER TABLE reseller_kumudu_link
+            ADD COLUMN IF NOT EXISTS last_product_edit_at TIMESTAMPTZ
+    `);
+    await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_reseller_kumudu_sync_kumudu_cat
             ON reseller_kumudu_sync_records (reseller_user_id, kumudu_catalogue_ref)
             WHERE kumudu_catalogue_ref IS NOT NULL
@@ -1130,12 +1305,13 @@ async function ensureKumuduSchema(pool) {
 function syncKindTag(endpoint) {
     if (endpoint === 'catalogue_creation') return 'cat';
     if (endpoint === 'product_creation') return 'prd';
+    if (endpoint === 'product_edit') return 'edt';
     return 'stk';
 }
 
 function batchSyncKind(endpoint) {
     if (endpoint === 'catalogue_creation') return 'catalogue';
-    if (endpoint === 'product_creation') return 'product';
+    if (endpoint === 'product_creation' || endpoint === 'product_edit') return 'product';
     return 'stock';
 }
 
@@ -1328,6 +1504,32 @@ async function buildPartnerConfirmRow(query, {
         return row;
     }
 
+    if (endpoint === 'product_edit') {
+        const productSku =
+            processResult.sku || processResult.prodSku || processResult.mapped?.barcode || null;
+        const productId = processResult.id ?? null;
+        const existingSync =
+            processResult.product_sync_id ||
+            pickProductSyncId(processResult._record, processResult.mapped) ||
+            null;
+        itemSyncId = existingSync || itemSyncId;
+        const row = {
+            status,
+            action,
+            product_sku: productSku,
+            product_id: productId,
+            style_code: processResult.style_code || processResult.mapped?.style_code || null,
+            sku_subcategory: processResult.mapped?.sku || null,
+            product_sync_id: existingSync,
+            category_id: processResult.catId ?? processResult.mapped?._placement?.category_id ?? null,
+            subcategory_id: processResult.subId ?? null,
+        };
+        if (processResult.mapped?.catalogue_sync_id) row.catalogue_sync_id = processResult.mapped.catalogue_sync_id;
+        if (processResult.error) row.message = processResult.error;
+        if (processResult.reason) row.reason = processResult.reason;
+        return row;
+    }
+
     const productSku = processResult.sku || processResult.mapped?.barcode || null;
     const row = {
         status,
@@ -1403,8 +1605,8 @@ async function loadOrCreateLink(query, user) {
     const inserted = await query(
         `INSERT INTO reseller_kumudu_link (
             reseller_user_id, inbound_key, api_key,
-            catalogue_mapping, product_mapping, stock_mapping
-         ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
+            catalogue_mapping, product_mapping, product_edit_mapping, stock_mapping
+         ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb)
          RETURNING *`,
         [
             user.id,
@@ -1412,6 +1614,7 @@ async function loadOrCreateLink(query, user) {
             apiKey,
             JSON.stringify(emptyMapping('catalogue_creation')),
             JSON.stringify(emptyMapping('product_creation')),
+            JSON.stringify(emptyMapping('product_edit')),
             JSON.stringify(emptyMapping('stock')),
         ],
     );
@@ -1446,9 +1649,11 @@ function endpointUrls(origin, inboundKey) {
 function serializeLink(row, origin) {
     const catalogue_mapping = normalizeMapping(row.catalogue_mapping, 'catalogue_creation');
     const product_mapping = normalizeMapping(row.product_mapping, 'product_creation');
+    const product_edit_mapping = normalizeMapping(row.product_edit_mapping, 'product_edit');
     const stock_mapping = normalizeMapping(row.stock_mapping, 'stock');
     const sampleCatalogue = row.sample_catalogue_payload;
     const sampleProduct = row.sample_product_payload;
+    const sampleEdit = row.sample_product_edit_payload;
     const sampleStock = row.sample_stock_payload;
     return {
         inbound_key: row.inbound_key,
@@ -1457,29 +1662,35 @@ function serializeLink(row, origin) {
         endpoints: endpointUrls(origin, row.inbound_key),
         catalogue_mapping,
         product_mapping,
+        product_edit_mapping,
         stock_mapping,
         mappings: {
             catalogue_creation: catalogue_mapping,
             product_creation: product_mapping,
+            product_edit: product_edit_mapping,
             stock: stock_mapping,
         },
         samples: {
             catalogue_creation: sampleCatalogue || null,
             product_creation: sampleProduct || null,
+            product_edit: sampleEdit || null,
             stock: sampleStock || null,
         },
         detected_keys: {
             catalogue_creation: uniqueKeys(flattenPayloadKeys(sampleCatalogue)),
             product_creation: uniqueKeys(flattenPayloadKeys(sampleProduct)),
+            product_edit: uniqueKeys(flattenPayloadKeys(sampleEdit)),
             stock: uniqueKeys(flattenPayloadKeys(sampleStock)),
         },
         mapping_hints: {
             catalogue_creation: buildMappingHints('catalogue_creation', sampleCatalogue),
             product_creation: buildMappingHints('product_creation', sampleProduct),
+            product_edit: buildMappingHints('product_edit', sampleEdit),
             stock: buildMappingHints('stock', sampleStock),
         },
         last_catalogue_at: row.last_catalogue_at,
         last_product_at: row.last_product_at,
+        last_product_edit_at: row.last_product_edit_at,
         last_stock_at: row.last_stock_at,
         erp_config: parseErpConfig(row.erp_config),
         family_mappings: normalizeFamilyMappings(row.family_mappings),
@@ -1897,9 +2108,125 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
     if (!Object.keys(mapped).length) {
         return { action: 'skipped', reason: 'no_mapped_values' };
     }
-    if (endpoint === 'product_creation' || endpoint === 'stock') {
+    if (endpoint === 'product_creation' || endpoint === 'product_edit' || endpoint === 'stock') {
         enrichKumuduConnectionFields(record, mapped, endpoint);
     }
+    if (endpoint === 'product_creation' || endpoint === 'product_edit') {
+        if (!String(mapped.image_url || '').trim()) {
+            const mediaUrl = pickDefaultMediaImageUrl(record);
+            if (mediaUrl) mapped.image_url = mediaUrl;
+        }
+    }
+
+    if (endpoint === 'product_edit') {
+        const hit = await findProductForKumuduEdit(deps.query, resellerUserId, record, mapped);
+        if (!hit?.row) {
+            return {
+                action: 'skipped',
+                error: 'Product not found — send product_sync_id or piece sku matching an existing product',
+                mapped,
+                _record: record,
+            };
+        }
+        const existing = hit.row;
+        if (!mapped.style_code) mapped.style_code = existing.style_name;
+        if (!mapped.sku) mapped.sku = existing.subcategory_name;
+
+        const wantsCatalogue =
+            pickCatalogueSyncId(record, mapped) || pickKumuduCatalogueRef(record, mapped);
+        if (wantsCatalogue) {
+            const placement = await resolveCataloguePlacement(deps.query, resellerUserId, mapped, record);
+            if (!placement.ok) {
+                return { action: 'skipped', error: placement.error, mapped, _record: record };
+            }
+            if (placement.link) {
+                await applyCataloguePlacementToMapped(deps.query, mapped, placement, record);
+            }
+        } else if (!pickKumuduShortcode(record)) {
+            await applyProductSubcategorySku(deps.query, record, mapped, {
+                category_id: hit.syncRow?.web_category_id ?? existing.category_id,
+                link: {
+                    web_category_id: hit.syncRow?.web_category_id ?? existing.category_id,
+                    sku_subcategory: hit.syncRow?.sku_subcategory ?? existing.subcategory_name,
+                },
+            });
+        } else {
+            mapped.sku = pickKumuduShortcode(record);
+        }
+
+        applyKumuduProductBarcodeFallback(record, mapped, familyId);
+        const newStem = identityForCreate(mapped) || String(mapped.barcode || '').trim();
+
+        if (mapped.style_code || mapped.sku) {
+            const ensured = await ensureStyleAndSku(deps.query, mapped, { publish: true });
+            if (ensured.catId) {
+                await grantCategoryToReseller(deps.query, resellerUserId, ensured.catId, mapped.metal_type);
+            }
+            if (ensured.subId && ensured.subId !== existing.subcategory_id) {
+                await deps.query(
+                    `UPDATE web_products SET subcategory_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                    [existing.id, ensured.subId],
+                );
+            }
+            mapped._placement = {
+                ...(mapped._placement || {}),
+                subcategory_id: ensured.subId,
+                category_id: ensured.catId,
+            };
+        }
+
+        const patch = await patchExistingProduct(deps.query, existing, mapped, {
+            uploadsDir: deps.uploadsWebProductsDir,
+            apiBase: deps.getPublicApiBaseUrl(),
+        });
+
+        const oldStem = String(existing.sku || '').trim();
+        if (newStem && trimCmp(newStem) !== trimCmp(oldStem)) {
+            await renameWebProductSkuIfFree(deps.query, existing.id, newStem, oldStem);
+        }
+
+        const productSyncId =
+            hit.product_sync_id || pickProductSyncId(record, mapped) || hit.syncRow?.sync_id || null;
+        if (productSyncId) {
+            try {
+                await deps.query(
+                    `UPDATE reseller_kumudu_sync_records
+                     SET product_sku = $2,
+                         style_code = COALESCE($3, style_code),
+                         sku_subcategory = COALESCE($4, sku_subcategory),
+                         web_subcategory_id = COALESCE($5, web_subcategory_id),
+                         web_category_id = COALESCE($6, web_category_id)
+                     WHERE reseller_user_id = $1 AND sync_id = $7`,
+                    [
+                        resellerUserId,
+                        newStem || oldStem,
+                        mapped.style_code || null,
+                        mapped.sku || null,
+                        mapped._placement?.subcategory_id ?? null,
+                        mapped._placement?.category_id ?? null,
+                        productSyncId,
+                    ],
+                );
+            } catch {
+                /* optional */
+            }
+        }
+
+        return {
+            action: 'updated',
+            ...patch,
+            id: existing.id,
+            sku: newStem || oldStem,
+            prodSku: newStem || oldStem,
+            product_sync_id: productSyncId,
+            style_code: mapped.style_code,
+            subId: mapped._placement?.subcategory_id ?? existing.subcategory_id,
+            catId: mapped._placement?.category_id ?? existing.category_id,
+            mapped,
+            _record: record,
+        };
+    }
+
     if (endpoint === 'product_creation') {
         applyKumuduProductBarcodeFallback(record, mapped, familyId);
     }
@@ -1934,11 +2261,19 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
             return { action: 'skipped', error: placement.error, mapped, _record: record };
         }
         if (placement.link) {
-            await applyCataloguePlacementToMapped(deps.query, mapped, placement);
+            await applyCataloguePlacementToMapped(deps.query, mapped, placement, record);
         } else if (pickKumuduCatalogueRef(record, mapped) || pickCatalogueSyncId(record, mapped)) {
             return {
                 action: 'skipped',
                 error: 'Unknown catalogue — run catalogue_creation first or fix catalogue_sync_id / Kumudu catalogue id',
+                mapped,
+                _record: record,
+            };
+        }
+        if (!hasValidPrimaryImage(record, mapped)) {
+            return {
+                action: 'skipped',
+                error: 'Primary image required — include media[] with mediaUrl or map primary image',
                 mapped,
                 _record: record,
             };
@@ -2060,6 +2395,7 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
 function mappingForEndpoint(linkRow, endpoint) {
     if (endpoint === 'catalogue_creation') return normalizeMapping(linkRow.catalogue_mapping, endpoint);
     if (endpoint === 'product_creation') return normalizeMapping(linkRow.product_mapping, endpoint);
+    if (endpoint === 'product_edit') return normalizeMapping(linkRow.product_edit_mapping, endpoint);
     return normalizeMapping(linkRow.stock_mapping, endpoint);
 }
 
@@ -2072,12 +2408,14 @@ function linkHasMappingForEndpoint(linkRow, endpoint) {
 function sampleColumn(endpoint) {
     if (endpoint === 'catalogue_creation') return 'sample_catalogue_payload';
     if (endpoint === 'product_creation') return 'sample_product_payload';
+    if (endpoint === 'product_edit') return 'sample_product_edit_payload';
     return 'sample_stock_payload';
 }
 
 function lastAtColumn(endpoint) {
     if (endpoint === 'catalogue_creation') return 'last_catalogue_at';
     if (endpoint === 'product_creation') return 'last_product_at';
+    if (endpoint === 'product_edit') return 'last_product_edit_at';
     return 'last_stock_at';
 }
 
@@ -2332,6 +2670,9 @@ function normalizeEndpointParam(raw) {
         .replace(/-/g, '_');
     if (s === 'catalogue' || s === 'catalog' || s === 'catalogue_creation') return 'catalogue_creation';
     if (s === 'product' || s === 'products' || s === 'product_creation') return 'product_creation';
+    if (s === 'product_edit' || s === 'productedit' || s === 'product-update' || s === 'product_update') {
+        return 'product_edit';
+    }
     if (s === 'stock' || s === 'stocks' || s === 'inventory') return 'stock';
     if (s === 'health') return 'health';
     if (s === 'last_received' || s === 'lastreceived' || s === 'inbound' || s === 'inbound_log') {
@@ -2432,7 +2773,7 @@ async function handleKumuduLastReceived(deps, req, res, inboundKey, viewId = 'la
         else if (LAST_RECEIVED_VIEW[q]) endpointFilter = LAST_RECEIVED_VIEW[q];
         else if (q !== 'last_received') {
             return res.status(400).json({
-                error: 'endpoint must be catalogue_creation, product_creation, or stock',
+                error: 'endpoint must be catalogue_creation, product_creation, product_edit, or stock',
             });
         }
     }
@@ -2595,7 +2936,9 @@ async function handleInbound(deps, req, res, inboundKey, endpointRaw) {
             ? 'batch_catalogue_sync_id'
             : endpoint === 'product_creation'
               ? 'batch_product_sync_id'
-              : 'batch_stock_sync_id';
+              : endpoint === 'product_edit'
+                ? 'batch_product_edit_sync_id'
+                : 'batch_stock_sync_id';
 
     return res.json({
         ok: status === 'ok',
@@ -2711,6 +3054,10 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                 body.product_mapping || body.mappings?.product_creation,
                 'product_creation',
             );
+            const product_edit_mapping = normalizeMapping(
+                body.product_edit_mapping || body.mappings?.product_edit,
+                'product_edit',
+            );
             const stock_mapping = normalizeMapping(body.stock_mapping || body.mappings?.stock, 'stock');
             const family_mappings = normalizeFamilyMappings(
                 body.family_mappings || body.familyMappings,
@@ -2728,9 +3075,10 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                      inbound_key = $3,
                      catalogue_mapping = $4::jsonb,
                      product_mapping = $5::jsonb,
-                     stock_mapping = $6::jsonb,
-                     family_mappings = $7::jsonb,
-                     erp_config = $8::jsonb,
+                     product_edit_mapping = $6::jsonb,
+                     stock_mapping = $7::jsonb,
+                     family_mappings = $8::jsonb,
+                     erp_config = $9::jsonb,
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1
                  RETURNING *`,
@@ -2740,6 +3088,7 @@ function registerResellerKumuduLinkRoutes(app, deps) {
                     inboundKey,
                     JSON.stringify(catalogue_mapping),
                     JSON.stringify(product_mapping),
+                    JSON.stringify(product_edit_mapping),
                     JSON.stringify(stock_mapping),
                     JSON.stringify(family_mappings),
                     JSON.stringify(erp_config),
