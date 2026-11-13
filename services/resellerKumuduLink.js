@@ -405,9 +405,28 @@ function suggestPathForField(kcKey, detectedKeys) {
     return scored[0]?.pathStr || '';
 }
 
+function normalizeKumuduMapPath(pathStr, endpoint) {
+    let p = String(pathStr || '').trim();
+    if (!p) return p;
+    if (endpoint === 'product_edit' && p.startsWith('updates.')) return p.slice(8);
+    if (endpoint === 'product_creation' && p.startsWith('products.')) return p.slice(9);
+    return p;
+}
+
+function applyKumuduPricingAliases(record, mapped) {
+    if (mapped.mc_rate == null || mapped.mc_rate === '') {
+        const mc = pickErpScalar(record, 'makingCharge', 'mcpg', 'making_charge', 'McPg');
+        if (mc !== '') mapped.mc_rate = coerceField('mc_rate', mc);
+    }
+    if (mapped.mc_type == null || mapped.mc_type === '') {
+        const mt = pickErpScalar(record, 'makingChargeType', 'mctype', 'mc_type', 'McType');
+        if (mt) mapped.mc_type = coerceField('mc_type', mt);
+    }
+}
+
 function lookupMappedValue(kcKey, mapping, record, body, options = {}) {
     const strict = !!options.strict;
-    const pathStr = String(mapping.map?.[kcKey] || '').trim();
+    const pathStr = normalizeKumuduMapPath(String(mapping.map?.[kcKey] || '').trim(), options.endpoint);
     if (!pathStr) {
         if (strict) return undefined;
     }
@@ -836,11 +855,11 @@ function isPlaceholderCatalogueSku(sku) {
 }
 
 function enrichKumuduConnectionFields(record, mapped, endpoint) {
-    if (endpoint === 'product_creation' || endpoint === 'stock') {
+    if (endpoint === 'product_creation' || endpoint === 'product_edit' || endpoint === 'stock') {
         const catSync = pickCatalogueSyncId(record, mapped);
         if (catSync) mapped.catalogue_sync_id = catSync;
     }
-    if (endpoint === 'stock') {
+    if (endpoint === 'stock' || endpoint === 'product_edit') {
         const prSync = pickProductSyncId(record, mapped);
         if (prSync) mapped.product_sync_id = prSync;
     }
@@ -1066,7 +1085,7 @@ async function findProductForKumuduEdit(query, resellerUserId, record, mapped) {
     return null;
 }
 
-async function renameWebProductSkuIfFree(query, productId, newSku, oldSkuStem) {
+async function renameWebProductSkuIfFree(query, productId, newSku) {
     const next = String(newSku || '').trim();
     if (!next) return false;
     const taken = await query(
@@ -1076,13 +1095,51 @@ async function renameWebProductSkuIfFree(query, productId, newSku, oldSkuStem) {
     if (taken[0]) return false;
     await query(
         `UPDATE web_products
-         SET sku = $2,
-             barcode = COALESCE(NULLIF(TRIM(barcode), ''), $2),
+         SET sku = $2::text,
+             barcode = CASE
+                 WHEN NULLIF(TRIM(COALESCE(barcode, '')), '') IS NULL THEN $2::text
+                 ELSE barcode
+             END,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
         [productId, next],
     );
     return true;
+}
+
+async function updateKumuduSyncRecordAfterEdit(query, resellerUserId, productSyncId, fields) {
+    const syncId = String(productSyncId || '').trim();
+    if (!syncId) return;
+    const sets = ['product_sku = $2::text'];
+    const params = [resellerUserId, String(fields.productSku || '').trim()];
+    let idx = 3;
+    if (fields.styleCode) {
+        sets.push(`style_code = $${idx}::text`);
+        params.push(String(fields.styleCode).trim());
+        idx += 1;
+    }
+    if (fields.skuSubcategory) {
+        sets.push(`sku_subcategory = $${idx}::text`);
+        params.push(String(fields.skuSubcategory).trim());
+        idx += 1;
+    }
+    if (fields.webSubcategoryId != null) {
+        sets.push(`web_subcategory_id = $${idx}::integer`);
+        params.push(Number(fields.webSubcategoryId));
+        idx += 1;
+    }
+    if (fields.webCategoryId != null) {
+        sets.push(`web_category_id = $${idx}::integer`);
+        params.push(Number(fields.webCategoryId));
+        idx += 1;
+    }
+    params.push(syncId);
+    await query(
+        `UPDATE reseller_kumudu_sync_records
+         SET ${sets.join(', ')}
+         WHERE reseller_user_id = $1 AND sync_id = $${idx}::text`,
+        params,
+    );
 }
 
 async function registerCatalogueSyncIfMissing(query, {
@@ -1185,6 +1242,7 @@ function stripRecordRootPrefix(path, samplePayload) {
     const p = String(path);
     if (p.startsWith('data.')) return p.slice(5);
     if (p.startsWith('products.')) return p.slice(9);
+    if (p.startsWith('updates.')) return p.slice(8);
     return p;
 }
 
@@ -1790,11 +1848,11 @@ async function grantCategoryToReseller(query, resellerUserId, catId, metalType) 
     if (nextIds) {
         await query(
             `UPDATE users
-             SET allowed_category_ids = $2,
+             SET allowed_category_ids = $2::int[],
                  allowed_category_metals = $3::jsonb,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $1`,
-            [resellerUserId, nextIds, JSON.stringify(metals)],
+            [resellerUserId, nextIds.map((id) => parseInt(String(id), 10)), JSON.stringify(metals)],
         );
     } else {
         await query(
@@ -2119,6 +2177,7 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
     }
 
     if (endpoint === 'product_edit') {
+        applyKumuduPricingAliases(record, mapped);
         const hit = await findProductForKumuduEdit(deps.query, resellerUserId, record, mapped);
         if (!hit?.row) {
             return {
@@ -2154,6 +2213,7 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
             mapped.sku = pickKumuduShortcode(record);
         }
 
+        if (pickKumuduShortcode(record)) delete mapped.barcode;
         applyKumuduProductBarcodeFallback(record, mapped, familyId);
         const newStem = identityForCreate(mapped) || String(mapped.barcode || '').trim();
 
@@ -2182,34 +2242,19 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
 
         const oldStem = String(existing.sku || '').trim();
         if (newStem && trimCmp(newStem) !== trimCmp(oldStem)) {
-            await renameWebProductSkuIfFree(deps.query, existing.id, newStem, oldStem);
+            await renameWebProductSkuIfFree(deps.query, existing.id, newStem);
         }
 
         const productSyncId =
             hit.product_sync_id || pickProductSyncId(record, mapped) || hit.syncRow?.sync_id || null;
         if (productSyncId) {
-            try {
-                await deps.query(
-                    `UPDATE reseller_kumudu_sync_records
-                     SET product_sku = $2,
-                         style_code = COALESCE($3, style_code),
-                         sku_subcategory = COALESCE($4, sku_subcategory),
-                         web_subcategory_id = COALESCE($5, web_subcategory_id),
-                         web_category_id = COALESCE($6, web_category_id)
-                     WHERE reseller_user_id = $1 AND sync_id = $7`,
-                    [
-                        resellerUserId,
-                        newStem || oldStem,
-                        mapped.style_code || null,
-                        mapped.sku || null,
-                        mapped._placement?.subcategory_id ?? null,
-                        mapped._placement?.category_id ?? null,
-                        productSyncId,
-                    ],
-                );
-            } catch {
-                /* optional */
-            }
+            await updateKumuduSyncRecordAfterEdit(deps.query, resellerUserId, productSyncId, {
+                productSku: newStem || oldStem,
+                styleCode: mapped.style_code,
+                skuSubcategory: mapped.sku,
+                webSubcategoryId: mapped._placement?.subcategory_id ?? null,
+                webCategoryId: mapped._placement?.category_id ?? null,
+            });
         }
 
         return {
