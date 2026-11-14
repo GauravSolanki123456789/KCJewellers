@@ -1,4 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+import { isShippingChargeLine } from '@/lib/erp-billing-pricing'
+import { isShippingStockLabel } from '@/lib/erp-billing-shortcuts'
 import { normalizeMetalSlabPctForUiStorage } from '@/lib/erp-metal-slab-field'
 import { inferMcRateCatalogPatch } from '@/lib/erp-mc-slab-effective'
 
@@ -60,6 +62,13 @@ export function normalizeErpBillLineFromStorage(line: ErpBillLine): ErpBillLine 
   }
   const catalogPatch = inferMcRateCatalogPatch(next)
   if (catalogPatch) Object.assign(next, catalogPatch)
+  if (
+    isShippingChargeLine(next) ||
+    isShippingStockLabel(next.name, next.sku)
+  ) {
+    next.manualCategory = 'shipping'
+    next.qty = 0
+  }
   return next
 }
 

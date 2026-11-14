@@ -1748,6 +1748,26 @@ var KcExhibitionBillingModule = (() => {
   function isShippingChargeLine(line) {
     return line.manualCategory === "shipping";
   }
+  function erpLineBillPieceCount(line) {
+    if (isShippingChargeLine(line)) return 0;
+    const parsed = Number(line.qty);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    if (line.manualCategory === "gift" || line.mrpMode) {
+      const pieceRate = Number(line.unitInr ?? line.fixed_price ?? 0) || 0;
+      const wt = Number(line.weightGm ?? line.originalWeightGm ?? 0) || 0;
+      if (pieceRate > 0 && wt <= 0) return 0;
+    }
+    return 1;
+  }
+  function erpLinePiecePricingMultiplier(line) {
+    if (isShippingChargeLine(line)) {
+      const parsed = Number(line.qty);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      return 1;
+    }
+    const pcs = erpLineBillPieceCount(line);
+    return pcs > 0 ? pcs : 1;
+  }
   function isPiecePricedBillLine(line) {
     if (isShippingChargeLine(line)) return true;
     if (shouldUseWeightSilverNotMrp(line)) return false;
@@ -1844,12 +1864,18 @@ var KcExhibitionBillingModule = (() => {
     const shipping = isShippingChargeLine(line);
     const pieceRate = shipping ? Number(line.fixed_price ?? line.unitInr ?? 0) || 0 : customPer > 0 ? customPer : slabPer > 0 ? slabPer : Number(line.ratePerGram ?? line.mc_rate) || 0;
     const isGift = line.manualCategory === "gift" || !!line.mrpMode;
-    let qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1;
-    if (pieceRate > 0 && qty <= 0 && (line.mrpMode || isFixedPriceCatalogItem(lineToItem(line)))) {
-      qty = 1;
+    let qty;
+    if (shipping) {
+      qty = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    } else {
+      qty = Number.isFinite(parsed) && parsed > 0 ? parsed : isGift ? 0 : 1;
+      if (pieceRate > 0 && qty <= 0 && (line.mrpMode || isFixedPriceCatalogItem(lineToItem(line)))) {
+        qty = 1;
+      }
     }
+    const billQty = shipping ? erpLinePiecePricingMultiplier({ ...line, qty }) : qty;
     const box = Number(line.box_charges || 0) || 0;
-    const taxable = Math.round((qty * pieceRate + box) * 100) / 100;
+    const taxable = Math.round((billQty * pieceRate + box) * 100) / 100;
     const gstPct = shipping ? 0 : erpBillGstPct(gstEnabled);
     if ((line.manualCategory === "gift" || line.mrpMode) && !shipping && pieceRate > 0) {
       return {

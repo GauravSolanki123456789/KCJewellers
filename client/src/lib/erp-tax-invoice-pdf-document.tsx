@@ -3,6 +3,7 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpQuoteTotals } from '@/lib/erp-quote-pdf'
 import { sanitizePdfText } from '@/lib/pdf-text-utils'
+import { erpLineBillPieceCount, isShippingChargeLine } from '@/lib/erp-billing-pricing'
 import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
@@ -283,10 +284,11 @@ function InvoiceCopyPage({
   const rawTotal = gstValue + cgst + sgst
   const roundedTotal = Math.round(rawTotal)
   const roundOff = Math.round((roundedTotal - rawTotal) * 100) / 100
-  const totalPcs = lines.reduce(
-    (s, l) => (isMrpInvoiceLine(l, mrpItemNames) ? s + (Number(l.qty) || 1) : s),
-    0,
-  )
+  const totalPcs = lines.reduce((s, l) => {
+    if (isShippingChargeLine(l)) return s
+    if (!isMrpInvoiceLine(l, mrpItemNames)) return s
+    return s + erpLineBillPieceCount(l)
+  }, 0)
   const totalWeight = lines.reduce((s, l) => {
     if (isMrpInvoiceLine(l, mrpItemNames)) return s
     return s + (Number(l.originalWeightGm ?? l.weightGm) || 0)

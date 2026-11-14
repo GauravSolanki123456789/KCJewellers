@@ -86,6 +86,7 @@ const {
     resolveErpBillTotalFromPayload,
     ensureSessionNetTotalInr,
 } = require('./erpBillTotalResolve');
+const { normalizeErpBillLines } = require('./erpBillLinesLimit');
 const path = require('path');
 
 async function ensureResellerErpSchema(pool) {
@@ -1678,7 +1679,7 @@ function registerResellerErpRoutes(app, deps) {
             if (!allowed.includes(billType)) {
                 return res.status(400).json({ error: 'Invalid bill type' });
             }
-            const linesRaw = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            const linesRaw = normalizeErpBillLines(req.body.lines);
             const lines = billType === 'order' ? normalizeOrderLines(linesRaw) : linesRaw;
             if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
             req.body.session = ensureSessionNetTotalInr(req.body, lines);
@@ -2027,7 +2028,7 @@ function registerResellerErpRoutes(app, deps) {
                     error: 'Approval issues cannot be edited here. Return to estimate or convert to bill from Approval Issue.',
                 });
             }
-            const lines = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            const lines = normalizeErpBillLines(req.body.lines);
             if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
             req.body.session = ensureSessionNetTotalInr(req.body, lines);
             const gstEnabled = billGstEnabledFromPayload(req.body);

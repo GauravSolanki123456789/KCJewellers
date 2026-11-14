@@ -911,17 +911,25 @@ function applyKumuduProductBarcodeFallback(record, mapped, familyId) {
 
 async function findDefaultSubcategorySkuForCategory(query, categoryId, linkSku) {
     if (!categoryId) return '';
+    const fb = String(linkSku || '').trim();
     const rows = await query(
-        `SELECT name FROM web_subcategories WHERE category_id = $1 ORDER BY id ASC`,
+        `SELECT id, name FROM web_subcategories WHERE category_id = $1 ORDER BY id ASC`,
         [categoryId],
     );
+    if (fb && !isPlaceholderCatalogueSku(fb)) {
+        const exact = rows.find((r) => trimCmp(r.name) === trimCmp(fb));
+        if (exact?.name) return String(exact.name).trim();
+        const head = comboItemHead(fb);
+        if (head) {
+            const byHead = rows.find((r) => trimCmp(r.name) === trimCmp(head));
+            if (byHead?.name) return String(byHead.name).trim();
+        }
+        return head || fb;
+    }
     const curb = rows.find((r) => trimCmp(r.name) === 'curb');
     if (curb?.name) return String(curb.name).trim();
     if (rows[0]?.name) return String(rows[0].name).trim();
-    const fb = String(linkSku || '').trim();
-    if (!fb) return '';
-    const head = comboItemHead(fb);
-    return head || fb;
+    return '';
 }
 
 async function applyProductSubcategorySku(query, record, mapped, placement) {
@@ -944,6 +952,14 @@ async function applyProductSubcategorySku(query, record, mapped, placement) {
     }
     const catId = placement?.category_id ?? placement?.link?.web_category_id ?? null;
     const linkSku = placement?.link?.sku_subcategory;
+    const anchoredByCatalogue =
+        Boolean(placement?.catalogue_sync_id || placement?.link?.sync_id) &&
+        linkSku &&
+        !isPlaceholderCatalogueSku(linkSku);
+    if (anchoredByCatalogue && !erpShortcode) {
+        mapped.sku = String(linkSku).trim();
+        return;
+    }
     const fallback = await findDefaultSubcategorySkuForCategory(query, catId, linkSku);
     if (fallback) mapped.sku = fallback;
     else if (linkSku && !isPlaceholderCatalogueSku(linkSku)) {
@@ -1085,7 +1101,7 @@ async function findProductForKumuduEdit(query, resellerUserId, record, mapped) {
     return null;
 }
 
-async function renameWebProductSkuIfFree(query, productId, newSku) {
+async function renameWebProductSkuIfFree(query, productId, newSku, { syncBarcode = false } = {}) {
     const next = String(newSku || '').trim();
     if (!next) return false;
     const taken = await query(
@@ -1093,17 +1109,28 @@ async function renameWebProductSkuIfFree(query, productId, newSku) {
         [next, productId],
     );
     if (taken[0]) return false;
-    await query(
-        `UPDATE web_products
-         SET sku = $2::text,
-             barcode = CASE
-                 WHEN NULLIF(TRIM(COALESCE(barcode, '')), '') IS NULL THEN $2::text
-                 ELSE barcode
-             END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [productId, next],
-    );
+    if (syncBarcode) {
+        await query(
+            `UPDATE web_products
+             SET sku = $2::text,
+                 barcode = $2::text,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [productId, next],
+        );
+    } else {
+        await query(
+            `UPDATE web_products
+             SET sku = $2::text,
+                 barcode = CASE
+                     WHEN NULLIF(TRIM(COALESCE(barcode, '')), '') IS NULL THEN $2::text
+                     ELSE barcode
+                 END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [productId, next],
+        );
+    }
     return true;
 }
 
@@ -2242,7 +2269,22 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
 
         const oldStem = String(existing.sku || '').trim();
         if (newStem && trimCmp(newStem) !== trimCmp(oldStem)) {
-            await renameWebProductSkuIfFree(deps.query, existing.id, newStem);
+            await renameWebProductSkuIfFree(deps.query, existing.id, newStem, { syncBarcode: true });
+        } else if (newStem && trimCmp(newStem) !== trimCmp(String(existing.barcode || '').trim())) {
+            await deps.query(
+                `UPDATE web_products
+                 SET barcode = $2::text, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1`,
+                [existing.id, newStem],
+            );
+        } else if (
+            mapped.barcode &&
+            trimCmp(mapped.barcode) !== trimCmp(existing.barcode || existing.sku)
+        ) {
+            await deps.query(
+                `UPDATE web_products SET barcode = $2::text, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [existing.id, String(mapped.barcode).trim()],
+            );
         }
 
         const productSyncId =
@@ -2376,26 +2418,61 @@ async function processRecord(deps, { endpoint, linkRow, record, body, resellerUs
               : {};
     const existing = await findExistingProduct(deps.query, resellerUserId, mapped, productLookupOpts);
     if (existing) {
+        let ensuredPlacement = null;
         if (mapped.style_code || mapped.sku) {
-            const ensured = await ensureStyleAndSku(deps.query, {
+            ensuredPlacement = await ensureStyleAndSku(deps.query, {
                 style_code: mapped.style_code || existing.style_name,
                 sku: mapped.sku || existing.subcategory_name,
+                metal_type: mapped.metal_type || existing.metal_type,
             });
-            if (ensured.catId) {
-                await grantCategoryToReseller(deps.query, resellerUserId, ensured.catId, mapped.metal_type || existing.metal_type);
-            }
-            if (ensured.subId && ensured.subId !== existing.subcategory_id) {
-                await deps.query(
-                    `UPDATE web_products SET subcategory_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-                    [existing.id, ensured.subId],
+            if (ensuredPlacement.catId) {
+                await grantCategoryToReseller(
+                    deps.query,
+                    resellerUserId,
+                    ensuredPlacement.catId,
+                    mapped.metal_type || existing.metal_type,
                 );
             }
+            if (ensuredPlacement.subId && ensuredPlacement.subId !== existing.subcategory_id) {
+                await deps.query(
+                    `UPDATE web_products SET subcategory_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                    [existing.id, ensuredPlacement.subId],
+                );
+            }
+            mapped._placement = {
+                ...(mapped._placement || {}),
+                category_id: ensuredPlacement.catId ?? mapped._placement?.category_id,
+                subcategory_id: ensuredPlacement.subId ?? mapped._placement?.subcategory_id,
+            };
         }
         const patch = await patchExistingProduct(deps.query, existing, mapped, {
             uploadsDir: deps.uploadsWebProductsDir,
             apiBase: deps.getPublicApiBaseUrl(),
         });
-        return { action: 'updated', ...patch, mapped };
+        const newStem =
+            endpoint === 'product_creation'
+                ? identityForCreate(mapped) || String(mapped.barcode || '').trim()
+                : '';
+        const oldStem = String(existing.sku || '').trim();
+        if (newStem && trimCmp(newStem) !== trimCmp(oldStem)) {
+            await renameWebProductSkuIfFree(deps.query, existing.id, newStem, { syncBarcode: true });
+        } else if (newStem && trimCmp(newStem) !== trimCmp(String(existing.barcode || '').trim())) {
+            await deps.query(
+                `UPDATE web_products SET barcode = $2::text, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [existing.id, newStem],
+            );
+        }
+        const placement = mapped._placement || null;
+        return {
+            action: 'updated',
+            ...patch,
+            sku: newStem || patch.sku,
+            prodSku: newStem || patch.sku,
+            catId: ensuredPlacement?.catId ?? placement?.category_id ?? existing.category_id,
+            subId: ensuredPlacement?.subId ?? placement?.subcategory_id ?? existing.subcategory_id,
+            placement,
+            mapped,
+        };
     }
 
     if (endpoint === 'stock') {

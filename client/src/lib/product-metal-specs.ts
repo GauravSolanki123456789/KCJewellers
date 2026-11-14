@@ -108,15 +108,10 @@ export function getWastageSpecLine(
 }
 
 export function getMcSpecLine(
-  item: Item | null | undefined,
-  breakdown?: PriceBreakdown | null,
+  _item: Item | null | undefined,
+  _breakdown?: PriceBreakdown | null,
 ): ProductSpecLine | null {
-  if (!shouldShowWastageForItem(item)) return null
-  const mc = breakdown?.mc
-  if (mc == null || mc <= 0) return null
-  const wastageAmt = breakdown?.wastage_amount
-  if (wastageAmt != null && wastageAmt > 0) return null
-  return { label: 'Making charges', value: formatInr(mc) }
+  return null
 }
 
 export function getBillableWeightSpecLine(

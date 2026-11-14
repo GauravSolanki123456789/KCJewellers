@@ -14,6 +14,7 @@ import {
   applyBillingSlabToLine,
   applyPieceSlabToLine,
   computeLineBreakdown,
+  erpLineBillPieceCount,
   displayRatesToPerGram,
   isPiecePricedBillLine,
   isSilverGiftStockLine,
@@ -97,6 +98,7 @@ import {
   createShippingBillLine,
   findInvoiceItemForCategory,
   findShippingInvoiceItem,
+  isShippingStockLabel,
   findStyleForSku,
   firstManualEntryField,
   isGiftManualLine,
@@ -310,6 +312,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     listMrp > 0 &&
     (!weightGm || weightGm <= 0) &&
     (metal.startsWith('gift') || metal.includes('gifting') || metal === 'gift items')
+  const shippingStock = isShippingStockLabel(p.product_name || p.name, p.sku)
   const base: ErpBillLine = {
     name: p.product_name || p.name || code,
     code,
@@ -318,7 +321,7 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     style_code: p.style_code || undefined,
     size: p.size ?? null,
     /** One stock tag scan = one bill line (tag PCS is label-only, not bill qty). */
-    qty: 1,
+    qty: shippingStock ? 0 : 1,
     originalWeightGm: wt,
     weightGm: wt,
     gross_weight: p.gross_weight ?? null,
@@ -346,7 +349,8 @@ function productToLine(p: ErpProductHit, code: string, slab: ErpRateSlab = 'R'):
     imageUrl: p.image_url ?? null,
     fixed_price: p.fixed_price ?? null,
     mrpListPrice: isFixedGift ? listMrp : null,
-    mrpMode: isFixedGift ? true : undefined,
+    mrpMode: isFixedGift && !shippingStock ? true : shippingStock ? false : undefined,
+    manualCategory: shippingStock ? 'shipping' : undefined,
     stock_piece_id: p.id,
     availability: null,
     lineTotalInr: null,
@@ -1976,7 +1980,7 @@ export function ErpBillingWorkspace() {
     let net = 0
     let count = 0
     for (const l of lines) {
-      count += Math.max(1, Number(l.qty) || 1)
+      count += erpLineBillPieceCount(l)
       const bd = computeLineBreakdown(
         l,
         displayRates,

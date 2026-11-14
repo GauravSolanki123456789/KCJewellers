@@ -17,6 +17,7 @@ const {
     resolveErpBillTotalFromPayload,
     ensureSessionNetTotalInr,
 } = require('./erpBillTotalResolve');
+const { normalizeErpBillLines } = require('./erpBillLinesLimit');
 const { jainavMetalOwedGmFromLines, jainavMcOwedInrFromLines } = require('./erpJainavSettlement');
 const {
     normalizeShadowSecretSequence,
@@ -166,7 +167,7 @@ function classifyLane({ paymentMethod, laneOverride, session }) {
 }
 
 async function createShadowBillFromBillingPayload(query, resellerUserId, body, operatorId, opts = {}) {
-    const linesRaw = Array.isArray(body.lines) ? body.lines.slice(0, 200) : [];
+    const linesRaw = normalizeErpBillLines(body.lines);
     const sessionObj =
         body.session && typeof body.session === 'object'
             ? ensureSessionNetTotalInr(body, linesRaw)
@@ -1480,7 +1481,7 @@ function registerShadowRoutes(app, deps) {
 
     app.post('/api/reseller/erp/shadow/bills', checkAuth, erpGate, shadowGate, requireJson, async (req, res) => {
         try {
-            const linesRaw = Array.isArray(req.body.lines) ? req.body.lines.slice(0, 200) : [];
+            const linesRaw = normalizeErpBillLines(req.body.lines);
             if (!req.body.session || typeof req.body.session !== 'object') req.body.session = {};
             req.body.session = ensureSessionNetTotalInr(req.body, linesRaw);
             const billTypeEarly = trimStr(req.body.bill_type, 32) || 'sale';

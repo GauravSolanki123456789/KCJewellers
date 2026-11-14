@@ -1,7 +1,12 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { billingWastageDisplay } from '@/lib/erp-billing-display'
 import type { ErpRateSlab } from '@/lib/erp-billing-pricing'
-import { isPiecePricedBillLine, shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
+import {
+  erpLineBillPieceCount,
+  isPiecePricedBillLine,
+  isShippingChargeLine,
+  shouldUseWeightSilverNotMrp,
+} from '@/lib/erp-billing-pricing'
 
 /** Footer TOTAL WEIGHT — net×pcs (fixed rate) or (net+wastage%)×pcs (rate unfix). */
 export function pdfFooterTotalWeightGm(
@@ -11,8 +16,9 @@ export function pdfFooterTotalWeightGm(
 ): number {
   let sum = 0
   for (const line of lines) {
+    if (isShippingChargeLine(line)) continue
     const net = Number(line.originalWeightGm ?? line.weightGm) || 0
-    const qty = Math.max(1, Number(line.qty) || 1)
+    const qty = erpLineBillPieceCount(line) || 1
     if (net <= 0) continue
     if (shouldUseWeightSilverNotMrp(line)) {
       sum += net * qty

@@ -46,6 +46,15 @@ export { isShippingChargeLine }
 
 const SHIPPING_INVOICE_LABELS = ['SHIPPING CHARGE', 'SHIPPING', 'DELIVERY CHARGE', 'COURIER']
 
+export function isShippingStockLabel(
+  productName?: string | null,
+  sku?: string | null,
+): boolean {
+  const blob = `${productName || ''} ${sku || ''}`.trim().toUpperCase()
+  if (!blob) return false
+  return blob.includes('SHIPPING CHARGE') || blob === 'SHIPPING' || blob.startsWith('SHIPPING ')
+}
+
 export function findShippingInvoiceItem(items: GstInvoiceItem[]): GstInvoiceItem | null {
   const upper = SHIPPING_INVOICE_LABELS.map((x) => x.toUpperCase())
   for (const label of upper) {
@@ -73,7 +82,7 @@ export function createShippingBillLine(
     sku: 'SHIPPING CHARGE',
     style_code: undefined,
     size: null,
-    qty: 1,
+    qty: 0,
     originalWeightGm: null,
     weightGm: null,
     gross_weight: null,
