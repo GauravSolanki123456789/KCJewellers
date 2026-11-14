@@ -38,7 +38,7 @@ function useDeferImageUntilNearView(skip: boolean) {
           io.disconnect();
         }
       },
-      { rootMargin: "280px 0px", threshold: 0.01 },
+      { rootMargin: "520px 0px 320px", threshold: 0.01 },
     );
     io.observe(el);
     return () => io.disconnect();
