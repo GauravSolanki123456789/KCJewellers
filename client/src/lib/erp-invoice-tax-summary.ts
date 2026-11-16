@@ -5,21 +5,25 @@ export function roundInr2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-/** GST-exempt ₹ in this invoice row (shipping merged under GIFT ITEMS, etc.). */
-export function invoiceLineShippingExemptInr(line: ErpBillLine): number {
-  if (isShippingChargeLine(line)) return Number(line.lineTotalInr) || 0
-  const merged = Number(line.invoiceMergedShippingInr) || 0
-  if (merged > 0) return merged
-  return 0
+/** Bill has a shipping charge (own row or merged under GIFT ITEMS on Marlecha PDF). */
+export function invoiceHasShippingCharge(lines: ErpBillLine[]): boolean {
+  return (
+    lines.some((l) => isShippingChargeLine(l)) ||
+    lines.some((l) => (Number(l.invoiceMergedShippingInr) || 0) > 0)
+  )
 }
 
-export function lineAmountCountsTowardGst(
+export function invoiceShippingDisplayTaxableInr(
   line: ErpBillLine,
-  displayTaxableInr: number,
+  gstOffOnBill: boolean,
 ): number {
-  const exempt = invoiceLineShippingExemptInr(line)
-  if (exempt <= 0) return displayTaxableInr
-  return Math.max(0, roundInr2(displayTaxableInr - exempt))
+  const total =
+    isShippingChargeLine(line) || (Number(line.invoiceMergedShippingInr) || 0) > 0
+      ? Number(line.lineTotalInr) || 0
+      : 0
+  if (total <= 0) return 0
+  if (gstOffOnBill) return roundInr2(total)
+  return roundInr2(total / 1.03)
 }
 
 export type MarlechaTaxSummary = {
@@ -39,16 +43,14 @@ export function computeMarlechaTaxSummary(params: {
 }): MarlechaTaxSummary {
   const { lines, lineDisplayTaxable, gstOffOnBill, targetNetInr, fallbackGstInr } = params
   let taxable = 0
-  let gstBase = 0
   for (const line of lines) {
     const amt = roundInr2(lineDisplayTaxable(line))
     taxable = roundInr2(taxable + amt)
-    gstBase = roundInr2(gstBase + lineAmountCountsTowardGst(line, amt))
   }
 
   let gstAmt = 0
   if (!gstOffOnBill) {
-    gstAmt = roundInr2(gstBase * 0.03)
+    gstAmt = roundInr2(taxable * 0.03)
   } else if (fallbackGstInr != null && Number.isFinite(fallbackGstInr)) {
     gstAmt = roundInr2(fallbackGstInr)
   }
@@ -109,8 +111,8 @@ export function reconcileInvoiceShippingGiftRowForTargetNet(
 
     const row = working[idx]!
     const base = Number(row.lineTotalInr) || 0
-    /** Pull taxable display down/up — shipping is GST-exempt so ₹1 row ≈ ₹1 net. */
-    const adjusted = Math.max(0, roundInr2(base + drift))
+    /** Nudge shipping / gift row (pre-GST column is lineTotal/1.03 when GST is on). */
+    const adjusted = Math.max(0, roundInr2(base + drift * 1.03))
     working[idx] = {
       ...row,
       lineTotalInr: adjusted,

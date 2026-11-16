@@ -113,7 +113,13 @@ export function settlementOptsFromBill(bill: ErpBill): SettlementDiscountOpts {
 function marlechaLineDisplayTaxable(line: ErpBillLine, gstOffOnBill: boolean): number {
   const total = Number(line.lineTotalInr) || 0
   if (total <= 0) return 0
-  if (isShippingChargeLine(line)) return total
+  if (
+    isShippingChargeLine(line) ||
+    (Number(line.invoiceMergedShippingInr) || 0) > 0
+  ) {
+    if (gstOffOnBill) return roundInr2(total)
+    return roundInr2(total / 1.03)
+  }
   if (gstOffOnBill) return roundInr2(total)
   if (line.mrpMode || line.manualCategory === 'gift') return roundInr2(total)
   return roundInr2(total / 1.03)

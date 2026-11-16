@@ -22,6 +22,23 @@ export const CATALOG_CARD_IMAGE_QUALITY = 86
 /** PDP hero — slightly higher for zoom; still served at `sizes`-appropriate width. */
 export const CATALOG_PDP_IMAGE_QUALITY = 88
 
+/** Must match `images.imageSizes` in `next.config.ts` — requesting other widths 400s. */
+export const NEXT_IMAGE_ALLOWED_WIDTHS = [16, 32, 48, 64, 96, 128, 160, 256, 384, 512, 640] as const
+
+export function snapNextImageWidth(width: number): number {
+  const w = Math.max(16, Math.min(640, Math.round(width)))
+  let best: number = NEXT_IMAGE_ALLOWED_WIDTHS[0]
+  let bestDist = Infinity
+  for (const allowed of NEXT_IMAGE_ALLOWED_WIDTHS) {
+    const d = Math.abs(allowed - w)
+    if (d < bestDist) {
+      bestDist = d
+      best = allowed
+    }
+  }
+  return best
+}
+
 /**
  * Small thumbs (cart, admin lists) via the Next image optimizer.
  * Use with a plain `<img>` when `fill` layout is not needed.
@@ -34,7 +51,7 @@ export function optimizedCatalogThumbSrc(
   const n = normalizeCatalogImageSrc(src ?? '')
   if (!n) return ''
   if (!shouldOptimizeCatalogImage(n)) return n
-  const w = Math.max(48, Math.min(640, Math.round(width)))
+  const w = snapNextImageWidth(width)
   const q = Math.max(60, Math.min(95, Math.round(quality)))
   return `/_next/image?url=${encodeURIComponent(n)}&w=${w}&q=${q}`
 }

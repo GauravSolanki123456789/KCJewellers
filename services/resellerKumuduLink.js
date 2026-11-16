@@ -724,6 +724,8 @@ function applyIntelligentFamilySemantics(record, mapped, endpoint, erpConfig) {
 
     if (endpoint === 'product_creation' || endpoint === 'stock') {
         if (design && !out.product_name) out.product_name = design;
+        if (item && fw === 'air' && !out.sku) out.sku = item;
+        if (item && fw === 'pitara' && !out.sku) out.sku = item;
     } else if (design && !out.product_name) {
         out.product_name = design;
     }
@@ -991,12 +993,16 @@ async function applyCataloguePlacementToMapped(query, mapped, placement, record)
     mapped.catalogue_sync_id = placement.catalogue_sync_id || placement.link.sync_id;
     await applyProductSubcategorySku(query, record, mapped, placement);
     const ensured = await ensureStyleAndSku(query, mapped, { publish: true });
+    const subId =
+        placement.subcategory_id && ensured.subId && placement.subcategory_id !== ensured.subId
+            ? ensured.subId
+            : ensured.subId ?? placement.subcategory_id;
     const next = {
         ...placement,
         style_code: ensured.styleCode || mapped.style_code,
         sku: ensured.skuCode || mapped.sku,
         category_id: ensured.catId ?? placement.category_id,
-        subcategory_id: ensured.subId ?? placement.subcategory_id,
+        subcategory_id: subId,
     };
     mapped.style_code = next.style_code;
     mapped._placement = next;
@@ -1817,7 +1823,21 @@ async function ensureStyleAndSku(query, mapped, { publish = true } = {}) {
     let subId = null;
     let subcategoryExisted = false;
     if (catId && skuCode) {
+        const byNameRows = await query(
+            `SELECT id, slug FROM web_subcategories
+             WHERE category_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($2))
+             ORDER BY id ASC
+             LIMIT 1`,
+            [catId, skuCode],
+        );
+        if (byNameRows[0]?.id) {
+            subId = byNameRows[0].id;
+            subcategoryExisted = true;
+        }
         const skuSlug = skuSlugFromStyleAndSku(styleSlug, skuCode);
+        if (subId) {
+            /* keep existing slug (e.g. air-haram) — do not fork air-collection-air-haram */
+        } else {
         const existingSubRows = await query('SELECT id FROM web_subcategories WHERE slug = $1 LIMIT 1', [skuSlug]);
         subcategoryExisted = !!existingSubRows[0];
         await query(
@@ -1830,6 +1850,7 @@ async function ensureStyleAndSku(query, mapped, { publish = true } = {}) {
         );
         const subRows = await query('SELECT id FROM web_subcategories WHERE slug = $1', [skuSlug]);
         subId = subRows[0]?.id || null;
+        }
     }
     return {
         catId,

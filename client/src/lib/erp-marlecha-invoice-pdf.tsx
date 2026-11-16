@@ -446,7 +446,10 @@ function lineTaxableInr(
 ): number {
   const total = Number(line.lineTotalInr) || 0
   if (total <= 0) return 0
-  if (line.manualCategory === 'shipping') return total
+  if (line.manualCategory === 'shipping' || (Number(line.invoiceMergedShippingInr) || 0) > 0) {
+    if (gstOffOnBill) return roundInr2(total)
+    return roundInr2(total / 1.03)
+  }
   if (gstOffOnBill && alloc && alloc.net > 0 && alloc.subtotal > 0) {
     const gstGap = alloc.net - alloc.subtotal
     if (gstGap > 0.5) {
@@ -474,7 +477,16 @@ function lineDisplayAmountInr(
   opts: { gstOffOnBill: boolean; isApproval: boolean; mrpItemNames?: Set<string> | null },
 ): number {
   if (opts.isApproval) return Number(line.lineTotalInr) || 0
-  if (marlechaFlatMrpRow(line, opts.mrpItemNames)) return Number(line.lineTotalInr) || 0
+  if (marlechaFlatMrpRow(line, opts.mrpItemNames)) {
+  if (
+      !opts.gstOffOnBill &&
+      (line.manualCategory === 'shipping' ||
+        (Number(line.invoiceMergedShippingInr) || 0) > 0)
+    ) {
+      return lineTaxableInr(line, opts.gstOffOnBill)
+    }
+    return Number(line.lineTotalInr) || 0
+  }
   return lineTaxableInr(line, opts.gstOffOnBill)
 }
 
@@ -788,8 +800,13 @@ function InvoicePage({
     const qty = lineQty(line)
     const purityCell = showPurityInPdf ? billLinePdfPurityText(line, lines) : ''
     if (marlechaFlatMrpRow(line, mrpItemNames)) {
-      const amt = Number(line.lineTotalInr) || 0
-      const rate = linePieceRate(line)
+      const amt =
+        !isApproval &&
+        !gstOffOnBill &&
+        (line.manualCategory === 'shipping' || (Number(line.invoiceMergedShippingInr) || 0) > 0)
+          ? lineTaxableInr(line, !!gstOffOnBill, lineTaxAlloc)
+          : Number(line.lineTotalInr) || 0
+      const rate = qty > 0 && amt > 0 ? amt / qty : linePieceRate(line)
       const base = [
         slNo,
         desc,
