@@ -268,7 +268,7 @@ export function ErpBillingStackedRow({
             <>
               <div className="flex flex-wrap items-end gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-3">
                 <p className="w-full text-xs font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-                  Shipping charges
+                  Gift items
                 </p>
                 <label className="min-w-[7rem] flex-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
                   Fixed (₹)

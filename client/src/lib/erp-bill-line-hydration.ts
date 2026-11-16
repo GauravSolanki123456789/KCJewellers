@@ -1,6 +1,6 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import { isShippingChargeLine } from '@/lib/erp-billing-pricing'
-import { isShippingStockLabel } from '@/lib/erp-billing-shortcuts'
+import { isShippingStockLabel, normalizeShippingLineDisplayFields } from '@/lib/erp-billing-shortcuts'
 import { normalizeMetalSlabPctForUiStorage } from '@/lib/erp-metal-slab-field'
 import { inferMcRateCatalogPatch } from '@/lib/erp-mc-slab-effective'
 
@@ -68,6 +68,10 @@ export function normalizeErpBillLineFromStorage(line: ErpBillLine): ErpBillLine 
   ) {
     next.manualCategory = 'shipping'
     next.qty = 0
+    return normalizeShippingLineDisplayFields(next)
+  }
+  if (next.manualCategory === 'shipping') {
+    return normalizeShippingLineDisplayFields(next)
   }
   return next
 }

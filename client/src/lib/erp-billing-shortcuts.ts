@@ -44,7 +44,33 @@ export function resolveBillingScanShortcut(code: string): BillingScanToken | nul
 
 export { isShippingChargeLine }
 
-const SHIPPING_INVOICE_LABELS = ['SHIPPING CHARGE', 'SHIPPING', 'DELIVERY CHARGE', 'COURIER']
+/** SH shortcut rows — show as gift items in grid, estimates, and PDFs (logic stays `manualCategory: shipping`). */
+export const ERP_SHIPPING_SCAN_DISPLAY_NAME = 'GIFT ITEMS'
+
+const SHIPPING_INVOICE_LABELS = ['GIFT ITEMS', 'GIFT ITEM', 'SHIPPING CHARGE', 'SHIPPING', 'DELIVERY CHARGE', 'COURIER']
+
+export function erpShippingLineDisplayLabel(line: ErpBillLine): string {
+  const inv = String(line.invoice_item_name || '').trim()
+  if (inv) return inv
+  return ERP_SHIPPING_SCAN_DISPLAY_NAME
+}
+
+export function erpBillLineNameDisplay(line: ErpBillLine): string {
+  if (line.manualCategory === 'shipping') return erpShippingLineDisplayLabel(line)
+  return String(line.name || '').trim() || '—'
+}
+
+export function erpBillLineSkuDisplay(line: ErpBillLine): string {
+  if (line.manualCategory === 'shipping') return erpShippingLineDisplayLabel(line)
+  return String(line.sku || '').trim() || '—'
+}
+
+/** Rewrite legacy SHIPPING CHARGE labels on saved bills when re-opened or printed. */
+export function normalizeShippingLineDisplayFields(line: ErpBillLine): ErpBillLine {
+  if (line.manualCategory !== 'shipping') return line
+  const label = erpShippingLineDisplayLabel(line)
+  return { ...line, name: label, sku: label }
+}
 
 export function isShippingStockLabel(
   productName?: string | null,
@@ -75,11 +101,13 @@ export function createShippingBillLine(
   usedCodes: Iterable<string> = [],
 ): ErpBillLine {
   const lineId = generateManualBarcode(usedCodes)
+  const display =
+    String(invoiceItem.name || ERP_SHIPPING_SCAN_DISPLAY_NAME).trim() || ERP_SHIPPING_SCAN_DISPLAY_NAME
   return {
-    name: 'SHIPPING CHARGE',
+    name: display,
     code: lineId,
     barcode: lineId,
-    sku: 'SHIPPING CHARGE',
+    sku: display,
     style_code: undefined,
     size: null,
     qty: 0,

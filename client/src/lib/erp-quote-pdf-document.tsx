@@ -23,6 +23,7 @@ import {
 import { isPiecePricedBillLine, parseSlabSettingsFromUser } from '@/lib/erp-billing-pricing'
 import { parseResellerSlabSettings, type ResellerSlabSettings } from '@/lib/catalog-slab-pricing'
 import { giftMrpFixedColumnDisplay } from '@/lib/erp-gift-mrp-pricing'
+import { erpBillLineNameDisplay, erpBillLineSkuDisplay } from '@/lib/erp-billing-shortcuts'
 import { formatErpPdfPurity } from '@/lib/erp-pdf-purity'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 
@@ -391,11 +392,11 @@ function cell(
     case 'barcode':
       return line.barcode || line.code || '—'
     case 'sku':
-      return line.sku || '—'
+      return erpBillLineSkuDisplay(line)
     case 'style':
       return line.style_code || '—'
     case 'name':
-      return line.name || '—'
+      return erpBillLineNameDisplay(line)
     case 'size':
       return line.size || '—'
     case 'gross':

@@ -96,6 +96,8 @@ import {
 import {
   createManualBillLine,
   createShippingBillLine,
+  erpBillLineNameDisplay,
+  erpBillLineSkuDisplay,
   findInvoiceItemForCategory,
   findShippingInvoiceItem,
   isShippingStockLabel,
@@ -1453,7 +1455,7 @@ export function ErpBillingWorkspace() {
       if (!invoiceItem) {
         setScanErrorMsg(
           shortcut === 'shipping'
-            ? 'Add a “Shipping charge” invoice item in GST settings, then try SH again.'
+            ? 'Add a “Gift items” invoice item in GST settings, then try SH again.'
             : 'Configure invoice item categories in GST settings first (A / S / B / G / O shortcuts).',
         )
         setScanCode('')
@@ -2427,13 +2429,13 @@ export function ErpBillingWorkspace() {
       case 'barcode':
         return line.barcode || ''
       case 'sku':
-        return line.sku || '—'
+        return erpBillLineSkuDisplay(line)
       case 'style_code':
         return line.style_code || '—'
       case 'name':
-        return line.name
+        return erpBillLineNameDisplay(line)
       case 'invoice_item_name':
-        return line.invoice_item_name || line.name
+        return line.invoice_item_name || erpBillLineNameDisplay(line)
       case 'hsn_code':
         return line.hsn_code || ''
       case 'size':
@@ -3515,7 +3517,7 @@ export function ErpBillingWorkspace() {
                 {lines.length === 0 ? (
                   <tr>
                     <td colSpan={collapsedTableCols.length + 2} className="px-4 py-12 text-center text-[var(--color-jewelry-black,#1a1814)]/45">
-                      Scan a barcode, SH for shipping, or A / S / B / G / O for manual entry
+                      Scan a barcode, SH for gift items, or A / S / B / G / O for manual entry
                     </td>
                   </tr>
                 ) : (
