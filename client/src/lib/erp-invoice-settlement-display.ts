@@ -1,6 +1,9 @@
 import type { ErpBill, ErpBillLine } from '@/components/reseller/erp/erp-ui'
 import type { ErpBillSession } from '@/lib/erp-bill-session'
 import { groupMarlechaInvoiceLines, isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
+import { isShippingChargeLine } from '@/lib/erp-billing-shortcuts'
+import { erpBillGstEnabled } from '@/lib/erp-bill-session'
+import { reconcileInvoiceShippingGiftRowForTargetNet, roundInr2 } from '@/lib/erp-invoice-tax-summary'
 
 /** Raw physical net weight (never metal-% billed weight). */
 export function rawPhysicalNetGm(line: ErpBillLine): number {
@@ -107,12 +110,39 @@ export function settlementOptsFromBill(bill: ErpBill): SettlementDiscountOpts {
 }
 
 /** Group by invoice item + apply settlement discount — PDF & preview display payload. */
+function marlechaLineDisplayTaxable(line: ErpBillLine, gstOffOnBill: boolean): number {
+  const total = Number(line.lineTotalInr) || 0
+  if (total <= 0) return 0
+  if (isShippingChargeLine(line)) return total
+  if (gstOffOnBill) return roundInr2(total)
+  if (line.mrpMode || line.manualCategory === 'gift') return roundInr2(total)
+  return roundInr2(total / 1.03)
+}
+
 export function buildSettlementAdjustedInvoiceLines(
   bill: ErpBill,
   mrpItemNames?: Set<string> | null,
 ): ErpBillLine[] {
+  const gstOffOnBill = bill.gst_enabled === false || !erpBillGstEnabled(bill)
   const grouped = groupMarlechaInvoiceLines(bill.lines ?? [], mrpItemNames)
-  return applySettlementDiscountToGroups(grouped, settlementOptsFromBill(bill))
+  let lines = applySettlementDiscountToGroups(grouped, settlementOptsFromBill(bill))
+  const hasShipping =
+    (bill.lines ?? []).some((l) => isShippingChargeLine(l)) ||
+    lines.some((l) => (Number(l.invoiceMergedShippingInr) || 0) > 0)
+  const targetNet = Math.round(
+    Number(bill.total_inr) ||
+      Number((bill.session as ErpBillSession | undefined)?.netTotalInr) ||
+      0,
+  )
+  if (hasShipping && targetNet > 0) {
+    lines = reconcileInvoiceShippingGiftRowForTargetNet(
+      lines,
+      targetNet,
+      (line) => marlechaLineDisplayTaxable(line, gstOffOnBill),
+      gstOffOnBill,
+    )
+  }
+  return lines
 }
 
 function hasExplicitSettlementDiscount(bill: ErpBill): boolean {

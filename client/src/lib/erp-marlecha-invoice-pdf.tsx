@@ -6,6 +6,7 @@ import { sanitizePdfText } from '@/lib/pdf-text-utils'
 import { isMrpInvoiceLine } from '@/lib/erp-invoice-defaults'
 import { shouldUseWeightSilverNotMrp } from '@/lib/erp-billing-pricing'
 import { buildSettlementAdjustedInvoiceLines } from '@/lib/erp-invoice-settlement-display'
+import { computeMarlechaTaxSummary, roundInr2 } from '@/lib/erp-invoice-tax-summary'
 import { formatErpDateDdMmYyyy } from '@/lib/erp-date-format'
 import { amountInWordsInr } from '@/lib/erp-amount-in-words'
 import { formatPdfAddressLines } from '@/lib/erp-customer-address-format'
@@ -477,10 +478,6 @@ function lineDisplayAmountInr(
   return lineTaxableInr(line, opts.gstOffOnBill)
 }
 
-function roundInr2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
 type ColumnAlign = 'left' | 'center' | 'right'
 
 function columnAlignments(count: number, kind: 'weight' | 'mrp' | 'unified'): ColumnAlign[] {
@@ -735,25 +732,38 @@ function InvoicePage({
       (bill.session as { gstEnabled?: boolean }).gstEnabled === false)
   const isApproval = variant === 'approval'
   const lineAmountOpts = { gstOffOnBill: !!gstOffOnBill, isApproval, mrpItemNames }
-  let taxable = roundInr2(
-    lines.reduce((sum, line) => sum + lineDisplayAmountInr(line, lineAmountOpts), 0),
-  )
-  let gstAmt = totals.gst
+  const targetNetInr = Math.round(Number(bill.total_inr) || totals.net || 0)
+  let taxable = 0
+  let gstAmt = 0
+  let rawTotal = 0
+  let roundedTotal = targetNetInr
+  let roundOff = 0
+
   if (gstOffOnBill && totals.net > 0) {
     const net = Math.round(totals.net)
     taxable = roundInr2(net / 1.03)
     gstAmt = roundInr2(net - taxable)
-  } else if (!gstOffOnBill) {
-    gstAmt = roundInr2(taxable * 0.03)
+    rawTotal = net
+    roundedTotal = targetNetInr || net
+    roundOff = roundInr2(roundedTotal - rawTotal)
   } else {
-    gstAmt = 0
+    const summary = computeMarlechaTaxSummary({
+      lines,
+      lineDisplayTaxable: (line) => lineDisplayAmountInr(line, lineAmountOpts),
+      gstOffOnBill: !!gstOffOnBill,
+      targetNetInr: targetNetInr || totals.net,
+      fallbackGstInr: totals.gst,
+    })
+    taxable = summary.taxable
+    gstAmt = summary.gstAmt
+    rawTotal = summary.rawTotal
+    roundedTotal = summary.roundedTotal
+    roundOff = summary.roundOff
   }
+
   const igst = interstate ? gstAmt : 0
   const cgst = interstate ? 0 : gstAmt / 2
   const sgst = interstate ? 0 : gstAmt / 2
-  const rawTotal = roundInr2(taxable + gstAmt)
-  const roundedTotal = Math.round(Number(bill.total_inr) || totals.net || rawTotal)
-  const roundOff = roundInr2(roundedTotal - rawTotal)
   const narrationCaps = String(approvalNarration || session.approvalNarration || '')
     .trim()
     .toUpperCase()

@@ -181,6 +181,8 @@ export type ErpBillLine = {
   invoice_item_name?: string | null
   /** Marlecha grouped row — weightGm/gross_weight already sum all pieces (do not × qty). */
   invoiceWeightIsAggregate?: boolean
+  /** Marlecha grouped row — portion of lineTotalInr from GST-exempt shipping (excluded from 3% GST). */
+  invoiceMergedShippingInr?: number
   /** HSN code for tax invoice */
   hsn_code?: string | null
   /** Manual billing row (A/S/B/G shortcut — no barcode) */

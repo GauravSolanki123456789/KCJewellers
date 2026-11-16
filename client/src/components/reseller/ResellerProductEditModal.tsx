@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import axios from '@/lib/axios'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 import {
   emptyProductPayload,
   submissionToPayload,
@@ -48,6 +49,8 @@ type Props = {
   onSaved: (updated: ResellerProductSubmission) => void
   /** Live (approved) edits sync site-wide immediately. */
   isLiveEdit?: boolean
+  /** KC admin inbox — full fields, photos, and optional review notes. */
+  adminMode?: boolean
 }
 
 function Field({
@@ -118,8 +121,16 @@ function ImageSlot({
   )
 }
 
-export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEdit }: Props) {
+export function ResellerProductEditModal({
+  open,
+  row,
+  onClose,
+  onSaved,
+  isLiveEdit,
+  adminMode,
+}: Props) {
   const [form, setForm] = useState<ResellerProductPayload>(emptyProductPayload())
+  const [reviewNotes, setReviewNotes] = useState('')
   const [primaryFile, setPrimaryFile] = useState<File | null>(null)
   const [secondaryFile, setSecondaryFile] = useState<File | null>(null)
   const [boxFile, setBoxFile] = useState<File | null>(null)
@@ -175,6 +186,7 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
   useEffect(() => {
     if (!open || !row) return
     setForm(applyDerivedGrossWeight(submissionToPayload(row)))
+    setReviewNotes(row.review_notes || '')
     setPrimaryFile(null)
     setSecondaryFile(null)
     setBoxFile(null)
@@ -201,9 +213,9 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
   const hasBoxCharge =
     Number(row.box_charges ?? 0) > 0 || Number(form.boxCharges ?? 0) > 0
   const existingPrimary = submissionPreviewImageUrl(row)
-  const existingSecondary = row.secondary_image_url || ''
-  const existingBox = row.box_image_url || ''
-  const existingVideo = row.video_url || ''
+  const existingSecondary = normalizeCatalogImageSrc(row.secondary_image_url) || ''
+  const existingBox = normalizeCatalogImageSrc(row.box_image_url) || ''
+  const existingVideo = normalizeCatalogImageSrc(row.video_url) || ''
 
   const validateImage = (file: File | null): string | null => {
     if (!file) return null
@@ -230,16 +242,23 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
     setSaving(true)
     try {
       const fd = new FormData()
-      fd.append('payload', JSON.stringify(applyDerivedGrossWeight(form)))
+      const productJson = JSON.stringify(applyDerivedGrossWeight(form))
+      if (adminMode) {
+        fd.append('product', productJson)
+        fd.append('review_notes', reviewNotes.slice(0, 2000))
+      } else {
+        fd.append('payload', productJson)
+      }
       if (primaryFile) fd.append('primaryImage', primaryFile, primaryFile.name || 'front.webp')
       if (secondaryFile) fd.append('secondaryImage', secondaryFile, secondaryFile.name || 'back.webp')
       if (boxFile) fd.append('boxImage', boxFile, boxFile.name || 'box.webp')
       if (videoFile) fd.append('productVideo', videoFile, videoFile.name || 'video.mp4')
 
-      const res = await axios.put<{ success?: boolean; submission?: ResellerProductSubmission }>(
-        `/api/reseller/product-submissions/${row.id}`,
-        fd,
-      )
+      const saveUrl = adminMode
+        ? `/api/admin/reseller-product-submissions/${row.id}`
+        : `/api/reseller/product-submissions/${row.id}`
+
+      const res = await axios.put<{ success?: boolean; submission?: ResellerProductSubmission }>(saveUrl, fd)
       if (res.data?.submission) {
         onSaved(res.data.submission)
         onClose()
@@ -270,11 +289,13 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--color-slate-700,#e8e4df)] px-4 py-4 sm:px-5">
           <div className="min-w-0">
             <h2 id="reseller-edit-title" className="text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
-              Edit product
+              {adminMode ? 'Edit submission' : 'Edit product'}
             </h2>
             <p className="kc-upload-hint mt-0.5 truncate text-xs">
               {row.product_name || row.barcode || row.sku}
-              {isLiveEdit ? ' · saves live on KC site' : ''}
+              {isLiveEdit || (adminMode && row.submission_status === 'approved')
+                ? ' · saves live on KC site'
+                : ''}
             </p>
           </div>
           <button
@@ -288,10 +309,23 @@ export function ResellerProductEditModal({ open, row, onClose, onSaved, isLiveEd
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
-          {isLiveEdit ? (
+          {isLiveEdit || (adminMode && row.submission_status === 'approved') ? (
             <p className="rounded-xl border border-emerald-500/25 bg-emerald-50 px-3 py-2.5 text-xs leading-relaxed text-emerald-900">
               Changes apply immediately across the catalogue, shared links, and cart — no admin review needed.
             </p>
+          ) : null}
+
+          {adminMode ? (
+            <label className="block">
+              <span className="kc-upload-label text-xs font-medium">Admin notes</span>
+              <textarea
+                className="kc-upload-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm shadow-sm outline-none transition"
+                rows={2}
+                value={reviewNotes}
+                onChange={(e) => setReviewNotes(e.target.value)}
+                placeholder="Optional note for reseller or internal use"
+              />
+            </label>
           ) : null}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -1,4 +1,5 @@
 import type { ErpBillLine } from '@/components/reseller/erp/erp-ui'
+import { isShippingChargeLine } from '@/lib/erp-billing-shortcuts'
 
 export function defaultInvoiceItemName(metalType?: string | null, productName?: string | null): string {
   const m = (metalType || '').toLowerCase()
@@ -81,6 +82,12 @@ export function groupMarlechaInvoiceLines(
         existing.invoiceWeightIsAggregate = true
       }
       existing.lineTotalInr = (Number(existing.lineTotalInr) || 0) + (Number(line.lineTotalInr) || 0)
+      if (isShippingChargeLine(line)) {
+        const prevShip = Number(existing.invoiceMergedShippingInr) || 0
+        existing.invoiceMergedShippingInr =
+          prevShip + (Number(line.lineTotalInr) || 0)
+        existing.manualCategory = existing.manualCategory || 'shipping'
+      }
     } else {
       map.set(key, {
         ...line,
@@ -94,6 +101,9 @@ export function groupMarlechaInvoiceLines(
         lineTotalInr: line.lineTotalInr ?? 0,
         mrpMode: mrp || undefined,
         invoiceWeightIsAggregate: mrp ? undefined : false,
+        invoiceMergedShippingInr: isShippingChargeLine(line)
+          ? Number(line.lineTotalInr) || 0
+          : undefined,
       })
     }
   }

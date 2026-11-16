@@ -4,6 +4,7 @@
  */
 import type { Item } from '@/lib/pricing'
 import { productWithBoxChargesOnly } from '@/lib/product-box-pricing'
+import { normalizeCatalogImageSrc } from '@/lib/normalize-image-url'
 
 export type ResellerSubmissionStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'withdrawn'
 
@@ -266,8 +267,14 @@ export function submissionPreviewImageUrl(
 ): string {
   const explicitBox = String(row.box_image_url || '').trim()
   const explicit = String(row.image_url || '').trim()
-  if (explicit) return explicit
-  if (explicitBox) return explicitBox
+  if (explicit) {
+    const n = normalizeCatalogImageSrc(explicit)
+    return n || explicit
+  }
+  if (explicitBox) {
+    const n = normalizeCatalogImageSrc(explicitBox)
+    return n || explicitBox
+  }
   const key = submissionImageDiskKey(row)
   if (!key) return ''
   return productImageUrl(key, apiBase)

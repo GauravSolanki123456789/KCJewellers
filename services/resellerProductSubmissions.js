@@ -2522,6 +2522,7 @@ function registerResellerProductRoutes(app, deps) {
             if (!existing.length) return res.status(404).json({ error: 'Not found' });
             let item = req.body?.product || req.body;
             if (typeof item === 'string') item = JSON.parse(item);
+            if (req.body?.payload) item = { ...item, ...JSON.parse(req.body.payload) };
             const merged = { ...submissionRowToSyncItem(existing[0]), ...item };
             const resolved = resolveNormalizedVariant(merged);
             const fields = buildSubmissionFieldsFromItem(merged, existing[0].submitted_by_user_id, existing[0].batch_id);

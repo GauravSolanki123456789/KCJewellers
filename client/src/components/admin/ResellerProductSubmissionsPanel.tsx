@@ -3,15 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/lib/axios'
 import {
+  productImageUrl,
   submissionImageDiskKey,
   submissionPreviewImageUrl,
   submissionStatusLabel,
   submissionStatusTone,
-  submissionToPayload,
   type ResellerProductSubmission,
   type ResellerSubmissionStatus,
 } from '@/lib/reseller-products'
+import { catalogImageUrlAlternates } from '@/lib/normalize-image-url'
+import { optimizedCatalogThumbSrc } from '@/lib/catalog-image-next'
 import { KC_ADMIN_INBOX_REFRESH_EVENT } from '@/lib/admin-inbox-summary'
+import { ResellerProductEditModal } from '@/components/reseller/ResellerProductEditModal'
 import { Check, ChevronDown, ChevronRight, Loader2, Package, Pencil, Trash2, X } from 'lucide-react'
 
 const FILTERS = [
@@ -271,14 +274,14 @@ export function ResellerProductSubmissionsPanel() {
   }
 
   return (
-    <section className="relative mb-8 rounded-2xl border border-amber-500/25 bg-slate-900/40 p-4 sm:p-6">
+    <section className="kc-reseller-upload-panel relative mb-8 rounded-2xl border border-[var(--color-slate-700,#e8e4df)] bg-[var(--color-slate-900,#f7f4ef)] p-4 shadow-sm sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-amber-400 flex items-center gap-2">
-            <Package className="size-5" />
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--color-jewelry-black,#1a1814)]">
+            <Package className="size-5 text-[var(--kc-accent,#c41e3a)]" />
             Reseller product uploads
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="kc-upload-hint mt-1 text-xs">
             Approve to publish on kcjewellers.co.in (style category auto-published). Edit or delete anytime.
           </p>
         </div>
@@ -301,8 +304,10 @@ export function ResellerProductSubmissionsPanel() {
             key={key || 'all'}
             type="button"
             onClick={() => setFilter(key)}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-              filter === key ? 'bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+            className={`min-h-[36px] rounded-full px-3 py-1.5 text-xs font-medium transition ${
+              filter === key
+                ? 'bg-[var(--kc-accent,#c41e3a)]/12 text-[var(--color-jewelry-black,#1a1814)] ring-1 ring-[var(--kc-accent,#c41e3a)]/35'
+                : 'bg-white text-[var(--color-jewelry-black,#1a1814)]/65 hover:bg-[var(--color-slate-900,#f7f4ef)]'
             }`}
           >
             {label}
@@ -491,7 +496,14 @@ export function ResellerProductSubmissionsPanel() {
       )}
 
       {editRow ? (
-        <EditSubmissionModal row={editRow} onClose={() => setEditRow(null)} onSaved={() => void load()} />
+        <ResellerProductEditModal
+          open
+          adminMode
+          row={editRow}
+          isLiveEdit={editRow.submission_status === 'approved'}
+          onClose={() => setEditRow(null)}
+          onSaved={() => void load()}
+        />
       ) : null}
     </section>
   )
@@ -518,12 +530,11 @@ function AdminSubmissionRow({
 }) {
   const diskKey = submissionImageDiskKey(row)
   const displayCode = diskKey || row.barcode || row.sku || ''
-  const img = submissionPreviewImageUrl(row)
   const status = row.submission_status as ResellerSubmissionStatus
   const isPending = status === 'pending'
 
   return (
-    <li className="flex gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 sm:p-4">
+    <li className="kc-upload-card flex gap-3 rounded-2xl p-3 shadow-sm sm:p-4">
       {isPending ? (
         <input
           type="checkbox"
@@ -535,26 +546,19 @@ function AdminSubmissionRow({
       ) : (
         <span className="mt-1 size-4 shrink-0" />
       )}
-      <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-slate-800 sm:size-20">
-        {img ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={img} alt="" className="size-full object-cover" />
-        ) : (
-          <div className="flex size-full items-center justify-center text-slate-600">
-            <Package className="size-6" />
-          </div>
-        )}
-      </div>
+      <SubmissionThumb row={row} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <p className="font-medium text-slate-200">{row.product_name || displayCode}</p>
-            <p className="text-xs text-slate-500">
+            <p className="font-medium text-[var(--color-jewelry-black,#1a1814)]">
+              {row.product_name || displayCode}
+            </p>
+            <p className="kc-upload-hint text-xs">
               {row.style_code} › {row.sku}
               {row.metal_type ? ` · ${row.metal_type}` : ''}
               {row.fixed_price != null && Number(row.fixed_price) > 0 ? ` · ₹${row.fixed_price}` : ''}
             </p>
-            <p className="text-xs text-slate-600">
+            <p className="kc-upload-hint text-xs">
               {row.submitter_business_name || row.submitter_email || `User #${row.submitted_by_user_id}`} ·{' '}
               {formatWhen(row.created_at)}
             </p>
@@ -581,6 +585,46 @@ function AdminSubmissionRow({
   )
 }
 
+function SubmissionThumb({ row }: { row: ResellerProductSubmission }) {
+  const [idx, setIdx] = useState(0)
+  const candidates = useMemo(() => {
+    const primary = submissionPreviewImageUrl(row)
+    const disk = submissionImageDiskKey(row)
+    const bySku = disk ? productImageUrl(disk) : ''
+    const urls = [
+      primary,
+      bySku,
+      ...catalogImageUrlAlternates(primary),
+      ...(bySku ? catalogImageUrlAlternates(bySku) : []),
+    ].filter(Boolean)
+    return [...new Set(urls)]
+  }, [row])
+  const raw = candidates[idx] || ''
+  const src = raw ? optimizedCatalogThumbSrc(raw, 160, 84) || raw : ''
+  if (!src) {
+    return (
+      <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white ring-1 ring-[var(--color-slate-700,#e8e4df)] sm:size-20">
+        <Package className="size-6 text-[var(--color-jewelry-black,#1a1814)]/25" />
+      </div>
+    )
+  }
+  return (
+    <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-white ring-1 ring-[var(--color-slate-700,#e8e4df)] sm:size-20">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        className="size-full object-cover"
+        loading="lazy"
+        decoding="async"
+        onError={() => {
+          if (idx < candidates.length - 1) setIdx((i) => i + 1)
+        }}
+      />
+    </div>
+  )
+}
+
 function ActionBtn({
   onClick,
   disabled,
@@ -599,7 +643,7 @@ function ActionBtn({
       ? 'bg-emerald-600 text-white hover:bg-emerald-500'
       : tone === 'rose'
         ? 'bg-rose-600 text-white hover:bg-rose-500'
-        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+        : 'border border-[var(--color-slate-700,#e8e4df)] bg-white text-[var(--color-jewelry-black,#1a1814)] hover:bg-[var(--color-slate-900,#f7f4ef)]'
   return (
     <button
       type="button"
@@ -613,96 +657,3 @@ function ActionBtn({
   )
 }
 
-function EditSubmissionModal({
-  row,
-  onClose,
-  onSaved,
-}: {
-  row: ResellerProductSubmission
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const payload = submissionToPayload(row)
-  const [form, setForm] = useState(payload)
-  const [notes, setNotes] = useState(row.review_notes || '')
-  const [saving, setSaving] = useState(false)
-
-  const save = async () => {
-    setSaving(true)
-    try {
-      await axios.put(`/api/admin/reseller-product-submissions/${row.id}`, {
-        product: form,
-        review_notes: notes,
-      })
-      onSaved()
-      onClose()
-    } catch (e: unknown) {
-      const msg =
-        e && typeof e === 'object' && 'response' in e
-          ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
-          : null
-      alert(msg || 'Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const field = (label: string, key: keyof typeof form) => (
-    <label className="block text-xs">
-      <span className="text-slate-400">{label}</span>
-      <input
-        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-        value={String(form[key] ?? '')}
-        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-      />
-    </label>
-  )
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-slate-700 bg-slate-950 p-4 sm:rounded-2xl sm:p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-100">Edit submission</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="size-5" />
-          </button>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {field('StyleCode', 'styleCode')}
-          {field('SKU', 'sku')}
-          {field('Barcode', 'barcode')}
-          {field('ProductName', 'name')}
-          {field('MetalType', 'metalType')}
-          {field('FixedPrice', 'fixedPrice')}
-          {field('ItemCode', 'itemCode')}
-        </div>
-        <label className="mt-3 block text-xs">
-          <span className="text-slate-400">Admin notes</span>
-          <textarea
-            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100"
-            rows={2}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </label>
-        <div className="mt-6 flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-xl border border-slate-600 py-2.5 text-sm text-slate-300"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => void save()}
-            className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
